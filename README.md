@@ -20,6 +20,9 @@ flowchart LR
 
 Worker chỉ kết nối ra ngoài; không mở cổng máy cá nhân. Vercel không chạy model và không chờ inference. API trả `202`, giao diện đọc trạng thái/câu trả lời mỗi 2 giây khi có việc, 15 giây khi nghỉ. AI cần worker đang chạy cùng Ollama hoặc kết nối OpenRouter. [Hướng dẫn dùng NVIDIA free qua OpenRouter, gồm embedding và rerank](docs/openrouter.md).
 
+Có thể [dùng Ollama làm model chính và OpenRouter dự phòng cho câu trả lời](docs/chat-fallback.md).
+Embedding vẫn là BGE-M3; OpenRouter chỉ được gọi khi model chat chính lỗi.
+
 ## Cấu trúc
 
 ```text
@@ -41,7 +44,7 @@ Không đưa secret vào Git. Hai file cấu hình dưới đây đã được `
 
 ## 2. Supabase và Qdrant
 
-1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration `202610220001_initial.sql`, `202610220002_profiles.sql`, `202610220003_embedding_profiles.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
+1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration từ `202610220001_initial.sql` đến `202610220004_chat_fallback.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
 2. Migration tạo bucket private `documents`, extension PGMQ, queue `study_jobs`, các bảng và RPC. Không bật public bucket hoặc cấp quyền queue cho trình duyệt.
 3. Trong Authentication bật email/password, xác nhận email, password tối thiểu 8 ký tự. Cấu hình Site URL `http://localhost:3000`; thêm redirect `http://localhost:3000/auth/callback` và `http://localhost:3000/auth/confirm`. Nếu dùng `127.0.0.1`, thêm URL tương ứng.
 4. Lấy Project URL, publishable/anon key và service-role key từ Supabase. Lấy chuỗi kết nối **Session pooler port 5432** hoặc direct connection có SSL từ mục Connect. URL-encode mật khẩu. Không dùng transaction pooler port 6543: worker cần session advisory lock.

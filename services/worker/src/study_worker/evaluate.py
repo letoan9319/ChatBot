@@ -98,7 +98,7 @@ def run(settings, owner, questions, output):
             }
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
             file.flush()
-    models.http.close()
+    models.close()
     vectors.client.close()
 
 

@@ -25,15 +25,22 @@ class LocalModels:
 
     def unload(self, model):
         response = self.http.post("/api/generate", json={"model": model, "keep_alive": 0})
+        if response.status_code == 404:
+            # A missing chat model consumes no VRAM and must not block BGE embedding.
+            return
         response.raise_for_status()
 
-    def prepare(self):
+    def close(self):
+        self.http.close()
+
+    def prepare(self, *, require_chat=True):
         installed = self.http.get("/api/tags")
         installed.raise_for_status()
         tags = {item["name"] for item in installed.json()["models"]}
+        required = (self.settings.chat_model, self.settings.embed_model) if require_chat else (self.settings.embed_model,)
         if any(
             model not in tags and f"{model}:latest" not in tags
-            for model in (self.settings.chat_model, self.settings.embed_model)
+            for model in required
         ):
             raise ValueError("Pull CHAT_MODEL and EMBED_MODEL in Ollama before starting the worker.")
 
@@ -52,7 +59,7 @@ class LocalModels:
             raise ValueError("Expected BGE-M3 dense embeddings of dimension 1024")
         return vectors
 
-    def generate(self, messages):
+    def generate(self, messages, *, on_reset=None):
         self.unload(self.settings.embed_model)
         with self.http.stream(
             "POST",
@@ -87,6 +94,9 @@ def create_models(settings):
     if settings.ai_provider == "openrouter":
         from .openrouter import OpenRouterModels
         return OpenRouterModels(settings)
+    if settings.chat_fallback == "openrouter":
+        from .fallback import ChatFallbackModels
+        return ChatFallbackModels(settings)
     return LocalModels(settings)
 
 

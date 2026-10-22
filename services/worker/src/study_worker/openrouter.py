@@ -16,7 +16,7 @@ class ProviderError(RuntimeError):
 
 
 class OpenRouterModels:
-    def __init__(self, settings):
+    def __init__(self, settings, *, tokenizer=None):
         self.settings = settings
         self.dimensions = None
         self.next_request = 0
@@ -26,7 +26,7 @@ class OpenRouterModels:
             timeout=httpx.Timeout(180, connect=15),
         )
         # Used only on CPU for bounded chunks/prompts; this is an approximate token budget.
-        self.tokenizer = (
+        self.tokenizer = tokenizer if tokenizer is not None else (
             Tokenizer.from_file(settings.tokenizer_path)
             if settings.tokenizer_path
             else Tokenizer.from_pretrained(settings.tokenizer_model)
@@ -34,6 +34,9 @@ class OpenRouterModels:
 
     def count(self, text):
         return len(self.tokenizer.encode(text, add_special_tokens=False).ids)
+
+    def close(self):
+        self.http.close()
 
     @staticmethod
     def routing():
@@ -72,13 +75,14 @@ class OpenRouterModels:
             raise ProviderError("OpenRouter trả về lỗi xử lý.")
         return result
 
-    def prepare(self):
+    def prepare(self, *, chat_only=False):
         # Reject retired, wrong-modality or paid endpoints before publishing a heartbeat.
-        for model, modality in (
+        configured = (
             (self.settings.chat_model, "text"),
             (self.settings.embed_model, "embeddings"),
             (self.settings.rerank_model, "rerank"),
-        ):
+        )
+        for model, modality in configured[:1] if chat_only else configured:
             if not model:
                 continue
             if not model.startswith("nvidia/") or not model.endswith(":free"):
@@ -96,7 +100,8 @@ class OpenRouterModels:
             ):
                 raise ValueError("No zero-price endpoint available for the configured model.")
         # Do not assume BGE's 1024 dimensions or request unsupported dimension overrides.
-        self.embed(["LearnStep embedding dimension probe."])
+        if not chat_only:
+            self.embed(["LearnStep embedding dimension probe."])
 
     def embed(self, texts, *, query=False):
         result = self.post("embeddings", {
@@ -149,7 +154,7 @@ class OpenRouterModels:
         # Provider text/IDs cannot introduce new sources; only reorder canonical DB rows.
         return [candidates[item["index"]] for item in sorted(results, key=lambda item: item["relevance_score"], reverse=True)]
 
-    def generate(self, messages):
+    def generate(self, messages, *, on_reset=None):
         self.pace()
         with self.http.stream("POST", "chat/completions", json={
             "model": self.settings.chat_model,

@@ -60,4 +60,11 @@ Chat từ chối profile cũ; cleanup dùng namespace đã lưu với bộ lọc
 Rerank diễn ra sau khi xác thực candidate từ PostgreSQL, chỉ sắp xếp canonical rows.
 Nguồn trả về bởi provider không được tin cậy. Xem [cấu hình, giới hạn và dữ liệu gửi đi](openrouter.md).
 
+`AI_PROVIDER=ollama` kết hợp `CHAT_FALLBACK_PROVIDER=openrouter` giữ nguyên BGE,
+collection và profile embedding. Worker thử local cho từng câu hỏi, chỉ khởi tạo
+client OpenRouter khi sinh câu trả lời thất bại; không probe embedding API/rerank.
+Nếu luồng local đã có token, callback kiểm tra lại lease/tài liệu và xóa partial
+trước khi gọi API. Lưu `messages.generation_provider` khi hoàn tất; reset ở retry.
+Mất worker hoặc BGE không thuộc phạm vi chat fallback. Xem [cấu hình fallback](chat-fallback.md).
+
 Các nguồn được đặt nhãn S1–S5. Nguồn bịa hoặc không có trích dẫn hợp lệ sẽ chuyển câu trả lời về thông báo thiếu bằng chứng. Việc nhãn tồn tại không chứng minh suy luận đúng; đánh giá thủ công kiểm tra nội dung và sự hỗ trợ của nguồn.

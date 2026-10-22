@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import os
 from urllib.parse import urlparse
 
@@ -23,6 +23,13 @@ class Settings:
     openrouter_key: str = field(default="", repr=False)
     rerank_model: str = ""
     api_request_interval: float = 3.2
+    chat_fallback: str = "none"
+    fallback_chat_model: str = "nvidia/nemotron-3.5-lightning:free"
+
+    def fallback_settings(self):
+        # Only the chat model is used in fallback mode. Embedding identity is unchanged.
+        return replace(self, ai_provider="openrouter", chat_model=self.fallback_chat_model, rerank_model="",
+                       chat_fallback="none")
 
     @property
     def embedding_profile(self):
@@ -52,19 +59,31 @@ class Settings:
             openrouter_key=os.getenv("OPENROUTER_API_KEY", ""),
             rerank_model=os.getenv("RERANK_MODEL", ""),
             api_request_interval=float(os.getenv("OPENROUTER_REQUEST_INTERVAL", "3.2")),
+            chat_fallback=os.getenv("CHAT_FALLBACK_PROVIDER", "none"),
+            fallback_chat_model=os.getenv("OPENROUTER_CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free"),
         )
         if not remote and urlparse(settings.ollama_url).hostname not in ("localhost", "127.0.0.1", "::1"):
             raise ValueError("Ollama must stay on localhost.")
         if not 0 <= settings.min_score <= 1:
             raise ValueError("RETRIEVAL_MIN_SCORE must be between 0 and 1.")
-        if remote:
+        if settings.chat_fallback not in ("none", "openrouter"):
+            raise ValueError("CHAT_FALLBACK_PROVIDER must be none or openrouter.")
+        if remote and settings.chat_fallback != "none":
+            raise ValueError("Chat fallback requires AI_PROVIDER=ollama.")
+        if settings.chat_fallback == "openrouter" and not settings.fallback_chat_model:
+            raise ValueError("OPENROUTER_CHAT_MODEL must be an explicit NVIDIA free model ID.")
+        if remote or settings.chat_fallback == "openrouter":
             if not settings.openrouter_key:
                 raise ValueError("OPENROUTER_API_KEY is required on the worker.")
-            for model in (settings.chat_model, settings.embed_model, settings.rerank_model):
+            selected_models = (
+                (settings.chat_model, settings.embed_model, settings.rerank_model) if remote
+                else (settings.fallback_chat_model,)
+            )
+            for model in selected_models:
                 if model and (not model.startswith("nvidia/") or not model.endswith(":free")):
                     raise ValueError("OpenRouter trial only accepts explicit nvidia/...:free model IDs.")
             if not 3.2 <= settings.api_request_interval <= 60:
                 raise ValueError("OPENROUTER_REQUEST_INTERVAL must be between 3.2 and 60 seconds.")
-        elif settings.rerank_model:
+        if not remote and settings.rerank_model:
             raise ValueError("RERANK_MODEL currently requires AI_PROVIDER=openrouter.")
         return settings

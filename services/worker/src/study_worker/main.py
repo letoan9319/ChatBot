@@ -69,9 +69,11 @@ class Heartbeat(threading.Thread):
                     job = self.active
                     with conn.transaction():
                         conn.execute(
-                            """insert into public.worker_heartbeats(id,last_seen,ai_provider) values(%s,now(),%s)
-                            on conflict(id) do update set last_seen=excluded.last_seen,ai_provider=excluded.ai_provider""",
-                            (self.worker_id, self.settings.ai_provider),
+                            """insert into public.worker_heartbeats(id,last_seen,ai_provider,chat_fallback_enabled)
+                            values(%s,now(),%s,%s) on conflict(id) do update set
+                            last_seen=excluded.last_seen,ai_provider=excluded.ai_provider,
+                            chat_fallback_enabled=excluded.chat_fallback_enabled""",
+                            (self.worker_id, self.settings.ai_provider, self.settings.chat_fallback == "openrouter"),
                         )
                         if job:
                             current = conn.execute(
@@ -117,7 +119,10 @@ def claim(conn):
         ).fetchone()
         if job["message_id"] and not exhausted:
             conn.execute("delete from public.message_sources where message_id=%s", (job["message_id"],))
-            conn.execute("update public.messages set content='',status='generating' where id=%s", (job["message_id"],))
+            conn.execute(
+                "update public.messages set content='',status='generating',generation_provider=null where id=%s",
+                (job["message_id"],),
+            )
         job["queue_id"] = message["msg_id"]
         job["exhausted"] = exhausted
         return job
@@ -373,7 +378,14 @@ class Pipeline:
         if selected:
             answer = ""
             last_flush = time.monotonic()
-            for token in self.models.generate(prompt):
+
+            def reset_answer():
+                nonlocal answer, last_flush
+                answer = ""
+                self.save_partial(job, answer)
+                last_flush = time.monotonic()
+
+            for token in self.models.generate(prompt, on_reset=reset_answer):
                 if self.heartbeat.lost.is_set():
                     raise LostLease()
                 answer += token
@@ -385,7 +397,9 @@ class Pipeline:
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
             self.conn.execute(
-                "update public.messages set content=%s,status='completed' where id=%s", (answer, job["message_id"])
+                "update public.messages set content=%s,status='completed',generation_provider=%s where id=%s",
+                (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if selected else None,
+                 job["message_id"]),
             )
             for item in used:
                 self.conn.execute(
@@ -426,7 +440,8 @@ def serve(settings):
         if not conn.execute("select pg_try_advisory_lock(%s) as acquired", (LOCK_ID,)).fetchone()["acquired"]:
             raise RuntimeError("Another worker holds the queue lock. Use a session connection, not transaction pooling.")
         conn.execute("select embedding_profile,vector_collection from public.documents limit 0")
-        conn.execute("select ai_provider from public.worker_heartbeats limit 0")
+        conn.execute("select ai_provider,chat_fallback_enabled from public.worker_heartbeats limit 0")
+        conn.execute("select generation_provider from public.messages limit 0")
         models = create_models(settings)
         models.prepare()
         vectors = VectorStore(settings, models.dimensions)
@@ -490,7 +505,7 @@ def serve(settings):
             heartbeat.stopped.set()
             heartbeat.join(timeout=20)
             pipeline.storage.close()
-            models.http.close()
+            models.close()
             vectors.client.close()
 
 

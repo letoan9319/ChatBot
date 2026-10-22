@@ -34,7 +34,7 @@ async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
 }
 type WorkerStatus = {
   online: boolean;
-  provider: "ollama" | "openrouter" | null;
+  provider: "ollama" | "openrouter" | "ollama_with_openrouter_fallback" | null;
   activeChat: { id: string; conversation_id: string } | null;
 };
 const location = (source: Source) =>
@@ -539,6 +539,13 @@ export function StudyWorkspace({ username }: { username: string }) {
               {" "}Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.
             </div>
           )}
+          {worker.provider === "ollama_with_openrouter_fallback" && (
+            <div className="offline-note">
+              Trợ giảng ưu tiên model cục bộ. Khi model không khả dụng, câu hỏi,
+              lịch sử gần đây và các đoạn nguồn sẽ được gửi qua OpenRouter/NVIDIA
+              để trả lời. Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.
+            </div>
+          )}
           {worker.activeChat &&
             worker.activeChat.conversation_id !== conversationId && (
               <div className="offline-note">
@@ -597,7 +604,9 @@ export function StudyWorkspace({ username }: { username: string }) {
                     <span>
                       {message.status !== "completed"
                         ? statuses[message.status]
-                        : ""}
+                        : message.role === "assistant" && message.generation_provider === "openrouter"
+                          ? "Trả lời qua OpenRouter"
+                          : ""}
                     </span>
                   </div>
                   {message.content ? (

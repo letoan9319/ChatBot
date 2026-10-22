@@ -29,7 +29,7 @@ def main():
             answer += text
         ended = time.monotonic()
         resident_models = None
-        if settings.ai_provider == "ollama":
+        if settings.ai_provider == "ollama" and getattr(models, "last_generation_provider", "ollama") == "ollama":
             response = models.http.get("/api/ps")
             response.raise_for_status()
             resident_models = response.json()
@@ -37,6 +37,7 @@ def main():
             json.dumps(
                 {
                     "provider": settings.ai_provider,
+                    "generation_provider": getattr(models, "last_generation_provider", settings.ai_provider),
                     "chat_model": settings.chat_model,
                     "embed_model": settings.embed_model,
                     "embedding_dimensions": models.dimensions,
@@ -50,7 +51,7 @@ def main():
                 indent=2,
             )
         )
-        models.http.close()
+        models.close()
 
 
 if __name__ == "__main__":

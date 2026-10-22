@@ -122,7 +122,7 @@ async function handle(request: NextRequest) {
       check(activeError);
       return json({
         online: Boolean(data),
-        provider: provider === "openrouter" ? "openrouter" : provider === "ollama" ? "ollama" : null,
+        provider: ["openrouter", "ollama", "ollama_with_openrouter_fallback"].includes(provider) ? provider : null,
         activeChat: active
           ? { id: active.id, conversation_id: active.payload.conversation_id }
           : null,

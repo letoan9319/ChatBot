@@ -49,6 +49,11 @@ describe("API authorization and asynchronous boundaries", () => {
     const response = await GET(request("status"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ online: true, provider: "openrouter", activeChat: null });
+    mocks.rpc.mockImplementation(async (name: string) => ({
+      data: name === "app_worker_online" ? true : "ollama_with_openrouter_fallback", error: null,
+    }));
+    const fallback = await GET(request("status"));
+    expect((await fallback.json()).provider).toBe("ollama_with_openrouter_fallback");
     mocks.rpc.mockResolvedValueOnce({ data: false, error: null });
     mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "PGRST202", message: "SQL details" } });
     const missing = await GET(request("status"));

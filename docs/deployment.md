@@ -32,6 +32,10 @@ provider của heartbeat và RPC đọc provider. Cả web và worker bản này
 đó kể cả khi vẫn dùng Ollama. [Cấu hình NVIDIA trên OpenRouter](openrouter.md) cho
 phép chạy worker CPU, không cần Ollama/GPU; key OpenRouter chỉ đặt trên worker.
 
+Migration `202610220004_chat_fallback.sql` bổ sung metadata cho chế độ
+[Ollama chính, OpenRouter dự phòng](chat-fallback.md). Chế độ đó vẫn cần Ollama/BGE;
+key chỉ ở worker và không có request API khi model chat chính hoạt động bình thường.
+
 Tài khoản được Supabase quản lý trong schema `auth`, không phải `public`.
 Schema `public` trống cho biết ứng dụng chưa có bảng nghiệp vụ, nhưng không
 tự chứng minh nguyên nhân đăng ký thất bại. Trong Supabase Dashboard cần bật

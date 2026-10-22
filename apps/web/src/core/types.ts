@@ -24,6 +24,7 @@ export type Message = {
   content: string;
   status: string;
   sequence: number;
+  generation_provider: "ollama" | "openrouter" | null;
   message_sources: Source[];
 };
 export type SourceDetail = Source & {

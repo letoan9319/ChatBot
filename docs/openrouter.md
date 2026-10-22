@@ -1,5 +1,9 @@
 # Thử nghiệm RAG bằng NVIDIA trên OpenRouter
 
+Nếu muốn **Ollama chính, OpenRouter chỉ dự phòng cho câu trả lời**, dùng
+[hướng dẫn chat fallback](chat-fallback.md) và `.env.fallback.example`.
+Các bước bên dưới là chế độ API trực tiếp cho toàn bộ RAG.
+
 Nhánh `codex/openrouter-rag` bổ sung `AI_PROVIDER=openrouter`. Web vẫn chạy trên
 Vercel; file gốc ở Supabase Storage private, đoạn văn/lịch sử/job ở PostgreSQL,
 vector ở Qdrant Cloud. Worker Python đọc queue, trích văn bản và gọi API NVIDIA
@@ -17,6 +21,7 @@ chưa chạy theo thứ tự:
 1. `supabase/migrations/202610220001_initial.sql`
 2. `supabase/migrations/202610220002_profiles.sql`
 3. `supabase/migrations/202610220003_embedding_profiles.sql`
+4. `supabase/migrations/202610220004_chat_fallback.sql`
 
 CLI `supabase db push --dry-run` rồi `supabase db push` theo dõi lịch sử migration.
 Nếu dùng SQL Editor, mỗi file chỉ chạy một lần; không chạy lại migration đã áp dụng.

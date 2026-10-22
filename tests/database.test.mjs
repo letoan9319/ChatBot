@@ -41,6 +41,9 @@ before(async () => {
   await db.exec(await readFile(
     new URL("../supabase/migrations/202610220003_embedding_profiles.sql", import.meta.url), "utf8",
   ));
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202610220004_chat_fallback.sql", import.meta.url), "utf8",
+  ));
   await db.query("insert into auth.users values($1),($2)", [alice, bob]);
   await db.exec("insert into public.worker_heartbeats(id) values('test')");
 });
@@ -194,6 +197,10 @@ test("embedding metadata stays owner-private and provider heartbeat is read-only
     await asUser(alice, async () => {
       assert.equal((await db.query("select app_ai_provider() as provider")).rows[0].provider, "openrouter");
     });
+    await db.exec("update worker_heartbeats set ai_provider='ollama',chat_fallback_enabled=true");
+    await asUser(alice, async () => {
+      assert.equal((await db.query("select app_ai_provider() as provider")).rows[0].provider, "ollama_with_openrouter_fallback");
+    });
     await db.exec("update worker_heartbeats set last_seen=now()-interval '61 seconds'");
     await asUser(alice, async () => {
       assert.equal((await db.query("select app_ai_provider() as provider")).rows[0].provider, null);
@@ -201,7 +208,7 @@ test("embedding metadata stays owner-private and provider heartbeat is read-only
     await db.exec("set role anon");
     await assert.rejects(db.query("select app_ai_provider()"), /permission denied/);
   } finally {
-    await db.exec("reset role; update worker_heartbeats set ai_provider='ollama',last_seen=now()");
+    await db.exec("reset role; update worker_heartbeats set ai_provider='ollama',chat_fallback_enabled=false,last_seen=now()");
   }
 });
 
@@ -417,7 +424,7 @@ test("child records and jobs are private; deleting chunks preserves source tombs
   const source = randomUUID();
   await db.query("update jobs set status='completed' where id=$1", [job.id]);
   await db.query(
-    "update messages set status='completed',content='answer' where id=$1",
+    "update messages set status='completed',content='answer',generation_provider='openrouter' where id=$1",
     [job.message_id],
   );
   await db.query(
@@ -451,4 +458,9 @@ test("child records and jobs are private; deleting chunks preserves source tombs
   );
   assert.equal(row.chunk_id, null);
   assert.equal(row.document_name, "private.pdf");
+  await asUser(alice, async () => {
+    const message = (await db.query("select generation_provider from messages where id=$1", [job.message_id])).rows[0];
+    assert.equal(message.generation_provider, "openrouter");
+    await assert.rejects(db.query("update messages set generation_provider='ollama' where id=$1", [job.message_id]), /permission denied/);
+  });
 });
