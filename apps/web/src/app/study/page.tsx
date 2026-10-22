@@ -3,6 +3,7 @@ import { sessionClient } from "@/core/supabase-server";
 import { StudyWorkspace } from "@/components/study-workspace";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-provider";
 
 export const dynamic = "force-dynamic";
 export default async function StudyPage() {
@@ -13,6 +14,7 @@ export default async function StudyPage() {
     return (
       <main className="auth-shell">
         <Brand />
+        <ThemeToggle />
         <section className="auth-card">
           <p className="eyebrow">THIẾT LẬP BAN ĐẦU</p>
           <h1>Chuẩn bị góc học tập.</h1>

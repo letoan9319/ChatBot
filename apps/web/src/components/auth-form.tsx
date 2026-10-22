@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { browserClient, isConfigured } from "@/core/supabase-browser";
 import { LearningScene } from "./learning-scene";
 import { Brand } from "./brand";
+import { ThemeToggle } from "./theme-provider";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
 const titles: Record<Mode, string> = {
@@ -74,7 +76,18 @@ export function AuthForm() {
   }
   return (
     <main className="auth-shell">
-      <Brand />
+      <header className="auth-header">
+        <Link
+          href="/"
+          className="auth-back-link"
+          aria-label="Về trang chủ"
+          title="Về trang chủ"
+        >
+          <span className="auth-back-arrow" aria-hidden="true" />
+        </Link>
+        <Brand />
+        <ThemeToggle />
+      </header>
       <div className="auth-layout">
         <aside className="auth-aside" aria-label="Đồng hành cùng bạn học">
           <p className="eyebrow">MANG THEO MỘT CHÚT TÒ MÒ</p>
@@ -86,7 +99,7 @@ export function AuthForm() {
           <p>Mỗi điều chưa hiểu đều là một cơ hội để học thêm.</p>
           <LearningScene compact />
         </aside>
-        <section className="auth-card">
+        <section className="auth-card content-transition" key={mode}>
           <p className="eyebrow">MỖI NGÀY, HIỂU THÊM MỘT CHÚT</p>
           <h1>{titles[mode]}</h1>
           <p className="muted">

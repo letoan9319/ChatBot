@@ -13,6 +13,7 @@ import type {
 } from "@/core/types";
 import { Markdown } from "./markdown";
 import { Brand } from "./brand";
+import { ThemeToggle } from "./theme-provider";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {
@@ -276,6 +277,7 @@ export function StudyWorkspace({ email }: { email: string }) {
           </span>
         </div>
         <div className="account">
+          <ThemeToggle />
           <span>{email}</span>
           <button
             onClick={async () => {
@@ -544,6 +546,7 @@ export function StudyWorkspace({ email }: { email: string }) {
             )}
           <div
             className="chat-scroll"
+            key={conversationId ?? "new"}
             aria-live="polite"
             aria-relevant="additions text"
           >
@@ -678,7 +681,7 @@ export function StudyWorkspace({ email }: { email: string }) {
           {sourceBusy ? (
             <p className="muted">Đang mở nguồn…</p>
           ) : source ? (
-            <article className="source-detail">
+            <article className="source-detail content-transition" key={source.id}>
               <span className="pill">[{source.label}]</span>
               <h3>{source.document_name}</h3>
               <p className="source-location">{location(source)}</p>
