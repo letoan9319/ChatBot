@@ -1,0 +1,33 @@
+name: Verify MVP
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  web-and-database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: services/worker/uv.lock
+      - run: uv sync --frozen --python 3.12
+        working-directory: services/worker
+      - run: uv run pytest
+        working-directory: services/worker
+      - run: uv run ruff check src tests
+        working-directory: services/worker

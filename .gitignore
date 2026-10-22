@@ -205,6 +205,48 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Web and local credentials
+node_modules/
+.next/
+.vercel/
+.env.*
+*.env
+*.env.*
+.envrc*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+.evaluation/
+tmp/pdfs/
+
+# Private keys, credentials, and machine-specific settings
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+.ssh/
+.aws/
+.azure/
+.config/gcloud/
+.npmrc
+.netrc
+auth.json
+credentials.json
+service-account*.json
+secrets.json
+secrets.toml
+secrets.yaml
+secrets.yml
+.supabase/
+supabase/.temp/
+.vscode/
+.idea/
+
 # Ruff stuff:
 .ruff_cache/
 
