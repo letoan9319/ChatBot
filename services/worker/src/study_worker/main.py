@@ -283,9 +283,15 @@ class Pipeline:
 
     def chat_documents(self, job, lock=False):
         ids = job["payload"]["document_ids"]
+        query = (
+            "select id,status,index_version from public.documents "
+            "where user_id=%s and id=any(%s::uuid[]) order by id for share"
+            if lock else
+            "select id,status,index_version from public.documents "
+            "where user_id=%s and id=any(%s::uuid[]) order by id"
+        )
         rows = self.conn.execute(
-            "select id,status,index_version from public.documents where user_id=%s and id=any(%s::uuid[]) order by id"
-            + (" for share" if lock else ""),
+            query,
             (job["user_id"], ids),
         ).fetchall()
         if len(rows) != len(ids) or any(
