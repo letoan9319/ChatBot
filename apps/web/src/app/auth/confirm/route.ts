@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (!error)
       return NextResponse.redirect(
         new URL(
-          type === "recovery" ? "/auth?mode=reset" : "/study",
+          type === "recovery" ? "/auth?mode=reset" : "/onboarding",
           request.url,
         ),
       );

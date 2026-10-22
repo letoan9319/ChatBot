@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const { error } = await db.auth.exchangeCodeForSession(code);
     if (!error)
       return NextResponse.redirect(
-        new URL(next === "/auth?mode=reset" ? next : "/study", request.url),
+        new URL(next === "/auth?mode=reset" ? next : "/onboarding", request.url),
       );
   }
   return NextResponse.redirect(

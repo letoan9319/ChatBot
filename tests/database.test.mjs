@@ -35,11 +35,41 @@ before(async () => {
     "utf8",
   );
   await db.exec(migration.replace("create extension if not exists pgmq;", ""));
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202610220002_profiles.sql", import.meta.url), "utf8",
+  ));
   await db.query("insert into auth.users values($1),($2)", [alice, bob]);
   await db.exec("insert into public.worker_heartbeats(id) values('test')");
 });
 after(async () => {
   await db?.close();
+});
+
+test("username claims are normalized, unique and idempotent for each owner", async () => {
+  const claim = (owner, name) => asUser(owner, async () =>
+    (await db.query("select app_set_username($1) as username", [name])).rows[0].username,
+  );
+  assert.equal(await claim(alice, "  Alice_01  "), "alice_01");
+  assert.equal(await claim(alice, "another_name"), "alice_01");
+  await assert.rejects(claim(bob, "ALICE_01"), /USERNAME_TAKEN/);
+  for (const invalid of [null, "", "ab", "12alice", "a-b", "tên", "a".repeat(25)]) {
+    await assert.rejects(claim(bob, invalid), /INVALID_USERNAME/);
+  }
+  assert.equal(await claim(bob, "bob_02"), "bob_02");
+});
+
+test("profiles isolate reads and reject direct writes, anonymous access and forged owners", async () => {
+  await asUser(bob, async () => {
+    assert.equal((await db.query("select * from profiles where id=$1", [alice])).rows.length, 0);
+    assert.equal((await db.query("select username from profiles where id=$1", [bob])).rows[0].username, "bob_02");
+    await assert.rejects(db.query("insert into profiles(id,username) values($1,'forged')", [alice]), /permission denied/);
+    await assert.rejects(db.query("update profiles set username='changed' where id=$1", [bob]), /permission denied/);
+  });
+  await db.exec("set role anon");
+  try {
+    await assert.rejects(db.query("select * from profiles"), /permission denied/);
+    await assert.rejects(db.query("select app_set_username('anonymous')"), /permission denied/);
+  } finally { await db.exec("reset role"); }
 });
 
 async function asUser(user, callback) {

@@ -34,5 +34,8 @@ export default async function StudyPage() {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/auth");
-  return <StudyWorkspace email={user.email || "Sinh viên"} />;
+  const { data: profile, error } = await db.from("profiles")
+    .select("username").eq("id", user.id).maybeSingle();
+  if (error || !profile?.username) redirect("/onboarding");
+  return <StudyWorkspace username={profile.username} />;
 }

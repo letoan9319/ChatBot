@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sessionClient, storageAdmin } from "@/core/supabase-server";
+import { profileSchema, USERNAME_HELP } from "@/core/profile";
 import {
   keySchema,
   messageSchema,
@@ -28,6 +29,8 @@ const failures: Record<string, [number, string]> = {
   CHAT_BUSY: [409, "Bạn đang có một câu hỏi chờ xử lý."],
   RATE_LIMIT: [429, "Bạn đã đạt giới hạn 30 câu hỏi mỗi giờ."],
   IDEMPOTENCY_CONFLICT: [409, "Mã yêu cầu đã được dùng cho nội dung khác."],
+  INVALID_USERNAME: [400, USERNAME_HELP],
+  USERNAME_TAKEN: [409, "Username này đã được sử dụng. Hãy chọn tên khác."],
 };
 
 class ApiError extends Error {
@@ -55,7 +58,9 @@ async function handle(request: NextRequest) {
   try {
     if (
       !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !process.env.SUPABASE_SERVICE_ROLE_KEY
+      !(request.nextUrl.pathname === "/api/profile"
+        ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        : process.env.SUPABASE_SERVICE_ROLE_KEY)
     ) {
       throw new ApiError(
         503,
@@ -89,6 +94,16 @@ async function handle(request: NextRequest) {
         throw new ApiError(400, "JSON không hợp lệ.");
       }
     };
+    if (resource === "profile" && method === "POST" && parts.length === 1) {
+      const parsed = profileSchema.safeParse(await body());
+      if (!parsed.success) throw new ApiError(400, USERNAME_HELP);
+      const { data, error } = await db.rpc("app_set_username", { p_username: parsed.data.username });
+      if (error && ["PGRST202", "PGRST205", "42P01"].includes(error.code)) {
+        throw new ApiError(503, "Dịch vụ hồ sơ tài khoản chưa sẵn sàng. Vui lòng liên hệ quản trị viên.");
+      }
+      check(error);
+      return json({ username: data });
+    }
     if (resource === "status" && method === "GET" && parts.length === 1) {
       const { data, error } = await db.rpc("app_worker_online");
       check(error);

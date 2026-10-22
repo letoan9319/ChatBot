@@ -1037,8 +1037,60 @@ label {
   margin-top: 16px;
   flex-wrap: wrap;
 }
+.password-control {
+  position: relative;
+  margin-top: 8px;
+}
+.auth-card .password-control input {
+  margin-top: 0;
+  padding-right: 80px;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  min-width: 60px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--primary-edge);
+  font-weight: var(--weight-action);
+  font-size: 13px;
+}
+.password-toggle:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+.password-toggle:focus-visible {
+  outline-offset: 0;
+}
+.onboarding-card {
+  justify-self: center;
+}
+.account .account-username {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.username-help {
+  margin: -16px 0 0;
+  font-size: 12px;
+}
 .auth-links .text-link {
   font-size: 12px;
+}
+.notice.success {
+  color: var(--primary-ink);
+  background: var(--primary-soft);
+  border-color: var(--green-line);
+}
+.notice.error {
+  color: var(--danger-ink);
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
 }
 .notice {
   padding: 16px;

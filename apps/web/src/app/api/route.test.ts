@@ -31,6 +31,7 @@ const request = (
 beforeEach(() => {
   vi.resetAllMocks();
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-public-key";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-only";
   mocks.getUser.mockResolvedValue({
     data: { user: { id: "authenticated-owner" } },
@@ -38,6 +39,35 @@ beforeEach(() => {
 });
 
 describe("API authorization and asynchronous boundaries", () => {
+  it("saves a username for the authenticated owner without trusting a client user ID", async () => {
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    mocks.rpc.mockResolvedValue({ data: "minh_anh", error: null });
+    const response = await POST(request("profile", { username: " Minh_Anh " }));
+    process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
+    expect(response.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith("app_set_username", { p_username: "minh_anh" });
+    expect(await response.json()).toEqual({ username: "minh_anh" });
+    mocks.rpc.mockClear();
+    const forged = await POST(request("profile", { username: "minh_anh", user_id: id }));
+    expect(forged.status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("rejects signed-out username claims and invalid names", async () => {
+    expect((await POST(request("profile", { username: "ab" }))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    mocks.getUser.mockResolvedValue({ data: { user: null } });
+    expect((await POST(request("profile", { username: "valid_name" }))).status).toBe(401);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("explains duplicate usernames and missing profile migrations without database details", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "USERNAME_TAKEN SQL detail" } });
+    const duplicate = await POST(request("profile", { username: "taken_name" }));
+    expect(duplicate.status).toBe(409);
+    expect(JSON.stringify(await duplicate.json())).not.toContain("SQL");
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "Missing RPC SQL detail" } });
+    expect((await POST(request("profile", { username: "new_name" }))).status).toBe(503);
+  });
   it("returns 401 before touching data for a signed-out user", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null } });
     expect((await GET(request("documents"))).status).toBe(401);

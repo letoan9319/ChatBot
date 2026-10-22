@@ -43,7 +43,7 @@ const location = (source: Source) =>
         .filter(Boolean)
         .join(" · ");
 
-export function StudyWorkspace({ email }: { email: string }) {
+export function StudyWorkspace({ username }: { username: string }) {
   const router = useRouter();
   const [documents, setDocuments] = useState<StudyDocument[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -278,7 +278,7 @@ export function StudyWorkspace({ email }: { email: string }) {
         </div>
         <div className="account">
           <ThemeToggle />
-          <span>{email}</span>
+          <span className="account-username" title={username}>{username}</span>
           <button
             onClick={async () => {
               const { error } = await browserClient().auth.signOut();

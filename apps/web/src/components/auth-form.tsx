@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { browserClient, isConfigured } from "@/core/supabase-browser";
+import { authErrorMessage } from "@/core/auth-errors";
 import { LearningScene } from "./learning-scene";
 import { Brand } from "./brand";
 import { ThemeToggle } from "./theme-provider";
+import { PasswordField } from "./password-field";
+import { UsernameSetup } from "./username-setup";
 
 type Mode = "login" | "signup" | "forgot" | "reset";
 const titles: Record<Mode, string> = {
@@ -25,23 +28,31 @@ export function AuthForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeType, setNoticeType] = useState<"success" | "error">("success");
+  const [choosingUsername, setChoosingUsername] = useState(false);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setNotice("");
+    setNoticeType("success");
     try {
       const db = browserClient();
       const origin = window.location.origin;
       if (mode === "signup") {
-        const { error } = await db.auth.signUp({
+        const { data, error } = await db.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${origin}/auth/callback` },
         });
         if (error) throw error;
-        setNotice(
-          "Hãy kiểm tra email và xác nhận tài khoản trước khi đăng nhập.",
-        );
+        setPassword("");
+        if (data.session) {
+          router.replace("/onboarding");
+          router.refresh();
+          return;
+        }
+        setChoosingUsername(true);
       } else if (mode === "forgot") {
         const { error } = await db.auth.resetPasswordForEmail(email, {
           redirectTo: `${origin}/auth/callback?next=/auth?mode=reset`,
@@ -61,10 +72,9 @@ export function AuthForm() {
         router.replace("/study");
         router.refresh();
       }
-    } catch {
-      setNotice(
-        "Không thể hoàn thành. Kiểm tra thông tin đăng nhập, email xác nhận hoặc thử lại sau.",
-      );
+    } catch (error) {
+      setNoticeType("error");
+      setNotice(authErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -73,6 +83,7 @@ export function AuthForm() {
     setMode(next);
     setNotice("");
     setPassword("");
+    setChoosingUsername(false);
   }
   return (
     <main className="auth-shell">
@@ -99,88 +110,87 @@ export function AuthForm() {
           <p>Mỗi điều chưa hiểu đều là một cơ hội để học thêm.</p>
           <LearningScene compact />
         </aside>
-        <section className="auth-card content-transition" key={mode}>
-          <p className="eyebrow">MỖI NGÀY, HIỂU THÊM MỘT CHÚT</p>
-          <h1>{titles[mode]}</h1>
-          <p className="muted">
-            Tài liệu và hội thoại được lưu riêng theo tài khoản của bạn.
-          </p>
-          {!isConfigured ? (
-            <div className="notice">
-              Chưa cấu hình Supabase. Điền biến môi trường theo README để bật
-              đăng nhập và xử lý tài liệu.
-            </div>
+        <section className="auth-card content-transition" key={`${mode}-${choosingUsername}`}>
+          {choosingUsername ? (
+            <UsernameSetup email={email.trim()} verified={false} />
           ) : (
-            <form onSubmit={submit}>
-              {mode !== "reset" && (
-                <label>
-                  Email
-                  <input
-                    required
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="ban@truong.edu.vn"
-                  />
-                </label>
+            <>
+              <p className="eyebrow">MỖI NGÀY, HIỂU THÊM MỘT CHÚT</p>
+              <h1>{titles[mode]}</h1>
+              <p className="muted">
+                Tài liệu và hội thoại được lưu riêng theo tài khoản của bạn.
+              </p>
+              {!isConfigured ? (
+                <div className="notice">
+                  Chưa cấu hình Supabase. Điền biến môi trường theo README để bật
+                  đăng nhập và xử lý tài liệu.
+                </div>
+              ) : (
+                <form onSubmit={submit}>
+                  {mode !== "reset" && (
+                    <label>
+                      Email
+                      <input
+                        required
+                        type="email"
+                        autoComplete="email"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        placeholder="ban@truong.edu.vn"
+                      />
+                    </label>
+                  )}
+                  {mode !== "forgot" && (
+                    <PasswordField
+                      key={mode}
+                      value={password}
+                      onChange={setPassword}
+                      reset={mode !== "login"}
+                      label={mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}
+                      disabled={busy}
+                    />
+                  )}
+                  <button className="button" disabled={busy} aria-busy={busy}>
+                    {busy
+                      ? "Đang xử lý…"
+                      : {
+                          login: "Đăng nhập",
+                          signup: "Tạo tài khoản",
+                          forgot: "Gửi liên kết đặt lại",
+                          reset: "Lưu mật khẩu",
+                        }[mode]}
+                  </button>
+                </form>
               )}
-              {mode !== "forgot" && (
-                <label>
-                  {mode === "reset" ? "Mật khẩu mới" : "Mật khẩu"}
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    maxLength={128}
-                    autoComplete={
-                      mode === "login" ? "current-password" : "new-password"
-                    }
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Ít nhất 8 ký tự"
-                  />
-                </label>
+              {notice && (
+                <p className={`notice ${noticeType}`} role={noticeType === "error" ? "alert" : "status"}>
+                  {notice}
+                </p>
               )}
-              <button className="button" disabled={busy} aria-busy={busy}>
-                {busy
-                  ? "Đang xử lý…"
-                  : {
-                      login: "Đăng nhập",
-                      signup: "Tạo tài khoản",
-                      forgot: "Gửi liên kết đặt lại",
-                      reset: "Lưu mật khẩu",
-                    }[mode]}
-              </button>
-            </form>
+              {params.has("error") && (
+                <p className="notice">
+                  Liên kết xác thực không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu
+                  liên kết mới.
+                </p>
+              )}
+              <div className="auth-links">
+                {mode === "login" ? (
+                  <>
+                    <button className="text-link" onClick={() => change("signup")}>
+                      Chưa có tài khoản? Đăng ký
+                    </button>
+                    <button className="text-link" onClick={() => change("forgot")}>
+                      Quên mật khẩu
+                    </button>
+                  </>
+                ) : (
+                  <button className="text-link" onClick={() => change("login")}>
+                    Quay lại đăng nhập
+                  </button>
+                )}
+              </div>
+            </>
           )}
-          {notice && (
-            <p className="notice" role="status">
-              {notice}
-            </p>
-          )}
-          {params.has("error") && (
-            <p className="notice">
-              Liên kết xác thực không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu
-              liên kết mới.
-            </p>
-          )}
-          <div className="auth-links">
-            {mode === "login" ? (
-              <>
-                <button className="text-link" onClick={() => change("signup")}>
-                  Chưa có tài khoản? Đăng ký
-                </button>
-                <button className="text-link" onClick={() => change("forgot")}>
-                  Quên mật khẩu
-                </button>
-              </>
-            ) : (
-              <button className="text-link" onClick={() => change("login")}>
-                Quay lại đăng nhập
-              </button>
-            )}
-          </div>
         </section>
       </div>
       <p className="muted">Một câu hỏi tốt là khởi đầu của sự thấu hiểu.</p>
