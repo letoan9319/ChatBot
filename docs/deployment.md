@@ -2,6 +2,10 @@
 
 ## Deploy trên Vercel
 
+Phiên bản có streak cần migration `202610220005_study_streaks.sql` sau 001–004.
+Áp dụng SQL trước khi deploy web; [hướng dẫn streak](streaks.md) mô tả quy tắc và
+backfill lịch sử. Không cần thêm biến môi trường hay đổi cách worker finish job.
+
 Trước khi deploy web, cần áp dụng migration lên đúng Supabase project. File
 `supabase/config.toml` cấu hình môi trường local; import repository vào Vercel
 không tự tạo bảng hay thiết lập Auth trên Supabase Cloud.

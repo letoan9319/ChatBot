@@ -39,6 +39,30 @@ beforeEach(() => {
 });
 
 describe("API authorization and asynchronous boundaries", () => {
+  it("reads only the signed-in user's streak without service secrets or client date/owner arguments", async () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const data = { current: 3, longest: 5, today_completed: false };
+    mocks.rpc.mockResolvedValue({ data, error: null });
+    const response = await GET(request("streak?user_id=foreign&today=2099-01-01"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(data);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(mocks.rpc).toHaveBeenCalledWith("app_get_streak");
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+  it("does not award streaks from a client mutation or a signed-out request", async () => {
+    expect((await POST(request("streak", { user_id: id, today: "2099-01-01" }))).status).toBe(404);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    mocks.getUser.mockResolvedValue({ data: { user: null } });
+    expect((await GET(request("streak"))).status).toBe(401);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("reports missing streak migrations without exposing database details", async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "SQL private schema details" } });
+    const response = await GET(request("streak"));
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("SQL private");
+  });
   it("reports the active provider without exposing AI credentials", async () => {
     mocks.rpc.mockImplementation(async (name: string) => ({
       data: name === "app_worker_online" ? true : "openrouter", error: null,

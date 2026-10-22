@@ -58,7 +58,7 @@ async function handle(request: NextRequest) {
   try {
     if (
       !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      !(request.nextUrl.pathname === "/api/profile"
+      !(["/api/profile", "/api/streak"].includes(request.nextUrl.pathname)
         ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
         : process.env.SUPABASE_SERVICE_ROLE_KEY)
     ) {
@@ -103,6 +103,14 @@ async function handle(request: NextRequest) {
       }
       check(error);
       return json({ username: data });
+    }
+    if (resource === "streak" && method === "GET" && parts.length === 1) {
+      const { data, error } = await db.rpc("app_get_streak");
+      if (error && ["PGRST202", "PGRST205", "42P01"].includes(error.code)) {
+        throw new ApiError(503, "Chuỗi ngày học chưa sẵn sàng. Vui lòng liên hệ quản trị viên.");
+      }
+      check(error);
+      return json(data);
     }
     if (resource === "status" && method === "GET" && parts.length === 1) {
       const { data, error } = await db.rpc("app_worker_online");

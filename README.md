@@ -2,6 +2,9 @@
 
 LearnStep là website hỗ trợ tự học Giải tích, Đại số tuyến tính và Vật lý đại cương bằng RAG và SLM. Sinh viên đăng nhập, tải PDF/DOCX, chọn tối đa 5 tài liệu, hỏi đáp tiếng Việt có LaTeX và nguồn trích dẫn, xem lại lịch sử.
 
+[Streak theo ngày học](docs/streaks.md) ghi nhận chuỗi liên tiếp, kỷ lục và lịch
+7 ngày theo giờ Việt Nam khi hoàn tất câu hỏi có nguồn.
+
 ## Kiến trúc
 
 ```mermaid
@@ -44,7 +47,7 @@ Không đưa secret vào Git. Hai file cấu hình dưới đây đã được `
 
 ## 2. Supabase và Qdrant
 
-1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration từ `202610220001_initial.sql` đến `202610220004_chat_fallback.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
+1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration từ `202610220001_initial.sql` đến `202610220005_study_streaks.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
 2. Migration tạo bucket private `documents`, extension PGMQ, queue `study_jobs`, các bảng và RPC. Không bật public bucket hoặc cấp quyền queue cho trình duyệt.
 3. Trong Authentication bật email/password, xác nhận email, password tối thiểu 8 ký tự. Cấu hình Site URL `http://localhost:3000`; thêm redirect `http://localhost:3000/auth/callback` và `http://localhost:3000/auth/confirm`. Nếu dùng `127.0.0.1`, thêm URL tương ứng.
 4. Lấy Project URL, publishable/anon key và service-role key từ Supabase. Lấy chuỗi kết nối **Session pooler port 5432** hoặc direct connection có SSL từ mục Connect. URL-encode mật khẩu. Không dùng transaction pooler port 6543: worker cần session advisory lock.

@@ -16,6 +16,7 @@ Tất cả các endpoint dưới đây yêu cầu đăng nhập. Body JSON, tố
 |---|---|
 | POST `/api/profile` | `{username}` -> username duy nhất của chủ phiên đăng nhập; HTTP 409 nếu trùng |
 | GET `/api/status` | `{online, activeChat: {id, conversation_id} \| null}` |
+| GET `/api/streak` | Chuỗi hiện tại, kỷ lục, tổng ngày học và lịch 7 ngày của chủ phiên đăng nhập |
 | POST `/api/documents/upload-intent` | `{name, size, subject, key}` -> `{document, upload: {path,token,signedUrl} \| null}` |
 | POST `/api/documents/:id/complete` | `{key}` -> job, HTTP 202 |
 | POST `/api/documents/:id/retry` | `{key}` -> job, HTTP 202 |
@@ -33,6 +34,10 @@ Tất cả các endpoint dưới đây yêu cầu đăng nhập. Body JSON, tố
 Môn học: `calculus`, `linear-algebra`, `physics`. Hỏi tối đa 2.000 ký tự, chọn 1–5 document UUID riêng biệt. API không nhận user ID từ client.
 
 ## Trạng thái và tính nhất quán
+
+[Streak](streaks.md) được ghi trong transaction hoàn tất job chat có nguồn bằng
+trigger PostgreSQL; ngày theo `Asia/Ho_Chi_Minh`, khóa duy nhất theo user/ngày.
+Client chỉ đọc qua RLS/RPC, không được tự cộng ngày hoặc gửi đồng hồ để tính chuỗi.
 
 - Tài liệu: `uploading -> queued -> processing -> ready`, lỗi sang `failed`; retry tăng `index_version`. Xóa chuyển ngay sang `deleting`, sau cleanup mới `deleted`.
 - Job: `queued -> running -> completed/failed`; lỗi tạm thời quay về `queued`, tối đa 3 lượt xử lý. Queue và bản ghi job được tạo trong một transaction.

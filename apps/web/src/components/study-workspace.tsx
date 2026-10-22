@@ -10,10 +10,12 @@ import type {
   Source,
   SourceDetail,
   StudyDocument,
+  StudyStreak,
 } from "@/core/types";
 import { Markdown } from "./markdown";
 import { Brand } from "./brand";
 import { ThemeToggle } from "./theme-provider";
+import { StudyStreakCard } from "./study-streak";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {
@@ -61,6 +63,8 @@ export function StudyWorkspace({ username }: { username: string }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [streak, setStreak] = useState<StudyStreak | null>(null);
+  const [streakError, setStreakError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [source, setSource] = useState<SourceDetail | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -78,13 +82,16 @@ export function StudyWorkspace({ username }: { username: string }) {
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequest.current;
     try {
-      const [docs, convs, health, history] = await Promise.all([
+      const [docs, convs, health, history, streakResult] = await Promise.all([
         api<StudyDocument[]>("documents"),
         api<Conversation[]>("conversations"),
         api<WorkerStatus>("status"),
         conversationId
           ? api<Message[]>(`conversations/${conversationId}/messages`)
           : Promise.resolve([]),
+        api<StudyStreak>("streak")
+          .then((data) => ({ data, error: "" }))
+          .catch((error: Error) => ({ data: null, error: error.message })),
       ]);
       if (
         currentConversation.current !== conversationId ||
@@ -95,6 +102,8 @@ export function StudyWorkspace({ username }: { username: string }) {
       setConversations(convs);
       setWorker(health);
       setMessages(history);
+      setStreak(streakResult.data);
+      setStreakError(streakResult.error);
       setSelected((previous) =>
         previous.filter((id) =>
           docs.some((doc) => doc.id === id && doc.status === "ready"),
@@ -119,7 +128,17 @@ export function StudyWorkspace({ username }: { username: string }) {
   useEffect(() => {
     void refresh();
     const timer = setInterval(() => void refresh(), pending ? 2000 : 15000);
-    return () => clearInterval(timer);
+    const onFocus = () => void refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh, pending]);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -299,6 +318,7 @@ export function StudyWorkspace({ username }: { username: string }) {
           </button>
         </div>
       </header>
+      <StudyStreakCard data={streak} error={streakError} />
       <div className="mobile-tabs" role="tablist" aria-label="Khu vực học tập">
         {[
           ["documents", "Tài liệu"],

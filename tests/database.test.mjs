@@ -9,6 +9,7 @@ import { PGlite } from "@electric-sql/pglite";
 let db;
 const alice = randomUUID();
 const bob = randomUUID();
+const historicalLearner = randomUUID();
 before(async () => {
   db = new PGlite();
   await db.exec(`
@@ -44,7 +45,16 @@ before(async () => {
   await db.exec(await readFile(
     new URL("../supabase/migrations/202610220004_chat_fallback.sql", import.meta.url), "utf8",
   ));
-  await db.query("insert into auth.users values($1),($2)", [alice, bob]);
+  await db.query("insert into auth.users values($1),($2),($3)", [alice, bob, historicalLearner]);
+  // Pre-migration history crosses midnight in Vietnam, not in UTC.
+  await streakJob(historicalLearner, { finishedAt: "2020-01-01T16:59:59Z", complete: true });
+  await streakJob(historicalLearner, { finishedAt: "2020-01-01T17:00:00Z", complete: true });
+  await streakJob(historicalLearner, { finishedAt: "2020-01-01T20:00:00Z", complete: true });
+  await streakJob(historicalLearner, { finishedAt: "2020-01-02T17:00:00Z", complete: true, cited: false });
+  await streakJob(historicalLearner, { finishedAt: "2020-01-03T17:00:00Z", complete: false });
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202610220005_study_streaks.sql", import.meta.url), "utf8",
+  ));
   await db.exec("insert into public.worker_heartbeats(id) values('test')");
 });
 after(async () => {
@@ -87,6 +97,170 @@ async function asUser(user, callback) {
     await db.exec("reset role");
   }
 }
+
+async function streakJob(owner, { finishedAt = null, complete = false, cited = true, role = "assistant" } = {}) {
+  const conversationId = randomUUID(), documentId = randomUUID(), messageId = randomUUID(), jobId = randomUUID();
+  await db.query("insert into conversations(id,user_id) values($1,$2)", [conversationId, owner]);
+  await db.query(`insert into documents(id,user_id,name,subject,file_type,size_bytes,storage_path,status,upload_key)
+    values($1,$2,'study.pdf','calculus','pdf',100,$3,'ready',$4)`,
+    [documentId, owner, `${owner}/${documentId}.pdf`, randomUUID()]);
+  await db.query(`insert into messages(id,conversation_id,user_id,role,content,status)
+    values($1,$2,$3,$4,'A cited learning answer [S1]','completed')`, [messageId, conversationId, owner, role]);
+  if (cited) await db.query(`insert into message_sources(message_id,document_id,user_id,label,document_name)
+    values($1,$2,$3,'S1','study.pdf')`, [messageId, documentId, owner]);
+  await db.query(`insert into jobs(id,user_id,kind,message_id,request_key,status,finished_at)
+    values($1,$2,'chat',$3,$4,$5,$6)`,
+    [jobId, owner, messageId, randomUUID(), complete ? "completed" : "failed", finishedAt]);
+  return { jobId, messageId, documentId };
+}
+
+async function learner() {
+  const id = randomUUID();
+  await db.query("insert into auth.users values($1)", [id]);
+  return id;
+}
+async function streak(owner) {
+  return asUser(owner, async () => (await db.query("select app_get_streak() as streak")).rows[0].streak);
+}
+async function addStudyDays(owner, offsets) {
+  await db.query(`insert into study_activity_days(user_id,study_date,first_completed_at)
+    select $1,(statement_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date+offset_days,now()
+    from unnest($2::integer[]) as offsets(offset_days)`, [owner, offsets]);
+}
+
+test("streak backfill uses cited job completion time and Vietnam midnight", async () => {
+  const result = await streak(historicalLearner);
+  assert.equal(result.total_days, 2);
+  assert.equal(result.longest, 2);
+  assert.equal(result.current, 0);
+  assert.equal(result.last_study_date, "2020-01-02");
+  const rows = (await db.query(`select study_date::text as day,(first_completed_at at time zone 'UTC')::text as completed
+    from study_activity_days where user_id=$1 order by study_date`, [historicalLearner])).rows;
+  assert.deepEqual(rows.map((row) => row.day), ["2020-01-01", "2020-01-02"]);
+  assert.match(rows[1].completed, /17:00:00/);
+});
+
+test("new learners get zero streak and a seven-day calendar without awarding a visit", async () => {
+  const owner = await learner();
+  const result = await streak(owner);
+  assert.equal(result.current, 0);
+  assert.equal(result.longest, 0);
+  assert.equal(result.total_days, 0);
+  assert.equal(result.today_completed, false);
+  assert.equal(result.last_study_date, null);
+  assert.equal(result.timezone, "Asia/Ho_Chi_Minh");
+  assert.equal(result.week.length, 7);
+  assert.equal(result.week.at(-1).date, result.today);
+  assert.ok(result.week.every((day) => day.completed === false));
+  assert.equal((await streak(owner)).total_days, 0);
+});
+
+test("a streak stays active through today, extends once, and preserves the longest run", async () => {
+  const owner = await learner();
+  await addStudyDays(owner, [-9, -8, -7, -6, -3, -2, -1]);
+  const pending = await streak(owner);
+  assert.equal(pending.current, 3);
+  assert.equal(pending.longest, 4);
+  assert.equal(pending.total_days, 7);
+  assert.equal(pending.today_completed, false);
+  assert.equal(pending.week.filter((day) => day.completed).length, 4);
+  await addStudyDays(owner, [0]);
+  const done = await streak(owner);
+  assert.equal(done.current, 4);
+  assert.equal(done.longest, 4);
+  assert.equal(done.total_days, 8);
+  assert.equal(done.today_completed, true);
+});
+
+test("missing a full day resets the current streak without losing the record", async () => {
+  const owner = await learner();
+  await addStudyDays(owner, [-6, -5, -4, -2]);
+  assert.equal((await streak(owner)).current, 0);
+  await addStudyDays(owner, [0]);
+  const result = await streak(owner);
+  assert.equal(result.current, 1);
+  assert.equal(result.longest, 3);
+  assert.equal(result.total_days, 5);
+});
+
+test("calendar streaks cross leap days and year boundaries", async () => {
+  const owner = await learner();
+  await db.query(`insert into study_activity_days(user_id,study_date,first_completed_at)
+    select $1,day,now() from unnest($2::date[]) as dates(day)`,
+    [owner, ["2024-02-28", "2024-02-29", "2024-03-01", "2024-12-31", "2025-01-01"]]);
+  assert.equal((await streak(owner)).longest, 3);
+});
+
+test("only committed, cited assistant completions award a day, and retries cannot duplicate it", async () => {
+  const owner = await learner();
+  const job = await streakJob(owner);
+  assert.equal((await streak(owner)).total_days, 0);
+  await db.exec("begin");
+  await db.query("update jobs set status='completed',finished_at=now() where id=$1", [job.jobId]);
+  await db.exec("rollback");
+  assert.equal((await streak(owner)).total_days, 0);
+  await db.query("update jobs set status='completed',finished_at=now() where id=$1", [job.jobId]);
+  await db.query("update jobs set status='completed',finished_at=now() where id=$1", [job.jobId]);
+  const second = await streakJob(owner);
+  await db.query("update jobs set status='completed',finished_at=now() where id=$1", [second.jobId]);
+  const result = await streak(owner);
+  assert.equal(result.current, 1);
+  assert.equal(result.longest, 1);
+  assert.equal(result.total_days, 1);
+  // Removing a document does not erase a day of actual past study.
+  await db.query("update documents set status='deleted' where id=$1", [job.documentId]);
+  assert.equal((await streak(owner)).total_days, 1);
+});
+
+test("failed, uncited, empty, wrong-owner and non-chat results do not earn streaks", async () => {
+  const owner = await learner();
+  const uncited = await streakJob(owner, { cited: false });
+  const userMessage = await streakJob(owner, { role: "user" });
+  const empty = await streakJob(owner);
+  await db.query("update messages set content='   ' where id=$1", [empty.messageId]);
+  const ingest = await streakJob(owner);
+  await db.query("update jobs set kind='ingest' where id=$1", [ingest.jobId]);
+  const foreign = await streakJob(await learner());
+  await db.query("update jobs set user_id=$1 where id=$2", [owner, foreign.jobId]);
+  for (const job of [uncited, userMessage, empty, ingest, foreign]) {
+    await db.query("update jobs set status='completed',finished_at=now() where id=$1", [job.jobId]);
+  }
+  assert.equal((await streak(owner)).total_days, 0);
+});
+
+test("streak dates ignore connection timezone and forged completion timestamps", async () => {
+  const owner = await learner();
+  const job = await streakJob(owner);
+  try {
+    await db.exec("set timezone='Pacific/Honolulu'");
+    await db.query("update jobs set status='completed',finished_at='2020-01-01' where id=$1", [job.jobId]);
+    const result = await streak(owner);
+    const expected = (await db.query("select (statement_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date::text as day")).rows[0].day;
+    assert.equal(result.today, expected);
+    assert.equal(result.last_study_date, expected);
+    assert.equal(result.today_completed, true);
+  } finally { await db.exec("set timezone='UTC'"); }
+});
+
+test("streak data is private and clients cannot forge a learning day or trigger it", async () => {
+  const owner = await learner(), other = await learner();
+  await addStudyDays(owner, [0]);
+  assert.equal((await streak(other)).total_days, 0);
+  await asUser(other, async () => {
+    assert.equal((await db.query("select * from study_activity_days where user_id=$1", [owner])).rows.length, 0);
+    await assert.rejects(db.query("insert into study_activity_days values($1,current_date,now())", [other]), /permission denied/);
+    await assert.rejects(db.query("update study_activity_days set study_date=current_date"), /permission denied/);
+    await assert.rejects(db.query("delete from study_activity_days"), /permission denied/);
+    await assert.rejects(db.query("select app_record_study_day()"), /permission denied/);
+    await assert.rejects(db.query("select app_get_streak($1)", [owner]), /does not exist/);
+  });
+  await db.exec("set role anon");
+  try { await assert.rejects(db.query("select app_get_streak()"), /permission denied/); }
+  finally { await db.exec("reset role"); }
+  await asUser("", async () => {
+    await assert.rejects(db.query("select app_get_streak()"), /UNAUTHORIZED/);
+  });
+});
 async function intent(user = alice, options = {}) {
   const values = {
     name: "Giai-tich.pdf",

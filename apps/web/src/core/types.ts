@@ -9,6 +9,16 @@ export type StudyDocument = {
   created_at: string;
 };
 export type Conversation = { id: string; title: string; created_at: string };
+export type StudyStreak = {
+  current: number;
+  longest: number;
+  total_days: number;
+  today_completed: boolean;
+  last_study_date: string | null;
+  today: string;
+  timezone: "Asia/Ho_Chi_Minh";
+  week: { date: string; completed: boolean }[];
+};
 export type Source = {
   id: string;
   label: string;
