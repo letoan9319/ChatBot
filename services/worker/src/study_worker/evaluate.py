@@ -9,7 +9,7 @@ from uuid import UUID
 
 from .config import Settings
 from .main import connect
-from .models import LocalModels, VectorStore
+from .models import create_models, VectorStore
 from .rag import NO_EVIDENCE, build_prompt, validate_citations
 
 
@@ -52,11 +52,13 @@ def report(rows):
 
 
 def run(settings, owner, questions, output):
-    models = LocalModels(settings)
-    vectors = VectorStore(settings)
     with connect(settings) as conn, output.open("w", encoding="utf-8") as file:
         if not conn.execute("select pg_try_advisory_lock(706294811) as ok").fetchone()["ok"]:
-            raise RuntimeError("Stop the worker before evaluation to serialize GPU access.")
+            raise RuntimeError("Stop the worker before evaluation to serialize inference access.")
+        models = create_models(settings)
+        models.prepare()
+        vectors = VectorStore(settings, models.dimensions)
+        vectors.setup()
         for question in questions:
             start = time.monotonic()
             docs = conn.execute(
@@ -67,7 +69,9 @@ def run(settings, owner, questions, output):
                     "Each manifest filename must resolve to exactly one ready document owned by the evaluation user."
                 )
             doc = docs[0]
-            vector = models.embed([question["question"]])[0]
+            if doc["embedding_profile"] != settings.embedding_profile or doc["vector_collection"] != vectors.collection:
+                raise ValueError("Reindex evaluation documents with the configured embedding model first.")
+            vector = models.embed([question["question"]], query=True)[0]
             hits = vectors.search(owner, [str(doc["id"])], {str(doc["id"]): doc["index_version"]}, vector)
             candidates = []
             for hit in hits:
@@ -78,6 +82,7 @@ def run(settings, owner, questions, output):
                 ).fetchone()
                 if row:
                     candidates.append(row)
+            candidates = models.rerank(question["question"], candidates)
             prompt, chosen = build_prompt(question["question"], [], candidates, models.count)
             answer, used = validate_citations("".join(models.generate(prompt)), chosen) if chosen else (NO_EVIDENCE, [])
             location_fields = ("document_name", "page", "section", "paragraph")

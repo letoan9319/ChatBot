@@ -13,7 +13,8 @@ from psycopg.types.json import Jsonb
 
 from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
-from .models import LocalModels, VectorStore
+from .models import create_models, VectorStore
+from .openrouter import ProviderError
 from .rag import NO_EVIDENCE, build_prompt, validate_citations
 
 LOG = logging.getLogger("study_worker")
@@ -26,6 +27,10 @@ class Cancelled(Exception):
 
 
 class LostLease(Exception):
+    pass
+
+
+class IndexMismatch(Exception):
     pass
 
 
@@ -47,7 +52,7 @@ class Heartbeat(threading.Thread):
         self.lost = threading.Event()
         self.lock = threading.Lock()
         self.active = None
-        self.worker_id = "local-gpu"
+        self.worker_id = "learnstep-worker"
 
     def set_active(self, job):
         with self.lock:
@@ -64,9 +69,9 @@ class Heartbeat(threading.Thread):
                     job = self.active
                     with conn.transaction():
                         conn.execute(
-                            """insert into public.worker_heartbeats(id,last_seen) values(%s,now())
-                            on conflict(id) do update set last_seen=excluded.last_seen""",
-                            (self.worker_id,),
+                            """insert into public.worker_heartbeats(id,last_seen,ai_provider) values(%s,now(),%s)
+                            on conflict(id) do update set last_seen=excluded.last_seen,ai_provider=excluded.ai_provider""",
+                            (self.worker_id, self.settings.ai_provider),
                         )
                         if job:
                             current = conn.execute(
@@ -127,7 +132,7 @@ def finish(conn, job):
         conn.execute("select pgmq.archive('study_jobs',%s)", (job["queue_id"],))
 
 
-def fail(conn, job, message, permanent=False):
+def fail(conn, job, message, permanent=False, retry_seconds=10):
     terminal = permanent or job["attempts"] >= 3
     with conn.transaction():
         guard(conn, job)
@@ -153,7 +158,7 @@ def fail(conn, job, message, permanent=False):
         if terminal:
             conn.execute("select pgmq.archive('study_jobs',%s)", (job["queue_id"],))
         else:
-            conn.execute("select pgmq.set_vt('study_jobs',%s,10)", (job["queue_id"],))
+            conn.execute("select pgmq.set_vt('study_jobs',%s,%s)", (job["queue_id"], retry_seconds))
 
 
 class Pipeline:
@@ -207,6 +212,16 @@ class Pipeline:
         )
         if not chunks:
             raise InvalidDocument("Không tìm thấy đoạn văn bản có thể sử dụng.")
+        # Remove the old namespace before recording a new one, including failed attempts.
+        self.vectors.delete(job["user_id"], doc["id"], doc["vector_collection"])
+        with self.conn.transaction():
+            guard(self.conn, job)
+            self.conn.execute("select id from public.documents where id=%s for update", (doc["id"],))
+            self.document(job)
+            self.conn.execute(
+                "update public.documents set vector_collection=%s,embedding_profile=%s where id=%s and user_id=%s",
+                (self.vectors.collection, self.settings.embedding_profile, doc["id"], job["user_id"]),
+            )
         # Rebuild deterministically; cleans up vectors from a previous failed version.
         self.vectors.delete(job["user_id"], doc["id"])
         for start in range(0, len(chunks), 8):
@@ -250,7 +265,7 @@ class Pipeline:
         if not doc:
             finish(self.conn, job)
             return
-        self.vectors.delete(job["user_id"], doc["id"])
+        self.vectors.delete(job["user_id"], doc["id"], doc["vector_collection"])
         response = self.storage.request(
             "DELETE", "/storage/v1/object/documents", json={"prefixes": [doc["storage_path"]]}
         )
@@ -284,10 +299,10 @@ class Pipeline:
     def chat_documents(self, job, lock=False):
         ids = job["payload"]["document_ids"]
         query = (
-            "select id,status,index_version from public.documents "
+            "select id,status,index_version,embedding_profile,vector_collection from public.documents "
             "where user_id=%s and id=any(%s::uuid[]) order by id for share"
             if lock else
-            "select id,status,index_version from public.documents "
+            "select id,status,index_version,embedding_profile,vector_collection from public.documents "
             "where user_id=%s and id=any(%s::uuid[]) order by id"
         )
         rows = self.conn.execute(
@@ -299,6 +314,11 @@ class Pipeline:
             for row in rows
         ):
             raise Cancelled()
+        if any(
+            row["embedding_profile"] != self.settings.embedding_profile
+            or row["vector_collection"] != self.vectors.collection for row in rows
+        ):
+            raise IndexMismatch()
         if self.heartbeat.lost.is_set():
             raise LostLease()
 
@@ -322,7 +342,7 @@ class Pipeline:
         ).fetchall()[::-1]
         previous_question = next((item["content"] for item in reversed(history) if item["role"] == "user"), "")
         query = (previous_question[:500] + "\n" + payload["question"]).strip()
-        vector = self.models.embed([query])[0]
+        vector = self.models.embed([query], query=True)[0]
         hits = self.vectors.search(job["user_id"], payload["document_ids"], payload["versions"], vector)
         candidates = []
         for hit in hits:
@@ -345,6 +365,9 @@ class Pipeline:
             ).fetchone()
             if row:
                 candidates.append(row)
+        self.chat_documents(job)
+        candidates = self.models.rerank(query, candidates)
+        self.chat_documents(job)
         prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count)
         answer, used = NO_EVIDENCE, []
         if selected:
@@ -401,16 +424,12 @@ def serve(settings):
         signal.signal(sig, lambda *_: stopped.set())
     with connect(settings) as conn:
         if not conn.execute("select pg_try_advisory_lock(%s) as acquired", (LOCK_ID,)).fetchone()["acquired"]:
-            raise RuntimeError("Another worker holds the GPU lock. Use a session connection, not transaction pooling.")
-        models = LocalModels(settings)
-        installed = models.http.get("/api/tags")
-        installed.raise_for_status()
-        tags = {item["name"] for item in installed.json()["models"]}
-        if any(
-            model not in tags and f"{model}:latest" not in tags for model in (settings.chat_model, settings.embed_model)
-        ):
-            raise ValueError("Pull CHAT_MODEL and EMBED_MODEL in Ollama before starting the worker.")
-        vectors = VectorStore(settings)
+            raise RuntimeError("Another worker holds the queue lock. Use a session connection, not transaction pooling.")
+        conn.execute("select embedding_profile,vector_collection from public.documents limit 0")
+        conn.execute("select ai_provider from public.worker_heartbeats limit 0")
+        models = create_models(settings)
+        models.prepare()
+        vectors = VectorStore(settings, models.dimensions)
         vectors.setup()
         heartbeat = Heartbeat(settings)
         heartbeat.start()
@@ -451,6 +470,11 @@ def serve(settings):
                     fail(conn, job, "Tài liệu đã bị xóa hoặc thay đổi. Hãy chọn lại tài liệu.", permanent=True)
                 except InvalidDocument as exc:
                     fail(conn, job, str(exc), permanent=True)
+                except IndexMismatch:
+                    fail(conn, job, "Tài liệu dùng model embedding cũ. Hãy xóa và tải lại để lập chỉ mục.", permanent=True)
+                except ProviderError as exc:
+                    LOG.warning("provider_failed job_id=%s permanent=%s", str(job["id"]), exc.permanent)
+                    fail(conn, job, str(exc), permanent=exc.permanent, retry_seconds=exc.retry_after)
                 except LostLease:
                     # Stop instead of letting a stale attempt publish results.
                     LOG.warning("lease_lost")

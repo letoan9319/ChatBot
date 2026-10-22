@@ -107,6 +107,11 @@ async function handle(request: NextRequest) {
     if (resource === "status" && method === "GET" && parts.length === 1) {
       const { data, error } = await db.rpc("app_worker_online");
       check(error);
+      const { data: provider, error: providerError } = await db.rpc("app_ai_provider");
+      if (providerError && ["PGRST202", "42P01", "42703"].includes(providerError.code)) {
+        throw new ApiError(503, "Cấu hình AI chưa được cập nhật. Vui lòng áp dụng migration embedding_profiles.");
+      }
+      check(providerError);
       const { data: active, error: activeError } = await db
         .from("jobs")
         .select("id,payload")
@@ -117,6 +122,7 @@ async function handle(request: NextRequest) {
       check(activeError);
       return json({
         online: Boolean(data),
+        provider: provider === "openrouter" ? "openrouter" : provider === "ollama" ? "ollama" : null,
         activeChat: active
           ? { id: active.id, conversation_id: active.payload.conversation_id }
           : null,

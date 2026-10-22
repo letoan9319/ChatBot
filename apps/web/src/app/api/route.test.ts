@@ -39,6 +39,22 @@ beforeEach(() => {
 });
 
 describe("API authorization and asynchronous boundaries", () => {
+  it("reports the active provider without exposing AI credentials", async () => {
+    mocks.rpc.mockImplementation(async (name: string) => ({
+      data: name === "app_worker_online" ? true : "openrouter", error: null,
+    }));
+    mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ in: () => ({
+      limit: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+    }) }) }) });
+    const response = await GET(request("status"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ online: true, provider: "openrouter", activeChat: null });
+    mocks.rpc.mockResolvedValueOnce({ data: false, error: null });
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "PGRST202", message: "SQL details" } });
+    const missing = await GET(request("status"));
+    expect(missing.status).toBe(503);
+    expect(JSON.stringify(await missing.json())).not.toContain("SQL details");
+  });
   it("saves a username for the authenticated owner without trusting a client user ID", async () => {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;

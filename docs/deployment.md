@@ -2,6 +2,44 @@
 
 ## Deploy trên Vercel
 
+Trước khi deploy web, cần áp dụng migration lên đúng Supabase project. File
+`supabase/config.toml` cấu hình môi trường local; import repository vào Vercel
+không tự tạo bảng hay thiết lập Auth trên Supabase Cloud.
+
+Với project mới chưa có bảng, dùng Supabase CLI theo thứ tự:
+
+```powershell
+npx supabase login
+npx supabase link --project-ref <project-ref>
+npx supabase db push --dry-run
+npx supabase db push
+```
+
+Migration `supabase/migrations/202610220001_initial.sql` tạo 7 bảng nghiệp vụ,
+RLS, RPC, bucket private `documents` và queue `study_jobs`. Không chạy lại toàn
+bộ migration trong SQL Editor nếu đã tạo một phần schema; kiểm tra lịch sử
+migration và lỗi trước khi tiếp tục.
+
+Migration tiếp theo `202610220002_profiles.sql` tạo bảng `profiles`, RLS đọc
+hồ sơ của chính mình và RPC `app_set_username` chỉ cho tài khoản đã đăng nhập.
+Áp dụng migration này trước khi deploy phiên bản có bước tạo username. Nếu
+dùng CLI, `db push` sẽ áp dụng các migration còn thiếu theo thứ tự. Nếu dùng SQL
+Editor, chỉ chạy các file chưa áp dụng trên project đó. Username
+không được dùng làm quyền truy cập: mọi kiểm tra vẫn dựa trên `auth.uid()`.
+
+Migration `202610220003_embedding_profiles.sql` lưu model/collection của tài liệu,
+provider của heartbeat và RPC đọc provider. Cả web và worker bản này cần migration
+đó kể cả khi vẫn dùng Ollama. [Cấu hình NVIDIA trên OpenRouter](openrouter.md) cho
+phép chạy worker CPU, không cần Ollama/GPU; key OpenRouter chỉ đặt trên worker.
+
+Tài khoản được Supabase quản lý trong schema `auth`, không phải `public`.
+Schema `public` trống cho biết ứng dụng chưa có bảng nghiệp vụ, nhưng không
+tự chứng minh nguyên nhân đăng ký thất bại. Trong Supabase Dashboard cần bật
+email/password và cho phép đăng ký mới, cấu hình Site URL và các redirect URL
+theo domain Vercel thực tế. Nếu bật xác nhận email, cần SMTP riêng để gửi cho
+người ngoài team của project; SMTP mặc định chỉ gửi cho thành viên tổ chức và
+có hạn mức thấp. Tham khảo [SMTP của Supabase](https://supabase.com/docs/guides/auth/auth-smtp).
+
 1. Push repository lên GitHub của bạn và import vào Vercel.
 2. Chọn framework Next.js, **Root Directory `apps/web`**. Cho phép build sử dụng các file ngoài root directory để npm đọc workspace và lockfile ở gốc.
 3. Dùng Node.js 22 hoặc 24; giữ Install Command mặc định npm và Build Command `npm run build`. `apps/web/vercel.json` đặt region `sin1`, thời gian tối đa API 30 giây.
@@ -15,7 +53,7 @@ Không cần public endpoint cho máy cá nhân. Web dùng Supabase làm đầu 
 ## Quy trình trước buổi demo
 
 1. Kiểm tra Internet, dung lượng Storage và Qdrant, các project cloud chưa bị pause.
-2. Bật Ollama; xác nhận `ollama list` có hai model.
+2. Với Ollama, xác nhận `ollama list` có hai model. Với OpenRouter, kiểm tra API key/quota và cấu hình model free.
 3. Mở worker, chờ log `worker_ready`; trang học tập phải báo online trong khoảng 15 giây.
 4. Upload một PDF có văn bản, đợi `Sẵn sàng`; hỏi, mở trích dẫn và trang PDF gốc.
 5. Dùng tài khoản thứ hai kiểm tra không thấy tài liệu của tài khoản đầu.

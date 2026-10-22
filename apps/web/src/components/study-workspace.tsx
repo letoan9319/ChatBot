@@ -34,6 +34,7 @@ async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
 }
 type WorkerStatus = {
   online: boolean;
+  provider: "ollama" | "openrouter" | null;
   activeChat: { id: string; conversation_id: string } | null;
 };
 const location = (source: Source) =>
@@ -52,6 +53,7 @@ export function StudyWorkspace({ username }: { username: string }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [worker, setWorker] = useState<WorkerStatus>({
     online: false,
+    provider: null,
     activeChat: null,
   });
   const [subject, setSubject] = useState("calculus");
@@ -528,6 +530,13 @@ export function StudyWorkspace({ username }: { username: string }) {
             <div className="offline-note">
               Máy xử lý AI chưa kết nối. Bạn vẫn có thể đọc lại lịch sử; tài
               liệu và câu hỏi đang chờ sẽ tiếp tục khi máy hoạt động.
+            </div>
+          )}
+          {worker.provider === "openrouter" && (
+            <div className="offline-note">
+              Chế độ AI qua OpenRouter/NVIDIA: câu hỏi và các đoạn tài liệu cần xử lý
+              được gửi đến dịch vụ này. Tài liệu và lịch sử vẫn được lưu trong tài khoản của bạn.
+              {" "}Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.
             </div>
           )}
           {worker.activeChat &&

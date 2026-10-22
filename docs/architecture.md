@@ -14,6 +14,7 @@ Tất cả các endpoint dưới đây yêu cầu đăng nhập. Body JSON, tố
 
 | Method và đường dẫn | Body / kết quả |
 |---|---|
+| POST `/api/profile` | `{username}` -> username duy nhất của chủ phiên đăng nhập; HTTP 409 nếu trùng |
 | GET `/api/status` | `{online, activeChat: {id, conversation_id} \| null}` |
 | POST `/api/documents/upload-intent` | `{name, size, subject, key}` -> `{document, upload: {path,token,signedUrl} \| null}` |
 | POST `/api/documents/:id/complete` | `{key}` -> job, HTTP 202 |
@@ -49,6 +50,14 @@ Không coi PGMQ là exactly-once cho toàn bộ side effect. Worker xử lý the
 
 Chia tối đa khoảng 500 token Qwen/tokenizer với overlap 80; giữ biên trang PDF và vị trí đoạn DOCX. Dense embedding BGE-M3 1024 chiều, cosine. Query lấy top 8 với bộ lọc user/document/version; loại trùng, chọn tối đa 5 đoạn trong ngân sách đầu vào 2.900 token, dành chỗ cho chat template và tối đa 768 token đầu ra.
 
-Lịch sử dùng tối đa 6 message hoàn tất, giới hạn 450 token; một phần câu hỏi trước được thêm vào truy vấn embedding cho câu hỏi tiếp nối. Chưa có query rewriting, reranker hoặc hybrid search trong MVP.
+Lịch sử dùng tối đa 6 message hoàn tất, giới hạn 450 token; một phần câu hỏi trước được thêm vào truy vấn embedding cho câu hỏi tiếp nối. Chưa có query rewriting hoặc hybrid search trong MVP.
+
+Backend tùy chọn `AI_PROVIDER=openrouter` gọi NVIDIA free cho cả embedding và chat,
+thêm rerank khi có `RERANK_MODEL`. Worker chỉ cần CPU để parse/chia đoạn/điều phối;
+vẫn dùng hàng đợi và session lock. Kích thước embedding được phát hiện từ API,
+collection tách theo model/chiều và tài liệu lưu embedding profile cùng collection.
+Chat từ chối profile cũ; cleanup dùng namespace đã lưu với bộ lọc owner/document.
+Rerank diễn ra sau khi xác thực candidate từ PostgreSQL, chỉ sắp xếp canonical rows.
+Nguồn trả về bởi provider không được tin cậy. Xem [cấu hình, giới hạn và dữ liệu gửi đi](openrouter.md).
 
 Các nguồn được đặt nhãn S1–S5. Nguồn bịa hoặc không có trích dẫn hợp lệ sẽ chuyển câu trả lời về thông báo thiếu bằng chứng. Việc nhãn tồn tại không chứng minh suy luận đúng; đánh giá thủ công kiểm tra nội dung và sự hỗ trợ của nguồn.

@@ -214,6 +214,7 @@ node_modules/
 *.env.*
 .envrc*
 !.env.example
+!.env.openrouter.example
 *.tsbuildinfo
 playwright-report/
 test-results/

@@ -15,9 +15,10 @@ flowchart LR
     W --> D
     W --> E[Qdrant Cloud]
     W --> O[Ollama localhost]
+    W --> R[OpenRouter NVIDIA tùy chọn]
 ```
 
-Worker chỉ kết nối ra ngoài; không mở cổng máy cá nhân. Vercel không chạy model và không chờ inference. API trả `202`, giao diện đọc trạng thái/câu trả lời mỗi 2 giây khi có việc, 15 giây khi nghỉ. AI hoạt động khi worker và Ollama đang chạy.
+Worker chỉ kết nối ra ngoài; không mở cổng máy cá nhân. Vercel không chạy model và không chờ inference. API trả `202`, giao diện đọc trạng thái/câu trả lời mỗi 2 giây khi có việc, 15 giây khi nghỉ. AI cần worker đang chạy cùng Ollama hoặc kết nối OpenRouter. [Hướng dẫn dùng NVIDIA free qua OpenRouter, gồm embedding và rerank](docs/openrouter.md).
 
 ## Cấu trúc
 
@@ -40,7 +41,7 @@ Không đưa secret vào Git. Hai file cấu hình dưới đây đã được `
 
 ## 2. Supabase và Qdrant
 
-1. Tạo project Supabase riêng cho development. Dùng SQL Editor chạy toàn bộ `supabase/migrations/202610220001_initial.sql` **một lần trên project mới**; hoặc dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`.
+1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration `202610220001_initial.sql`, `202610220002_profiles.sql`, `202610220003_embedding_profiles.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
 2. Migration tạo bucket private `documents`, extension PGMQ, queue `study_jobs`, các bảng và RPC. Không bật public bucket hoặc cấp quyền queue cho trình duyệt.
 3. Trong Authentication bật email/password, xác nhận email, password tối thiểu 8 ký tự. Cấu hình Site URL `http://localhost:3000`; thêm redirect `http://localhost:3000/auth/callback` và `http://localhost:3000/auth/confirm`. Nếu dùng `127.0.0.1`, thêm URL tương ứng.
 4. Lấy Project URL, publishable/anon key và service-role key từ Supabase. Lấy chuỗi kết nối **Session pooler port 5432** hoặc direct connection có SSL từ mục Connect. URL-encode mật khẩu. Không dùng transaction pooler port 6543: worker cần session advisory lock.
@@ -60,6 +61,14 @@ npm run dev
 ```
 
 Mở địa chỉ Local do Next.js in ra, mặc định `http://127.0.0.1:3000`. Đăng ký và xác nhận email. Nếu chưa có biến môi trường, trang chủ vẫn chạy và trang học tập hướng dẫn cấu hình.
+
+Sau đăng ký, giao diện chuyển sang bước chọn username (3–24 ký tự, chữ cái
+không dấu, số, `_`, bắt đầu bằng chữ cái). Nếu chưa xác nhận email, tên chỉ
+được ghi nhớ trên thiết bị và chưa giữ chỗ. Sau xác nhận hoặc đăng nhập, người
+dùng hoàn tất chọn tên trên `/onboarding` rồi vào `/study`. Tài khoản cũ chưa
+có tên cũng được đưa qua bước này. Username duy nhất được lưu trong bảng
+`profiles` có RLS; ứng dụng vẫn dùng email và mật khẩu để đăng nhập. Nút
+`Hiện / Ẩn` mật khẩu có ở đăng ký, đăng nhập và đặt lại mật khẩu.
 
 Nếu liên kết email được mở trên thiết bị khác, PKCE callback có thể thiếu code verifier. Có thể dùng email template với token hash: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email` cho xác nhận tài khoản; dùng `type=recovery` cho đặt lại mật khẩu. Không thêm wildcard redirect rộng vào môi trường production.
 

@@ -38,6 +38,9 @@ before(async () => {
   await db.exec(await readFile(
     new URL("../supabase/migrations/202610220002_profiles.sql", import.meta.url), "utf8",
   ));
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202610220003_embedding_profiles.sql", import.meta.url), "utf8",
+  ));
   await db.query("insert into auth.users values($1),($2)", [alice, bob]);
   await db.exec("insert into public.worker_heartbeats(id) values('test')");
 });
@@ -174,6 +177,32 @@ test("RLS isolates all reads and blocks direct client mutations", async () => {
       /NOT_FOUND/,
     );
   });
+});
+
+test("embedding metadata stays owner-private and provider heartbeat is read-only and fresh", async () => {
+  const doc = await readyDocument();
+  const row = (await db.query("select embedding_profile,vector_collection from documents where id=$1", [doc.id])).rows[0];
+  assert.equal(row.embedding_profile, "ollama:bge-m3");
+  assert.equal(row.vector_collection, "study_bge_m3_v1");
+  await asUser(bob, async () => {
+    assert.equal((await db.query("select vector_collection from documents where id=$1", [doc.id])).rows.length, 0);
+    await assert.rejects(db.query("update documents set embedding_profile='forged' where id=$1", [doc.id]), /permission denied/);
+    await assert.rejects(db.query("update worker_heartbeats set ai_provider='openrouter'"), /permission denied/);
+  });
+  try {
+    await db.exec("update worker_heartbeats set ai_provider='openrouter',last_seen=now()");
+    await asUser(alice, async () => {
+      assert.equal((await db.query("select app_ai_provider() as provider")).rows[0].provider, "openrouter");
+    });
+    await db.exec("update worker_heartbeats set last_seen=now()-interval '61 seconds'");
+    await asUser(alice, async () => {
+      assert.equal((await db.query("select app_ai_provider() as provider")).rows[0].provider, null);
+    });
+    await db.exec("set role anon");
+    await assert.rejects(db.query("select app_ai_provider()"), /permission denied/);
+  } finally {
+    await db.exec("reset role; update worker_heartbeats set ai_provider='ollama',last_seen=now()");
+  }
 });
 
 test("upload intents validate format, null input and stable idempotency", async () => {

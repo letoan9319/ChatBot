@@ -1,4 +1,5 @@
 import json
+import hashlib
 
 import httpx
 from qdrant_client import QdrantClient, models
@@ -8,6 +9,8 @@ from .config import Settings
 
 
 class LocalModels:
+    dimensions = 1024
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.http = httpx.Client(base_url=settings.ollama_url, timeout=httpx.Timeout(180, connect=10))
@@ -24,7 +27,20 @@ class LocalModels:
         response = self.http.post("/api/generate", json={"model": model, "keep_alive": 0})
         response.raise_for_status()
 
-    def embed(self, texts: list[str]):
+    def prepare(self):
+        installed = self.http.get("/api/tags")
+        installed.raise_for_status()
+        tags = {item["name"] for item in installed.json()["models"]}
+        if any(
+            model not in tags and f"{model}:latest" not in tags
+            for model in (self.settings.chat_model, self.settings.embed_model)
+        ):
+            raise ValueError("Pull CHAT_MODEL and EMBED_MODEL in Ollama before starting the worker.")
+
+    def rerank(self, query, candidates):
+        return candidates
+
+    def embed(self, texts: list[str], *, query=False):
         self.unload(self.settings.chat_model)
         response = self.http.post(
             "/api/embed",
@@ -67,24 +83,37 @@ class LocalModels:
                 raise RuntimeError("Ollama stream ended before completion")
 
 
+def create_models(settings):
+    if settings.ai_provider == "openrouter":
+        from .openrouter import OpenRouterModels
+        return OpenRouterModels(settings)
+    return LocalModels(settings)
+
+
 class VectorStore:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, dimensions=1024):
         self.settings = settings
+        self.dimensions = dimensions
+        self.collection = settings.collection
+        if settings.ai_provider == "openrouter":
+            # Even equal-dimensional models must never share an embedding space.
+            fingerprint = hashlib.sha256(settings.embedding_profile.encode()).hexdigest()[:16]
+            self.collection = f"{settings.collection}_or_{fingerprint}_{dimensions}"
         self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_key, timeout=30)
 
     def setup(self):
-        name = self.settings.collection
+        name = self.collection
         if not self.client.collection_exists(name):
             self.client.create_collection(
-                name, vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE)
+                name, vectors_config=models.VectorParams(size=self.dimensions, distance=models.Distance.COSINE)
             )
         config = self.client.get_collection(name).config.params.vectors
         if (
             not isinstance(config, models.VectorParams)
-            or config.size != 1024
+            or config.size != self.dimensions
             or config.distance != models.Distance.COSINE
         ):
-            raise ValueError("Collection schema does not match BGE-M3 dense vectors")
+            raise ValueError("Collection schema does not match the configured embedding dimensions")
         for field in ("user_id", "document_id", "chunk_id"):
             schema = (
                 models.KeywordIndexParams(type="keyword", is_tenant=True)
@@ -122,7 +151,7 @@ class VectorStore:
 
     def upsert(self, user_id, document_id, version, chunks, embeddings):
         self.client.upsert(
-            self.settings.collection,
+            self.collection,
             points=[
                 models.PointStruct(
                     id=chunk["id"],
@@ -139,16 +168,19 @@ class VectorStore:
             wait=True,
         )
 
-    def delete(self, user_id, document_id):
+    def delete(self, user_id, document_id, collection=None):
+        name = collection or self.collection
+        if not self.client.collection_exists(name):
+            return
         self.client.delete(
-            self.settings.collection,
+            name,
             points_selector=models.FilterSelector(filter=self.filters(user_id, [document_id])),
             wait=True,
         )
 
     def search(self, user_id, document_ids, versions, vector):
         return self.client.query_points(
-            self.settings.collection,
+            self.collection,
             query=vector,
             query_filter=self.filters(user_id, document_ids, versions),
             limit=8,

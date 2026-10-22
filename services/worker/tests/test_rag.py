@@ -31,6 +31,7 @@ def test_prompt_bounds_history_sources_and_repeated_chunks():
 def test_tenant_document_and_version_filters_work_together():
     store = VectorStore.__new__(VectorStore)
     store.settings = SimpleNamespace(collection="test", min_score=0)
+    store.collection = "test"
     store.client = QdrantClient(":memory:")
     from qdrant_client import models
 

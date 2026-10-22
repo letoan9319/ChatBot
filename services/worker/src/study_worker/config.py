@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 from urllib.parse import urlparse
 
@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str
+    database_url: str = field(repr=False)
     supabase_url: str
-    supabase_key: str
+    supabase_key: str = field(repr=False)
     qdrant_url: str
-    qdrant_key: str
+    qdrant_key: str = field(repr=False)
     collection: str = "study_bge_m3_v1"
     ollama_url: str = "http://127.0.0.1:11434"
     chat_model: str = "qwen3:4b"
@@ -19,10 +19,23 @@ class Settings:
     tokenizer_model: str = "Qwen/Qwen3-4B"
     tokenizer_path: str = ""
     min_score: float = 0.35
+    ai_provider: str = "ollama"
+    openrouter_key: str = field(default="", repr=False)
+    rerank_model: str = ""
+    api_request_interval: float = 3.2
+
+    @property
+    def embedding_profile(self):
+        suffix = ":retrieval-v1" if self.ai_provider == "openrouter" else ""
+        return f"{self.ai_provider}:{self.embed_model}{suffix}"
 
     @classmethod
     def load(cls):
         load_dotenv()
+        provider = os.getenv("AI_PROVIDER", "ollama")
+        if provider not in ("ollama", "openrouter"):
+            raise ValueError("AI_PROVIDER must be ollama or openrouter.")
+        remote = provider == "openrouter"
         names = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "QDRANT_URL", "QDRANT_API_KEY"]
         if any(not os.getenv(name) for name in names):
             raise ValueError("Missing configuration. Copy .env.example to .env and fill all required values.")
@@ -30,14 +43,28 @@ class Settings:
             *[os.environ[name] for name in names],
             collection=os.getenv("QDRANT_COLLECTION", "study_bge_m3_v1"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
-            chat_model=os.getenv("CHAT_MODEL", "qwen3:4b"),
-            embed_model=os.getenv("EMBED_MODEL", "bge-m3"),
+            chat_model=os.getenv("CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free" if remote else "qwen3:4b"),
+            embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3.5-embed-1b:free" if remote else "bge-m3"),
             tokenizer_model=os.getenv("TOKENIZER_MODEL", "Qwen/Qwen3-4B"),
             tokenizer_path=os.getenv("TOKENIZER_PATH", ""),
             min_score=float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35")),
+            ai_provider=provider,
+            openrouter_key=os.getenv("OPENROUTER_API_KEY", ""),
+            rerank_model=os.getenv("RERANK_MODEL", ""),
+            api_request_interval=float(os.getenv("OPENROUTER_REQUEST_INTERVAL", "3.2")),
         )
-        if urlparse(settings.ollama_url).hostname not in ("localhost", "127.0.0.1", "::1"):
+        if not remote and urlparse(settings.ollama_url).hostname not in ("localhost", "127.0.0.1", "::1"):
             raise ValueError("Ollama must stay on localhost.")
         if not 0 <= settings.min_score <= 1:
             raise ValueError("RETRIEVAL_MIN_SCORE must be between 0 and 1.")
+        if remote:
+            if not settings.openrouter_key:
+                raise ValueError("OPENROUTER_API_KEY is required on the worker.")
+            for model in (settings.chat_model, settings.embed_model, settings.rerank_model):
+                if model and (not model.startswith("nvidia/") or not model.endswith(":free")):
+                    raise ValueError("OpenRouter trial only accepts explicit nvidia/...:free model IDs.")
+            if not 3.2 <= settings.api_request_interval <= 60:
+                raise ValueError("OPENROUTER_REQUEST_INTERVAL must be between 3.2 and 60 seconds.")
+        elif settings.rerank_model:
+            raise ValueError("RERANK_MODEL currently requires AI_PROVIDER=openrouter.")
         return settings
