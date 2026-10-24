@@ -246,6 +246,7 @@ secrets.yaml
 secrets.yml
 .supabase/
 supabase/.temp/
+supabase/.branches/
 .vscode/
 .idea/
 
