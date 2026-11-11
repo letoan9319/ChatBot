@@ -9,7 +9,7 @@
     "build": "npm run build --workspace apps/web",
     "typecheck": "npm run typecheck --workspace apps/web",
     "test": "npm run test --workspace apps/web && npm run test:db",
-    "test:db": "node --test tests/database.test.mjs"
+    "test:db": "node --test tests/database.test.mjs tests/community-database.test.mjs"
   },
   "engines": {
     "node": ">=22"

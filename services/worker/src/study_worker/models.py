@@ -136,7 +136,19 @@ class VectorStore:
         )
 
     @staticmethod
-    def filters(user_id, document_ids, versions=None):
+    def filters(user_id, document_ids, versions=None, owners=None):
+        if owners is not None:
+            if not document_ids:
+                raise ValueError("At least one authorized document is required.")
+            # Each allowed document keeps its canonical tenant and index version.
+            # Never use separate owner/doc OR lists, which form a cross product.
+            return models.Filter(should=[
+                models.Filter(must=[
+                    models.FieldCondition(key="user_id", match=models.MatchValue(value=str(owners[str(doc_id)]))),
+                    models.FieldCondition(key="document_id", match=models.MatchValue(value=str(doc_id))),
+                    models.FieldCondition(key="index_version", match=models.MatchValue(value=int(versions[str(doc_id)]))),
+                ]) for doc_id in document_ids
+            ])
         conditions = [models.FieldCondition(key="user_id", match=models.MatchValue(value=str(user_id)))]
         if versions:
             alternatives = [
@@ -188,11 +200,11 @@ class VectorStore:
             wait=True,
         )
 
-    def search(self, user_id, document_ids, versions, vector):
+    def search(self, user_id, document_ids, versions, vector, owners=None):
         return self.client.query_points(
             self.collection,
             query=vector,
-            query_filter=self.filters(user_id, document_ids, versions),
+            query_filter=self.filters(user_id, document_ids, versions, owners),
             limit=8,
             score_threshold=self.settings.min_score,
             with_payload=True,

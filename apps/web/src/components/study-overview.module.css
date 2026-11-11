@@ -1,0 +1,85 @@
+.overview {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 32px 28px;
+  scrollbar-width: thin;
+  background: var(--surface);
+}
+.inner { max-width: 1240px; margin-inline: auto; }
+.controls { display: grid; grid-template-columns: auto 190px minmax(160px, 1fr) auto; align-items: center; gap: 14px; margin-bottom: 26px; }
+.streakChip { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 90px; height: 44px; padding: 5px 12px; border: 1px solid var(--green-line); border-radius: 12px; background: var(--primary-soft); color: var(--primary-edge); }
+.streakChip strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.streakChip > span { font-size: 11px; }
+.streakDisclosure { position: relative; }
+.streakChip { cursor: pointer; list-style: none; }
+.streakChip::-webkit-details-marker { display: none; }
+.streakDetails { position: absolute; z-index: 10; left: 0; top: calc(100% + 10px); width: min(640px, calc(100vw - 250px)); max-height: calc(100dvh - 180px); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); box-shadow: 0 12px 36px rgb(0 0 0 / 14%); }
+.streakDetails :global(.study-streak) { width: 100%; max-width: none; margin: 0; padding: 16px; border: 0; background: transparent; }
+.subjectField, .searchField { min-width: 0; }
+.searchField input { display: block; width: 100%; height: 44px; padding: 8px 14px; border: 1px solid var(--line-strong); border-bottom-width: 3px; border-radius: 12px; background: var(--surface); font-size: 13px; }
+.studyButton { min-height: 44px; padding: 8px 20px; border: 1px solid var(--primary-edge); border-bottom-width: 3px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font-size: 13px; font-weight: 800; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; -webkit-user-select: none; user-select: none; cursor: default; }
+.metric { min-width: 0; min-height: 136px; padding: 18px 24px; border: 2px solid var(--line); border-radius: 16px; box-shadow: 0 2px 0 var(--line); background: var(--surface); }
+.metricTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; }
+.metricTop h2 { margin: 0; color: var(--muted); font-size: 14px; font-weight: 600; line-height: 1.5; }
+.metricFlame { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 24px; }
+.metricFlame svg { max-height: 36px; width: auto; }
+.metricTag { color: var(--muted); background: var(--surface-alt); padding: 3px 8px; border-radius: 6px; font-size: 10px; white-space: nowrap; }
+.metricValue { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; margin-top: 8px; font-size: 32px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.metricValue > span { color: var(--muted); font-size: 12px; font-weight: 500; }
+.metricDetail { margin: 9px 0 0; color: var(--primary-edge); font-size: 12px; font-weight: 700; line-height: 1.5; }
+.weekActivity { display: flex; align-items: end; gap: 4px; height: 22px; flex-shrink: 0; }
+.weekActivity > span { width: 7px; height: 5px; border-radius: 3px; background: var(--line); }
+.weekActivity > span[data-completed="true"] { height: 20px; background: var(--primary); }
+.recentGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 28px; }
+.recentSection { min-width: 0; }
+.sectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.sectionHeading h2 { margin: 0; font-size: 15px; }
+.sectionHeading button { flex-shrink: 0; min-height: 28px; padding: 2px; color: var(--primary-edge); font-size: 11px; font-weight: 700; }
+.empty { padding: 16px 18px; margin: 0; border-radius: 12px; background: var(--surface-alt); color: var(--muted); font-size: 12px; line-height: 1.7; }
+.empty strong { color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+.empty p { margin: 4px 0 0; }
+.recentList { display: grid; gap: 6px; }
+.session, .document { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; min-height: 54px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; text-align: left; }
+.session strong, .document strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
+.session > strong, .document > span:first-child { min-width: 0; }
+.session > span, .document small { flex-shrink: 0; color: var(--muted); font-size: 10px; }
+.document :global(.pill) { font-size: 10px; padding: 2px 6px; }
+.overview button { transition: background-color var(--motion-fast) ease, border-color var(--motion-fast) ease; }
+@media (hover: hover) and (pointer: fine) {
+  .studyButton:hover { background: var(--primary-hover); }
+  .session:hover, .document:hover { border-color: var(--green-line); background: var(--primary-soft); }
+}
+@media (max-width: 1050px) {
+  .overview { padding-inline: 24px; }
+  .controls { grid-template-columns: auto 140px minmax(100px, 1fr) auto; gap: 8px; }
+  .studyButton { padding-inline: 12px; }
+  .metric { padding-inline: 18px; }
+}
+@media (max-width: 760px) {
+  .overview { padding: 14px 16px 22px; }
+  .controls { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; margin-bottom: 20px; }
+  .streakChip { min-width: 66px; padding-inline: 8px; }
+  .streakChip > span { display: none; }
+  .streakDetails { width: calc(100vw - 32px); }
+  .streakDetails :global(.study-streak) { grid-template-columns: 1fr; }
+  .streakDetails :global(.streak-week) { justify-content: space-between; }
+  .subjectField [data-select-trigger] { font-size: 12px; padding-inline: 10px; }
+  .searchField { grid-column: 1 / -1; grid-row: 2; }
+  .searchField input { font-size: 16px; }
+  .studyButton { display: block; grid-column: 3; grid-row: 1; padding-inline: 12px; font-size: 12px; }
+  .metrics { gap: 12px; }
+  .metric { min-height: 132px; padding: 14px; border-radius: 13px; }
+  .metricTop { gap: 6px; align-items: start; }
+  .metricTop h2 { font-size: 12px; }
+  .metricTag { display: none; }
+  .metricValue { font-size: 28px; }
+  .metricValue > span { font-size: 11px; }
+  .metricDetail { font-size: 11px; font-weight: 600; }
+  .weekActivity { gap: 3px; }
+  .weekActivity > span { width: 4px; }
+  .recentGrid { grid-template-columns: 1fr; gap: 20px; margin-top: 24px; }
+}

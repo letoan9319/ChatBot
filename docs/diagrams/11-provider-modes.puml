@@ -1,0 +1,30 @@
+@startuml
+!include style.iuml
+start
+:Đọc Settings;
+if (AI_PROVIDER?) then (openrouter)
+ :OpenRouterModels;
+ :Embedding và chat qua OpenRouter;
+ if (Có RERANK_MODEL?) then (Có)
+  :Rerank qua OpenRouter sau xác minh chunks;
+ else (Không)
+ endif
+else (ollama)
+ :Embedding BGE-M3 qua Ollama localhost;
+ if (CHAT_FALLBACK_PROVIDER?) then (openrouter)
+  :ChatFallbackModels;
+  :Thử sinh câu trả lời bằng Ollama;
+  if (Sinh thành công và có nội dung?) then (Có)
+   :Dùng kết quả Ollama;
+  else (Không)
+   :Kiểm tra lại quyền/lease và xóa partial;
+   :Khởi tạo OpenRouter chat khi cần;
+   :Sinh lại toàn bộ câu trả lời;
+  endif
+ else (none)
+  :LocalModels: sinh bằng Ollama;
+ endif
+endif
+:Lưu generation_provider khi chat hoàn tất;
+stop
+@enduml

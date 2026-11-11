@@ -1,0 +1,20 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Cài đặt trải nghiệm học" {
+ usecase "CD-01\nChọn giao diện sáng, tối hoặc theo thiết bị" as theme
+ usecase "CD-02\nĐiều chỉnh cỡ chữ lời giải" as font
+ usecase "CD-03\nChọn phím gửi câu hỏi" as key
+ usecase "CD-04\nBật hoặc tắt tự cuộn" as scroll
+ usecase "CD-05\nKhôi phục cài đặt mặc định" as reset
+}
+L --> theme
+L --> font
+L --> key
+L --> scroll
+L --> reset
+@enduml

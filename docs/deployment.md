@@ -6,6 +6,22 @@ Phiên bản có streak cần migration `202610220005_study_streaks.sql` sau 001
 Áp dụng SQL trước khi deploy web; [hướng dẫn streak](streaks.md) mô tả quy tắc và
 backfill lịch sử. Không cần thêm biến môi trường hay đổi cách worker finish job.
 
+Thông báo và nhóm học tập cần thêm migration `202610290001_community.sql`
+sau migration streak. Áp dụng migration trên Supabase Cloud trước khi deploy
+phiên bản web này; [hướng dẫn community](community.md) mô tả quyền truy cập,
+giới hạn và các bước kiểm tra. Migration này đã được thử trên Supabase local,
+chưa được áp dụng vào project production trong phiên triển khai này.
+
+Kho tài liệu hai tab và nguồn RAG chung cần migration
+`202610300001_document_repository.sql`. Sau migration, cập nhật/khởi động lại
+worker rồi deploy web. [Hướng dẫn kho tài liệu](document-repository.md) mô tả
+cách công bố nguồn chung; migration không tự công bố file cá nhân.
+
+Lệnh `npm run build` dùng Webpack được Next.js hỗ trợ. Trên máy Windows hiện
+tại, Turbopack 16.4.2 dừng khi tạo tiến trình PostCSS; cùng mã nguồn đã build
+thành công bằng Webpack. Vercel có thể giữ Build Command mặc định của dự án
+(`npm run build`); không cần thêm cờ build ở dashboard.
+
 Trước khi deploy web, cần áp dụng migration lên đúng Supabase project. File
 `supabase/config.toml` cấu hình môi trường local; import repository vào Vercel
 không tự tạo bảng hay thiết lập Auth trên Supabase Cloud.

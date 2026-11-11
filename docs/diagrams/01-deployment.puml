@@ -1,0 +1,39 @@
+@startuml
+!include style.iuml
+left to right direction
+node "Thiết bị người học" as device {
+ artifact "Trình duyệt\nReact UI + Supabase browser client" as browser
+}
+node "Vercel\nMôi trường triển khai web theo cấu hình" as vercel {
+ artifact "Next.js web + API routes" as web
+}
+node "Supabase project" as supa {
+ node "Auth service" as auth
+ node "PostgREST service\nData API và RPC" as rest
+ node "Storage service" as storage {
+  artifact "Bucket documents (private)\nPDF / DOCX" as files
+ }
+ node "PostgreSQL server" as pg {
+  database "auth / public / storage metadata" as db
+  artifact "PGMQ extension\nQueue study_jobs" as queue
+ }
+}
+node "Máy chạy worker" as machine {
+ artifact "Python process\nstudy_worker.main" as worker
+ node "Ollama process\n127.0.0.1:11434\nNếu AI_PROVIDER=ollama" as ollama
+}
+node "Qdrant Cloud" as qdrant
+node "OpenRouter API\nTùy cấu hình provider / fallback" as remote
+browser --> web : HTTPS / giao diện và API
+browser --> auth : HTTPS / đăng nhập, session
+browser --> storage : HTTPS / upload và đọc bằng signed URL
+web --> auth : HTTPS / getUser
+web --> rest : HTTPS / session JWT, bảng và RPC
+rest --> db : SQL / RLS và transaction
+web --> storage : HTTPS / metadata và ký URL
+worker --> pg : PostgreSQL SSL / SQL, PGMQ, advisory lock
+worker --> storage : HTTPS / tải và xóa object
+worker --> qdrant : HTTPS / index và retrieval
+worker --> ollama : HTTP localhost / embed, chat
+worker --> remote : HTTPS / embed, chat, rerank tùy chế độ
+@enduml

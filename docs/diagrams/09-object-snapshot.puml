@@ -1,0 +1,49 @@
+@startuml
+!include style.iuml
+left to right direction
+object "<u>u1 : auth.users</u>" as U {
+ id = U1
+}
+object "<u>d1 : documents</u>" as D {
+ id = D1
+ user_id = U1
+ status = ready
+ index_version = 1
+}
+object "<u>k1 : document_chunks</u>" as K {
+ id = K1
+ document_id = D1
+ user_id = U1
+ index_version = 1
+ ordinal = 0
+}
+object "<u>c1 : conversations</u>" as C {
+ id = C1
+ user_id = U1
+}
+object "<u>m1 : messages</u>" as M {
+ id = M1
+ conversation_id = C1
+ user_id = U1
+ role = assistant
+ status = completed
+}
+object "<u>s1 : message_sources</u>" as S {
+ id = S1
+ message_id = M1
+ document_id = D1
+ chunk_id = K1
+ user_id = U1
+ label = S1
+}
+U -- D : chủ tài liệu
+U -- K : chủ chunk
+U -- C : chủ hội thoại
+U -- M : chủ message
+U -- S : chủ lịch sử trích dẫn
+D -- K
+C -- M
+M -- S
+D -- S
+K -- S
+@enduml

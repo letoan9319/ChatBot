@@ -1,0 +1,20 @@
+@startuml
+!include style.iuml
+hide empty description
+[*] --> uploading : app_upload_intent
+uploading --> queued : complete [file metadata hợp lệ] / enqueue ingest
+queued --> processing : Worker nhận ingest job
+processing --> ready : Index xong [lease, owner, version hợp lệ]
+processing --> queued : Lỗi tạm thời [attempts < 3]
+processing --> failed : File không hợp lệ hoặc lỗi cuối
+queued --> failed : Job nhận lại đã hết attempts
+failed --> queued : retry / index_version++; enqueue ingest
+uploading --> deleting : DELETE hoặc upload bỏ dở quá 24h
+queued --> deleting : DELETE
+processing --> deleting : DELETE
+ready --> deleting : DELETE
+failed --> deleting : DELETE
+deleting --> deleting : Cleanup lỗi / giữ trạng thái; retry job
+deleting --> deleted : Cleanup thành công / xóa file, vector, chunks
+deleted --> deleted : Quét lại file do upload token còn hạn
+@enduml

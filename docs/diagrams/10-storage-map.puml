@@ -1,0 +1,23 @@
+@startuml
+!include style.iuml
+left to right direction
+rectangle "Next.js API" as API
+rectangle "Python worker" as W
+database "PostgreSQL\nNguồn dữ liệu chuẩn" as DB {
+ rectangle "documents\nid, user_id, storage_path,\nindex_version, embedding_profile,\nvector_collection" as D
+ rectangle "document_chunks\nid, document_id, user_id,\nindex_version, content" as C
+}
+rectangle "Object storage\nSupabase Storage" as storage {
+ artifact "documents (private)\n<user_uuid>/<document_uuid>.pdf hoặc .docx" as O
+}
+database "Vector database\nQdrant collection" as vector {
+ rectangle "Point\nid = chunk.id\npayload: user_id, document_id,\nchunk_id, index_version" as V
+}
+API --> DB : RLS / RPC
+API --> storage : Ký URL sau kiểm tra quyền
+W --> DB : SQL / xác minh dữ liệu chuẩn
+W --> storage : Đọc / xóa object
+W --> vector : upsert / search / delete
+D ..> O : storage_path / locator logic
+C ..> V : chunk.id / locator logic
+@enduml

@@ -1,0 +1,24 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Tổng quan và hoạt động học" {
+ usecase "HT-01\nXem tổng quan học tập" as overview
+ usecase "HT-02\nXem chuỗi ngày học hiện tại" as current
+ usecase "HT-03\nXem kỷ lục và tổng ngày học" as record
+ usecase "HT-04\nXem lịch học bảy ngày gần nhất" as week
+ usecase "HT-05\nXem cách ghi nhận ngày học" as rule
+ usecase "HT-06\nXem số tài liệu sẵn sàng" as docs
+ usecase "HT-07\nXem số phiên học đã lưu" as sessions
+}
+L --> overview
+L --> current
+L --> record
+L --> week
+L --> rule
+L --> docs
+L --> sessions
+@enduml

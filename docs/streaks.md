@@ -44,8 +44,10 @@ Nội dung gồm `current`, `longest`, `total_days`, `today_completed`, `last_st
 
 ## Giao diện và cập nhật
 
-Thẻ chuỗi ngày học nằm dưới thanh tài khoản trong góc học tập, hiện ở mọi tab trên
-mobile, hỗ trợ light/dark mode và giữ quy tắc không dùng icon/emoji.
+Chuỗi ngày học được thu gọn thành ngọn lửa SVG và số ngày trên thanh tài khoản,
+hiện ở mọi khu vực trên mobile và hỗ trợ light/dark mode. Bấm vào để xem lịch
+7 ngày, kỷ lục và cách giữ chuỗi. Ngọn lửa theo yêu cầu thiết kế có màu xám ở
+0 ngày, màu cam khi có chuỗi và lớn dần đến kích thước tối đa ở 30 ngày.
 Streak cập nhật cùng polling: 2 giây khi có job, 15 giây khi nghỉ; mở lại tab hoặc
 focus cửa sổ sẽ tải lại để xử lý đổi ngày. Không dùng đồng hồ máy người dùng để
 tính chuỗi. Lỗi tải streak được hiển thị trong thẻ và không chặn các chức năng khác.

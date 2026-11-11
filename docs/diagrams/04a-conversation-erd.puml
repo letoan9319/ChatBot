@@ -1,0 +1,50 @@
+@startuml
+!include style.iuml
+hide circle
+skinparam linetype ortho
+entity "public.conversations" as conversations {
+  * id : uuid <<PK>>
+  * user_id : uuid <<FK>>
+  * title : text
+  * created_at : timestamptz
+}
+entity "public.document_chunks" as document_chunks {
+  * id : uuid <<PK>>
+}
+entity "public.documents" as documents {
+  * id : uuid <<PK>>
+}
+entity "public.message_sources" as message_sources {
+  * id : uuid <<PK>>
+  * message_id : uuid <<FK>>
+  chunk_id : uuid <<FK>>
+  * document_id : uuid <<FK>>
+  * user_id : uuid <<FK>>
+  * label : text
+  * document_name : text
+  page : integer
+  section : text
+  paragraph : integer
+}
+entity "public.messages" as messages {
+  * id : uuid <<PK>>
+  * conversation_id : uuid <<FK>>
+  * user_id : uuid <<FK>>
+  * role : text
+  * content : text
+  * status : text
+  sequence : bigint
+  * created_at : timestamptz
+  generation_provider : text
+}
+entity "auth.users" as users {
+  * id : uuid <<PK>>
+}
+users ||..o{ conversations : user_id
+conversations ||..o{ messages : conversation_id
+users ||..o{ messages : user_id
+messages ||..o{ message_sources : message_id
+document_chunks |o..o{ message_sources : chunk_id
+documents ||..o{ message_sources : document_id
+users ||..o{ message_sources : user_id
+@enduml

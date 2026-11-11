@@ -1,0 +1,22 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Thông báo" {
+ usecase "TB-01\nXem danh sách thông báo" as list
+ usecase "TB-02\nXem số thông báo chưa đọc" as unread
+ usecase "TB-03\nĐánh dấu một thông báo đã đọc" as one
+ usecase "TB-04\nĐánh dấu tất cả đã đọc" as all
+ usecase "TB-05\nMở hội thoại từ thông báo" as conv
+ usecase "TB-06\nMở nhóm từ thông báo" as group
+}
+L --> list
+L --> unread
+L --> one
+L --> all
+L --> conv
+L --> group
+@enduml

@@ -1,13 +1,23 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { savedTheme, THEME_STORAGE_KEY, type Theme } from "@/core/theme";
+import { savedTheme, THEME_STORAGE_KEY, type Theme, type ThemePreference } from "@/core/theme";
 
-const ThemeContext = createContext({ theme: "light" as Theme, toggle: () => {} });
+const ThemeContext = createContext<{
+  theme: Theme;
+  preference: ThemePreference;
+  setPreference: (next: ThemePreference) => void;
+  toggle: () => void;
+}>({ theme: "light", preference: "system", setPreference: () => {}, toggle: () => {} });
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("light");
-  const preference = useRef<Theme | null>(null);
+  const preferenceRef = useRef<Theme | null>(null);
+  const [preference, setPreferenceState] = useState<ThemePreference>("system");
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -17,14 +27,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
     function syncStorage() {
       try {
-        preference.current = savedTheme(localStorage.getItem(THEME_STORAGE_KEY));
+        preferenceRef.current = savedTheme(localStorage.getItem(THEME_STORAGE_KEY));
       } catch {
-        preference.current = null;
+        preferenceRef.current = null;
       }
-      apply(preference.current ?? (media.matches ? "dark" : "light"));
+      setPreferenceState(preferenceRef.current ?? "system");
+      apply(preferenceRef.current ?? (media.matches ? "dark" : "light"));
     }
     function systemChanged() {
-      if (!preference.current) apply(media.matches ? "dark" : "light");
+      if (!preferenceRef.current) apply(media.matches ? "dark" : "light");
     }
     function storageChanged(event: StorageEvent) {
       if (event.key === THEME_STORAGE_KEY || event.key === null) syncStorage();
@@ -38,28 +49,32 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  function toggle() {
-    const next =
-      document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    preference.current = next;
-    document.documentElement.dataset.theme = next;
-    setTheme(next);
+  function setPreference(next: ThemePreference) {
+    preferenceRef.current = next === "system" ? null : next;
+    setPreferenceState(next);
+    const applied = preferenceRef.current ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.dataset.theme = applied;
+    setTheme(applied);
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, next);
+      if (next === "system") localStorage.removeItem(THEME_STORAGE_KEY);
+      else localStorage.setItem(THEME_STORAGE_KEY, next);
     } catch {
       // Switching still works for this visit when browser storage is blocked.
     }
   }
+  function toggle() {
+    setPreference(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  }
 
   return (
-    <ThemeContext.Provider value={{ theme, toggle }}>
+    <ThemeContext.Provider value={{ theme, preference, setPreference, toggle }}>
       {children}
     </ThemeContext.Provider>
   );
 }
 
 export function ThemeToggle() {
-  const { theme, toggle } = useContext(ThemeContext);
+  const { theme, toggle } = useTheme();
   return (
     <button
       type="button"

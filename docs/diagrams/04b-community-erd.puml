@@ -1,0 +1,53 @@
+@startuml
+!include style.iuml
+hide circle
+skinparam linetype ortho
+entity "public.conversations" as conversations {
+  * id : uuid <<PK>>
+}
+entity "public.notifications" as notifications {
+  * id : uuid <<PK>>
+  * user_id : uuid <<FK>>
+  * kind : text
+  * title : text
+  * body : text
+  conversation_id : uuid <<FK>>
+  group_id : uuid <<FK>>
+  * created_at : timestamptz
+  read_at : timestamptz
+  * event_key : text
+}
+entity "public.study_group_members" as study_group_members {
+  * group_id : uuid <<PK>> <<FK>>
+  * user_id : uuid <<PK>> <<FK>>
+  * joined_at : timestamptz
+}
+entity "public.study_group_messages" as study_group_messages {
+  * id : uuid <<PK>>
+  * group_id : uuid <<FK>>
+  * user_id : uuid <<FK>>
+  * content : text
+  * created_at : timestamptz
+  * key : uuid
+}
+entity "public.study_groups" as study_groups {
+  * id : uuid <<PK>>
+  * owner_id : uuid <<FK>>
+  * subject : text
+  * name : text
+  * description : text
+  * created_at : timestamptz
+  * create_key : uuid
+}
+entity "auth.users" as users {
+  * id : uuid <<PK>>
+}
+users ||..o{ study_groups : owner_id
+study_groups ||--o{ study_group_members : group_id
+users ||--o{ study_group_members : user_id
+study_groups ||..o{ study_group_messages : group_id
+users ||..o{ study_group_messages : user_id
+users ||..o{ notifications : user_id
+conversations |o..o{ notifications : conversation_id
+study_groups |o..o{ notifications : group_id
+@enduml

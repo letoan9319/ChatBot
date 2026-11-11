@@ -303,12 +303,13 @@ class Pipeline:
 
     def chat_documents(self, job, lock=False):
         ids = job["payload"]["document_ids"]
+        if not 1 <= len(ids) <= 5 or len(set(ids)) != len(ids):
+            raise Cancelled()
+        owners = job["payload"].get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in ids}
         query = (
-            "select id,status,index_version,embedding_profile,vector_collection from public.documents "
-            "where user_id=%s and id=any(%s::uuid[]) order by id for share"
-            if lock else
-            "select id,status,index_version,embedding_profile,vector_collection from public.documents "
-            "where user_id=%s and id=any(%s::uuid[]) order by id"
+            "select id,user_id,status,index_version,embedding_profile,vector_collection from public.documents d "
+            "where (user_id=%s or exists(select 1 from public.knowledge_documents k where k.document_id=d.id)) "
+            "and id=any(%s::uuid[]) order by id" + (" for share" if lock else "")
         )
         rows = self.conn.execute(
             query,
@@ -316,6 +317,7 @@ class Pipeline:
         ).fetchall()
         if len(rows) != len(ids) or any(
             row["status"] != "ready" or row["index_version"] != job["payload"]["versions"][str(row["id"])]
+            or str(row["user_id"]) != owners.get(str(row["id"]))
             for row in rows
         ):
             raise Cancelled()
@@ -339,6 +341,7 @@ class Pipeline:
     def chat(self, job):
         payload = job["payload"]
         self.chat_documents(job)
+        owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in payload["document_ids"]}
         history = self.conn.execute(
             """select role,content from public.messages
             where conversation_id=%s and user_id=%s and status='completed' and sequence <
@@ -348,24 +351,26 @@ class Pipeline:
         previous_question = next((item["content"] for item in reversed(history) if item["role"] == "user"), "")
         query = (previous_question[:500] + "\n" + payload["question"]).strip()
         vector = self.models.embed([query], query=True)[0]
-        hits = self.vectors.search(job["user_id"], payload["document_ids"], payload["versions"], vector)
+        hits = self.vectors.search(job["user_id"], payload["document_ids"], payload["versions"], vector, owners)
         candidates = []
         for hit in hits:
             point = hit.payload or {}
             # Verify vector payload against the canonical owner, document and version in Postgres.
-            if point.get("user_id") != str(job["user_id"]) or point.get("document_id") not in payload["document_ids"]:
+            if point.get("document_id") not in payload["document_ids"] or point.get("user_id") != owners.get(point.get("document_id")):
                 continue
             row = self.conn.execute(
                 """select c.*,d.name as document_name from public.document_chunks c
                 join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
                 and c.document_id=%s and d.user_id=%s and d.status='ready'
-                and c.index_version=d.index_version and c.index_version=%s""",
+                and c.index_version=d.index_version and c.index_version=%s
+                and (d.user_id=%s or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
                 (
                     point.get("chunk_id"),
-                    job["user_id"],
+                    point.get("user_id"),
                     point.get("document_id"),
-                    job["user_id"],
+                    point.get("user_id"),
                     payload["versions"].get(point.get("document_id")),
+                    job["user_id"],
                 ),
             ).fetchone()
             if row:
@@ -440,6 +445,7 @@ def serve(settings):
         if not conn.execute("select pg_try_advisory_lock(%s) as acquired", (LOCK_ID,)).fetchone()["acquired"]:
             raise RuntimeError("Another worker holds the queue lock. Use a session connection, not transaction pooling.")
         conn.execute("select embedding_profile,vector_collection from public.documents limit 0")
+        conn.execute("select document_id from public.knowledge_documents limit 0")
         conn.execute("select ai_provider,chat_fallback_enabled from public.worker_heartbeats limit 0")
         conn.execute("select generation_provider from public.messages limit 0")
         models = create_models(settings)

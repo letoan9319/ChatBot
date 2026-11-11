@@ -1,0 +1,42 @@
+@startuml
+!include style.iuml
+start
+:Mở Kho tài liệu;
+if (Chọn tab?) then (Tài liệu của tôi)
+ :Lấy danh sách tài liệu của chủ phiên;
+else (Tài liệu chung)
+ :Lấy danh sách nguồn đã công bố và ready;
+endif
+:Tìm kiếm, lọc và chọn tài liệu;
+if (Thao tác?) then (Đọc tài liệu)
+ :Yêu cầu chi tiết / đoạn nguồn;
+ if (Có quyền đọc tài liệu ready?) then (Có)
+  if (Có yêu cầu chunk cụ thể?) then (Có)
+   if (Chunk thuộc đúng tài liệu và version?) then (Có)
+    :Hiển thị đoạn nguồn;
+   else (Không)
+    :Báo đoạn nguồn không còn khả dụng;
+   endif
+  else (Không)
+   :Hiển thị chi tiết tài liệu;
+  endif
+  if (Mở tệp gốc?) then (Có)
+   :Kiểm tra lại quyền; ký URL 120 giây;
+   :Mở PDF theo trang / tải DOCX;
+  else (Không)
+  endif
+ else (Không)
+  :Báo tài liệu không khả dụng;
+ endif
+else (Hỏi đáp)
+ :Chọn 1–5 nguồn ready và nhập câu hỏi;
+ if (Session, quyền, quota và worker hợp lệ?) then (Có)
+  :Enqueue chat job; nhận 202;
+  :Worker retrieval và sinh câu trả lời;
+  :Hiển thị kết quả hoặc lỗi qua polling;
+ else (Không)
+  :Hiển thị lỗi; yêu cầu chọn lại nguồn hoặc thử sau;
+ endif
+endif
+stop
+@enduml

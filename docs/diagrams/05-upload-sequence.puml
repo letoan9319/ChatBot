@@ -1,0 +1,58 @@
+@startuml
+!include style.iuml
+autonumber
+actor "Người học" as U
+participant "Browser" as B
+participant "Next.js API" as A
+database "PostgreSQL\nRPC + PGMQ" as D
+participant "Supabase Storage" as S
+participant "Python worker" as W
+participant "Model adapter" as M
+participant "Qdrant" as Q
+U -> B : Chọn file PDF/DOCX
+B -> A : POST upload-intent(name, size, subject, key)
+A -> D : app_upload_intent / session đã xác thực
+D --> A : document với storage_path (quota hợp lệ)
+A -> S : createSignedUploadUrl (service role, no upsert)
+S --> A : token + signed upload URL
+A --> B : 201 / document + upload
+B -> S : Upload file trực tiếp
+S --> B : Upload thành công
+B -> A : POST documents/{id}/complete(key)
+A -> S : info(storage_path)
+S --> A : size / MIME
+alt File thiếu hoặc metadata không khớp
+ A --> B : 400 / không enqueue
+else Metadata hợp lệ
+ A -> D : app_enqueue_document(complete, key)
+ activate D
+ D -> D : Transaction: status=queued + jobs + pgmq.send
+ D --> A : job
+ deactivate D
+ A --> B : 202 Accepted
+ par Xử lý bất đồng bộ của worker
+ W -> D : pgmq.read + claim / lease_token
+ D --> W : ingest job
+ W -> D : guard + status=processing
+ W -> S : GET object bằng service role
+ S --> W : File bytes
+ W -> W : Kiểm tra file; extract; chunk_sections
+ W -> Q : Xóa namespace cũ / partial vectors
+ loop Từng batch chunks
+  W -> M : embed(texts)
+  M --> W : Vectors
+  W -> Q : upsert(points)
+  Q --> W : acknowledged
+ end
+ W -> D : Transaction: guard lease, owner, version;\nlưu chunks; ready; finish + archive queue
+ D --> W : Commit / trigger thông báo
+ else Browser polling trong khi chờ hoặc chạy
+ loop Chưa kết thúc job
+  B -> A : GET documents / jobs/{id}
+  A -> D : SELECT theo session / RLS
+  D --> A : status, error
+  A --> B : JSON
+ end
+ end
+end
+@enduml

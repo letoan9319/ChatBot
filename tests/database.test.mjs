@@ -56,6 +56,9 @@ before(async () => {
     new URL("../supabase/migrations/202610220005_study_streaks.sql", import.meta.url), "utf8",
   ));
   await db.exec("insert into public.worker_heartbeats(id) values('test')");
+  await db.exec(await readFile(
+    new URL("../supabase/migrations/202610300001_document_repository.sql", import.meta.url), "utf8",
+  ));
 });
 after(async () => {
   await db?.close();

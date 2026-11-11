@@ -1,0 +1,26 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Khách truy cập" as G
+actor "Người dùng có phiên\nđã xác thực" as U
+actor "Chủ tài khoản có phiên\nkhôi phục mật khẩu" as R
+rectangle "LearnStep — Tài khoản và hồ sơ" {
+ usecase "TK-01\nĐăng ký tài khoản" as signup
+ usecase "TK-02\nXác nhận email đăng ký" as confirm
+ usecase "TK-03\nĐăng nhập bằng email" as login
+ usecase "TK-04\nYêu cầu liên kết khôi phục mật khẩu" as forgot
+ usecase "TK-05\nĐặt mật khẩu mới" as reset
+ usecase "TK-06\nHoàn tất hồ sơ ban đầu" as profile
+ usecase "TK-07\nĐăng xuất" as logout
+}
+G --> signup
+G --> confirm
+G --> login
+G --> forgot
+R --> reset
+U --> profile
+U --> logout
+@enduml

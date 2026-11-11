@@ -4,9 +4,10 @@ import { StudyWorkspace } from "@/components/study-workspace";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-provider";
+import { uuid } from "@/core/validation";
 
 export const dynamic = "force-dynamic";
-export default async function StudyPage() {
+export default async function StudyPage({ searchParams }: { searchParams: Promise<{ conversation?: string; library?: string }> }) {
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -37,5 +38,8 @@ export default async function StudyPage() {
   const { data: profile, error } = await db.from("profiles")
     .select("username").eq("id", user.id).maybeSingle();
   if (error || !profile?.username) redirect("/onboarding");
-  return <StudyWorkspace username={profile.username} />;
+  const query = await searchParams;
+  const conversation = uuid.safeParse(query.conversation);
+  const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
+  return <StudyWorkspace username={profile.username} initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
 }

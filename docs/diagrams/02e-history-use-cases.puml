@@ -1,0 +1,22 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Lịch sử hội thoại" {
+ usecase "LS-01\nXem danh sách hội thoại đã lưu" as list
+ usecase "LS-02\nTìm hội thoại theo tiêu đề" as search
+ usecase "LS-03\nĐọc lại hội thoại đã chọn" as read
+ usecase "LS-04\nTiếp tục hội thoại đã lưu" as follow
+ usecase "LS-05\nMở nguồn của câu trả lời cũ" as cite
+ usecase "LS-06\nSao chép câu trả lời đã lưu" as copy
+}
+L --> list
+L --> search
+L --> read
+L --> follow
+L --> cite
+L --> copy
+@enduml

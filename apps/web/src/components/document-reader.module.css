@@ -1,0 +1,13 @@
+.reader { min-height: 100dvh; background: var(--surface-alt); }
+.reader > header { display: flex; align-items: center; justify-content: space-between; padding: 18px clamp(20px, 5vw, 64px); border-bottom: 1px solid var(--line); background: var(--surface); }
+.inner { max-width: 1000px; margin: 0 auto; padding: 24px 20px 64px; }
+.back { display: inline-flex; align-items: center; min-height: 38px; margin-bottom: 16px; color: var(--primary-edge); font-size: 13px; font-weight: 700; }
+.document, .source, .state { margin-bottom: 20px; padding: clamp(20px, 4vw, 36px); border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.tags { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--primary-edge); font-weight: 700; }
+.document h1, .state h1 { margin: 20px 0 12px; overflow-wrap: anywhere; font-size: clamp(22px, 3vw, 32px); line-height: 1.4; }
+.document p, .source > p, .state p { font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+.document .metadata, .source .location { color: var(--muted); font-size: 12px; }
+.openFile, .state button { display: inline-flex; align-items: center; min-height: 38px; margin-top: 12px; padding: 8px 14px; border: 1px solid var(--primary-edge); border-radius: 10px; background: var(--primary-soft); color: var(--primary-edge); font-size: 13px; font-weight: 700; }
+.source h2 { margin: 0 0 12px; font-size: 18px; }
+.excerpt { padding: 12px 0 4px 18px; border-left: 3px solid var(--primary); overflow-wrap: anywhere; }
+.excerpt :global(.markdown) { font-size: 15px; line-height: 1.9; }

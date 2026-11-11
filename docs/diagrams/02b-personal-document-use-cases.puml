@@ -1,0 +1,28 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Tài liệu của tôi" {
+ usecase "CN-01\nXem danh sách tài liệu của tôi" as list
+ usecase "CN-02\nTra cứu tài liệu cá nhân" as search
+ usecase "CN-03\nTải tài liệu cá nhân lên" as upload
+ usecase "CN-04\nXác nhận bản tải đang dở" as complete
+ usecase "CN-05\nTheo dõi kết quả xử lý tài liệu" as status
+ usecase "CN-06\nThử xử lý lại tài liệu lỗi" as retry
+ usecase "CN-07\nĐọc tài liệu gốc của tôi" as read
+ usecase "CN-08\nXóa tài liệu của tôi" as delete
+ usecase "CN-09\nThử xóa lại khi dọn tệp lỗi" as retryDelete
+}
+L --> list
+L --> search
+L --> upload
+L --> complete
+L --> status
+L --> retry
+L --> read
+L --> delete
+L --> retryDelete
+@enduml

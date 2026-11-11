@@ -1,0 +1,46 @@
+@startuml
+!include style.iuml
+hide circle
+skinparam linetype ortho
+entity "public.document_chunks" as document_chunks {
+  * id : uuid <<PK>>
+  * document_id : uuid <<FK>>
+  * user_id : uuid <<FK>>
+  * index_version : integer
+  * ordinal : integer
+  * content : text
+  page : integer
+  section : text
+  paragraph : integer
+}
+entity "public.documents" as documents {
+  * id : uuid <<PK>>
+  * user_id : uuid <<FK>>
+  * name : text
+  * subject : text
+  * file_type : text
+  * size_bytes : bigint
+  * storage_path : text <<UK>>
+  * status : text
+  error : text
+  * index_version : integer
+  * upload_key : uuid
+  * upload_cleanup_after : timestamptz
+  * upload_cleanup_done : boolean
+  * created_at : timestamptz
+  * embedding_profile : text
+  * vector_collection : text
+}
+entity "public.knowledge_documents" as knowledge_documents {
+  * document_id : uuid <<PK>> <<FK>>
+  * description : text
+  * published_at : timestamptz
+}
+entity "auth.users" as users {
+  * id : uuid <<PK>>
+}
+users ||..o{ documents : user_id
+documents ||..o{ document_chunks : document_id
+users ||..o{ document_chunks : user_id
+documents ||--o| knowledge_documents : document_id
+@enduml

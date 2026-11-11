@@ -1,0 +1,172 @@
+@startwbs
+skinparam backgroundColor white
+skinparam defaultFontName Arial
+skinparam defaultFontSize 16
+skinparam shadowing false
+<style>
+wbsDiagram {
+ node {
+  BackgroundColor #f5faf7
+  LineColor #218660
+  FontColor #273340
+  Padding 12
+  Margin 4
+  MaximumWidth 290
+  RoundCorner 4
+ }
+ :depth(0) {
+  BackgroundColor #e2efe8
+  FontSize 24
+  FontStyle bold
+  MaximumWidth 450
+ }
+ :depth(1) {
+  BackgroundColor #eaf3ee
+  FontStyle bold
+ }
+ arrow {
+  LineColor #526477
+  LineThickness 1.5
+ }
+}
+</style>
+
+* 0. LearnStep — Hỗ trợ tự học theo tài liệu
+** 1. Quản lý tài khoản và hồ sơ
+***< 1.1. Đăng ký tài khoản
+***< 1.2. Xác nhận email đăng ký
+***< 1.3. Đăng nhập bằng email
+***< 1.4. Yêu cầu liên kết khôi phục mật khẩu
+***< 1.5. Đặt mật khẩu mới
+***< 1.6. Hoàn tất hồ sơ ban đầu
+***< 1.7. Đăng xuất
+** 2. Quản lý kho tài liệu
+***< 2.1. Quản lý tài liệu cá nhân
+****< 2.1.1. Xem danh sách tài liệu của tôi
+****< 2.1.2. Tra cứu tài liệu cá nhân
+****< 2.1.3. Tải tài liệu cá nhân lên
+****< 2.1.4. Xác nhận bản tải đang dở
+****< 2.1.5. Theo dõi kết quả xử lý tài liệu
+****< 2.1.6. Thử xử lý lại tài liệu lỗi
+****< 2.1.7. Đọc tài liệu gốc của tôi
+****< 2.1.8. Xóa tài liệu của tôi
+****< 2.1.9. Thử xóa lại khi dọn tệp lỗi
+***< 2.2. Tra cứu và sử dụng tài liệu chung
+****< 2.2.1. Xem danh mục tài liệu chung
+****< 2.2.2. Tra cứu tài liệu chung
+****< 2.2.3. Xem chi tiết tài liệu chung
+****< 2.2.4. Đọc tệp gốc đã công bố
+****< 2.2.5. Chọn nguồn chung cho câu hỏi
+***< 2.3. Xử lý và lập chỉ mục tài liệu
+****< 2.3.1. Trích xuất văn bản PDF / DOCX
+****< 2.3.2. Chia đoạn và giữ vị trí nguồn
+****< 2.3.3. Tạo embedding và ghi chỉ mục vector
+****< 2.3.4. Lưu các đoạn văn bản và kết quả xử lý
+** 3. Hỗ trợ hỏi đáp và hội thoại
+***< 3.1. Hỏi đáp và đối chiếu trích dẫn
+****< 3.1.1. Bắt đầu hội thoại mới
+****< 3.1.2. Chọn nguồn cho câu hỏi
+****< 3.1.3. Gửi câu hỏi theo tài liệu
+****< 3.1.4. Xem câu trả lời và trạng thái
+****< 3.1.5. Hỏi tiếp trong hội thoại
+****< 3.1.6. Đối chiếu trích dẫn
+****< 3.1.7. Sao chép câu trả lời
+***< 3.2. Tra cứu và tiếp tục hội thoại đã lưu
+****< 3.2.1. Xem danh sách hội thoại đã lưu
+****< 3.2.2. Tìm hội thoại theo tiêu đề
+****< 3.2.3. Đọc lại hội thoại đã chọn
+****< 3.2.4. Tiếp tục hội thoại đã lưu
+****< 3.2.5. Mở nguồn của câu trả lời cũ
+****< 3.2.6. Sao chép câu trả lời đã lưu
+***< 3.3. Xử lý câu hỏi theo nguồn
+****< 3.3.1. Truy xuất các đoạn nguồn được phép
+****< 3.3.2. Sắp xếp lại nguồn khi bật rerank
+****< 3.3.3. Tạo context và sinh câu trả lời
+****< 3.3.4. Kiểm tra nhãn trích dẫn / báo thiếu bằng chứng
+** 4. Hỗ trợ nhóm học tập
+***< 4.1. Xem danh mục nhóm
+***< 4.2. Tìm nhóm theo môn
+***< 4.3. Xem thông tin giới thiệu nhóm
+***< 4.4. Tạo nhóm học
+***< 4.5. Tham gia nhóm
+***< 4.6. Rời nhóm
+***< 4.7. Đọc tin nhắn nhóm
+***< 4.8. Gửi tin nhắn nhóm
+** 5. Theo dõi hoạt động học
+***< 5.1. Cung cấp thông tin hoạt động học
+****< 5.1.1. Xem tổng quan học tập
+****< 5.1.2. Xem chuỗi ngày học hiện tại
+****< 5.1.3. Xem kỷ lục và tổng ngày học
+****< 5.1.4. Xem lịch học bảy ngày gần nhất
+****< 5.1.5. Xem cách ghi nhận ngày học
+****< 5.1.6. Xem số tài liệu sẵn sàng
+****< 5.1.7. Xem số phiên học đã lưu
+***< 5.2. Ghi nhận ngày học hợp lệ
+****< 5.2.1. Ghi ngày khi hoàn tất chat có nguồn
+****< 5.2.2. Tính chuỗi ngày, kỷ lục và lịch tuần
+** 6. Cung cấp thông báo trong ứng dụng
+***< 6.1. Tra cứu và xử lý thông báo
+****< 6.1.1. Xem danh sách thông báo
+****< 6.1.2. Xem số thông báo chưa đọc
+****< 6.1.3. Đánh dấu một thông báo đã đọc
+****< 6.1.4. Đánh dấu tất cả đã đọc
+****< 6.1.5. Mở hội thoại từ thông báo
+****< 6.1.6. Mở nhóm từ thông báo
+***< 6.2. Tạo thông báo theo sự kiện
+****< 6.2.1. Thông báo kết quả xử lý tài liệu
+****< 6.2.2. Thông báo kết quả / gián đoạn câu trả lời
+****< 6.2.3. Thông báo tin nhắn nhóm mới
+** 7. Tùy chỉnh trải nghiệm học
+***< 7.1. Chọn giao diện sáng, tối hoặc theo thiết bị
+***< 7.2. Điều chỉnh cỡ chữ lời giải
+***< 7.3. Chọn phím gửi câu hỏi
+***< 7.4. Bật hoặc tắt tự cuộn
+***< 7.5. Khôi phục cài đặt mặc định
+** 8. Vận hành và bảo vệ xử lý
+***< 8.1. Công bố nguồn chung bằng SQL đặc quyền
+****< 8.1.1. Xem tài liệu đã sẵn sàng để công bố
+****< 8.1.2. Công bố tài liệu vào kho chung
+****< 8.1.3. Cập nhật mô tả nguồn đã công bố
+****< 8.1.4. Thu hồi công bố tài liệu
+***< 8.2. Điều phối công việc nền
+****< 8.2.1. Tiếp nhận và nhận xử lý công việc
+****< 8.2.2. Giữ lease và cập nhật heartbeat
+****< 8.2.3. Thử lại khi lỗi / lưu trạng thái kết thúc
+****< 8.2.4. Chọn provider AI và fallback theo cấu hình
+***< 8.3. Kiểm soát truy cập và tính nhất quán
+****< 8.3.1. Kiểm tra chủ sở hữu, thành viên và nguồn công bố
+****< 8.3.2. Áp dụng quota và khóa idempotency
+****< 8.3.3. Kiểm tra phiên bản nguồn trước lưu kết quả
+****< 8.3.4. Cấp URL có thời hạn cho tệp được phép
+***< 8.4. Dọn dữ liệu tài liệu bị xóa
+****< 8.4.1. Xóa tệp, vector và nội dung các đoạn
+****< 8.4.2. Dọn upload bỏ dở / quét lại tệp phát sinh trễ
+** 9. Học theo tiến trình
+***< 9.1. Thiết lập lộ trình học
+****< 9.1.1. Chọn môn học và mục tiêu đầu ra
+****< 9.1.2. Xác định kiến thức ban đầu
+****< 9.1.3. Lập kế hoạch và nhịp học phù hợp
+***< 9.2. Học lần lượt theo bài và chặng
+****< 9.2.1. Nhận thứ tự bài và kiến thức tiên quyết
+****< 9.2.2. Học nội dung gắn với tài liệu nguồn
+****< 9.2.3. Luyện tập và làm kiểm tra cuối bài
+****< 9.2.4. Chuyển chặng khi đạt điều kiện hoàn thành
+***< 9.3. Đánh giá và điều chỉnh tiến trình
+****< 9.3.1. Xem mức hoàn thành theo bài và chặng
+****< 9.3.2. Xác định phần kiến thức cần củng cố
+****< 9.3.3. Học bù và điều chỉnh kế hoạch
+** 10. Tự học
+***< 10.1. Xác định nội dung và mục tiêu tự học
+****< 10.1.1. Lựa chọn chủ đề và tài liệu tự học
+****< 10.1.2. Đặt mục tiêu tự học
+****< 10.1.3. Lập kế hoạch thời gian tự học
+***< 10.2. Học và luyện tập
+****< 10.2.1. Ghi chú gắn với đoạn tài liệu
+****< 10.2.2. Tạo tóm tắt và thẻ ghi nhớ
+****< 10.2.3. Tự kiểm tra kiến thức theo chủ đề
+****< 10.2.4. Hỏi trợ giảng theo nội dung đang học
+***< 10.3. Ôn tập và theo dõi kết quả
+****< 10.3.1. Tự đánh giá mức độ đạt mục tiêu
+****< 10.3.2. Lập lịch ôn lại kiến thức cần nhớ
+****< 10.3.3. Xem lại ghi chú và các lần tự kiểm tra
+@endwbs

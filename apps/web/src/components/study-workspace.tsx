@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
-import { MAX_FILE_SIZE, statuses, subjects } from "@/core/validation";
+import { MAX_FILE_SIZE, statuses } from "@/core/validation";
 import type {
   Conversation,
   Message,
@@ -13,9 +14,17 @@ import type {
   StudyStreak,
 } from "@/core/types";
 import { Markdown } from "./markdown";
+import { StudyToolbar } from "./study-toolbar";
+import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
-import { ThemeToggle } from "./theme-provider";
-import { StudyStreakCard } from "./study-streak";
+import { DocumentRepository } from "./document-repository";
+import { SidebarIcon } from "./sidebar-icon";
+import { StudySettings } from "./study-settings";
+import { LearningPlans } from "./learning-plans";
+import { StudyGroups } from "./study-groups";
+import { useStudyPreferences } from "./use-study-preferences";
+import { shouldSendQuestion } from "@/core/study-preferences";
+import styles from "./study-workspace.module.css";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {
@@ -46,11 +55,20 @@ const location = (source: Source) =>
         .filter(Boolean)
         .join(" · ");
 
-export function StudyWorkspace({ username }: { username: string }) {
+export function StudyWorkspace({ username, initialConversationId = null, initialLibrary = null }: {
+  username: string;
+  initialConversationId?: string | null;
+  initialLibrary?: "knowledge" | "documents" | null;
+}) {
   const router = useRouter();
+  const { preferences, updatePreferences, storageAvailable } = useStudyPreferences();
   const [documents, setDocuments] = useState<StudyDocument[]>([]);
+  const [knowledge, setKnowledge] = useState<StudyDocument[]>([]);
+  const [knowledgeError, setKnowledgeError] = useState("");
+  const currentKnowledge = useRef(knowledge);
+  currentKnowledge.current = knowledge;
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(initialConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [worker, setWorker] = useState<WorkerStatus>({
@@ -58,19 +76,30 @@ export function StudyWorkspace({ username }: { username: string }) {
     provider: null,
     activeChat: null,
   });
-  const [subject, setSubject] = useState("calculus");
   const [question, setQuestion] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dataError, setDataError] = useState("");
+  const [view, setView] = useState<"overview" | "study" | "library" | "groups" | "settings" | "plans">(initialConversationId ? "study" : initialLibrary ? "library" : "overview");
+  const [plansOpened, setPlansOpened] = useState(false);
+  const [groupToOpen, setGroupToOpen] = useState<string | null>(null);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [streak, setStreak] = useState<StudyStreak | null>(null);
   const [streakError, setStreakError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [source, setSource] = useState<SourceDetail | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
-  const [tab, setTab] = useState("chat");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const end = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState(initialLibrary && !initialConversationId ? "documents" : "chat");
+  const [libraryView, setLibraryView] = useState<"knowledge" | "documents" | "history">(initialLibrary ?? "knowledge");
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const questionInput = useRef<HTMLTextAreaElement>(null);
+  const chatScroll = useRef<HTMLDivElement>(null);
+  const followConversation = useRef(true);
+  const sourceHeading = useRef<HTMLHeadingElement>(null);
+  const restoreChatFocus = useRef(false);
   const currentConversation = useRef(conversationId);
   currentConversation.current = conversationId;
   const requestIdentity = useRef<{ fingerprint: string; key: string } | null>(
@@ -82,7 +111,7 @@ export function StudyWorkspace({ username }: { username: string }) {
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequest.current;
     try {
-      const [docs, convs, health, history, streakResult] = await Promise.all([
+      const [docs, convs, health, history, streakResult, knowledgeResult] = await Promise.all([
         api<StudyDocument[]>("documents"),
         api<Conversation[]>("conversations"),
         api<WorkerStatus>("status"),
@@ -92,6 +121,9 @@ export function StudyWorkspace({ username }: { username: string }) {
         api<StudyStreak>("streak")
           .then((data) => ({ data, error: "" }))
           .catch((error: Error) => ({ data: null, error: error.message })),
+        api<StudyDocument[]>("knowledge")
+          .then((data) => ({ data, error: "" }))
+          .catch((error: Error) => ({ data: null, error: error.message })),
       ]);
       if (
         currentConversation.current !== conversationId ||
@@ -99,6 +131,9 @@ export function StudyWorkspace({ username }: { username: string }) {
       )
         return;
       setDocuments(docs);
+      if (knowledgeResult.data) setKnowledge(knowledgeResult.data);
+      setKnowledgeError(knowledgeResult.error);
+      setDataError("");
       setConversations(convs);
       setWorker(health);
       setMessages(history);
@@ -106,13 +141,17 @@ export function StudyWorkspace({ username }: { username: string }) {
       setStreakError(streakResult.error);
       setSelected((previous) =>
         previous.filter((id) =>
-          docs.some((doc) => doc.id === id && doc.status === "ready"),
+          [...docs, ...(knowledgeResult.data ?? currentKnowledge.current)].some((doc) => doc.id === id && doc.status === "ready"),
         ),
       );
       setLoading(false);
     } catch (error) {
+      if (currentConversation.current !== conversationId || requestId !== refreshRequest.current) return;
       setNotice((error as Error).message);
       setLoading(false);
+      setDataError((error as Error).message);
+      setStreak(null);
+      setStreakError("Chưa thể cập nhật chuỗi ngày học. Vui lòng thử lại.");
     }
   }, [conversationId]);
   const pending =
@@ -141,8 +180,27 @@ export function StudyWorkspace({ username }: { username: string }) {
     };
   }, [refresh, pending]);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, messages.at(-1)?.content.length]);
+    const container = chatScroll.current;
+    if (!container || !container.clientHeight || !preferences.autoScroll || !followConversation.current) return;
+    container.scrollTo({ top: container.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  }, [messages.length, messages.at(-1)?.content.length, tab, sourcesOpen, view, preferences.autoScroll]);
+  useEffect(() => {
+    if (sourcesOpen && view === "study") sourceHeading.current?.focus({ preventScroll: true });
+    else if (restoreChatFocus.current) {
+      document.getElementById("show-sources")?.focus({ preventScroll: true });
+      restoreChatFocus.current = false;
+    }
+  }, [sourcesOpen, view]);
+  useEffect(() => {
+    const input = questionInput.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 104)}px`;
+  }, [question, tab, sourcesOpen, view]);
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
 
   function choose(id: string) {
     setSelected((previous) => {
@@ -154,7 +212,7 @@ export function StudyWorkspace({ username }: { username: string }) {
       return [...previous, id];
     });
   }
-  async function upload(file: File) {
+  async function upload(file: File, subject: string) {
     if (
       file.size === 0 ||
       file.size > MAX_FILE_SIZE ||
@@ -204,7 +262,6 @@ export function StudyWorkspace({ username }: { username: string }) {
       setNotice((error as Error).message);
     } finally {
       setUploading(false);
-      if (fileInput.current) fileInput.current.value = "";
       await refresh();
     }
   }
@@ -226,7 +283,7 @@ export function StudyWorkspace({ username }: { username: string }) {
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!question.trim() || !selected.length || busy || worker.activeChat)
+    if (!worker.online || !question.trim() || !selected.length || busy || worker.activeChat)
       return;
     setBusy(true);
     setNotice("");
@@ -250,6 +307,7 @@ export function StudyWorkspace({ username }: { username: string }) {
         documentIds: selected,
         key: requestIdentity.current.key,
       });
+      followConversation.current = true;
       setQuestion("");
       requestIdentity.current = null;
       ++refreshRequest.current;
@@ -266,510 +324,303 @@ export function StudyWorkspace({ username }: { username: string }) {
   async function openSource(item: Source) {
     const requestId = ++sourceRequest.current;
     setSourceBusy(true);
+    setSource(null);
+    setSourcesOpen(true);
     setTab("sources");
     try {
       const result = await api<SourceDetail>(`sources/${item.id}`);
       if (requestId === sourceRequest.current) setSource(result);
     } catch (error) {
-      setNotice((error as Error).message);
+      if (requestId === sourceRequest.current) setNotice((error as Error).message);
     } finally {
       if (requestId === sourceRequest.current) setSourceBusy(false);
     }
   }
   function openConversation(id: string | null) {
+    ++refreshRequest.current;
+    setView("study");
+    if (id && id === currentConversation.current) void refresh();
+    ++sourceRequest.current;
+    followConversation.current = true;
     currentConversation.current = id;
     setConversationId(id);
     setMessages([]);
     setSource(null);
+    setSourceBusy(false);
+    setSourcesOpen(false);
     setTab("chat");
+    setQuestion("");
+    requestIdentity.current = null;
   }
   const allSources = messages
     .filter((message) => message.status === "completed")
     .flatMap((message) => message.message_sources);
 
+  function showDocuments() {
+    setView("library");
+    setLibraryView("knowledge");
+    setTab("documents");
+    setSourcesOpen(false);
+  }
+  function goToStudy() {
+    setView("study");
+    setTab("chat");
+    setSourcesOpen(false);
+  }
+  function openGroup(id: string) {
+    setGroupToOpen(id);
+    setView("groups");
+  }
+  async function copyMessage(message: Message) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessage(message.id);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopiedMessage(null), 2000);
+    } catch {
+      setNotice("Trình duyệt chưa cho phép sao chép. Bạn có thể bôi đen nội dung để sao chép.");
+    }
+  }
+  function closeSources() {
+    restoreChatFocus.current = true;
+    setSourcesOpen(false);
+    setTab("chat");
+  }
+  async function signOut() {
+    const { error } = await browserClient().auth.signOut();
+    if (error) {
+      setNotice("Không thể đăng xuất. Vui lòng kiểm tra kết nối và thử lại.");
+      return;
+    }
+    router.replace("/auth");
+    router.refresh();
+  }
+
   return (
-    <main className="workspace">
-      <header className="workspace-header">
-        <Brand workspace />
-        <div className="header-status">
-          <span className={`status-dot ${worker.online ? "online" : ""}`} />
-          <span>
-            {worker.online ? "Trợ giảng sẵn sàng" : "AI đang offline"}
-          </span>
-        </div>
-        <div className="account">
-          <ThemeToggle />
-          <span className="account-username" title={username}>{username}</span>
-          <button
-            onClick={async () => {
-              const { error } = await browserClient().auth.signOut();
-              if (error) {
-                setNotice(
-                  "Không thể đăng xuất. Vui lòng kiểm tra kết nối và thử lại.",
-                );
-                return;
-              }
-              router.replace("/auth");
-              router.refresh();
-            }}
-            className="text-link"
-          >
-            Đăng xuất
-          </button>
-        </div>
-      </header>
-      <StudyStreakCard data={streak} error={streakError} />
-      <div className="mobile-tabs" role="tablist" aria-label="Khu vực học tập">
-        {[
-          ["documents", "Tài liệu"],
-          ["chat", "Hội thoại"],
-          ["sources", "Nguồn"],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            id={`tab-${key}`}
-            role="tab"
-            aria-controls={`panel-${key}`}
-            aria-selected={tab === key}
-            tabIndex={tab === key ? 0 : -1}
-            className={tab === key ? "active" : ""}
-            onClick={() => setTab(key)}
-            onKeyDown={(event) => {
-              const tabs = ["documents", "chat", "sources"];
-              const index = tabs.indexOf(key);
-              const next =
-                event.key === "ArrowRight"
-                  ? (index + 1) % 3
-                  : event.key === "ArrowLeft"
-                    ? (index + 2) % 3
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? 2
-                        : -1;
-              if (next < 0) return;
-              event.preventDefault();
-              setTab(tabs[next]);
-              document.getElementById(`tab-${tabs[next]}`)?.focus();
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {notice && (
-        <div className="workspace-notice" role="status">
-          <span>{notice}</span>
-          <button className="text-link" onClick={() => setNotice("")}>
-            Đóng
-          </button>
-        </div>
-      )}
-      <div className="workspace-grid">
-        <aside
-          id="panel-documents"
-          role="tabpanel"
-          aria-labelledby="tab-documents"
-          className={`library pane ${tab === "documents" ? "mobile-visible" : ""}`}
-        >
-          <div className="pane-heading">
-            <p className="eyebrow">THƯ VIỆN CỦA BẠN</p>
-            <h2>
-              Tài liệu học tập
-              <span className="count">{documents.length}/20</span>
-            </h2>
-            <p className="muted">Chọn tối đa 5 tài liệu cho mỗi câu hỏi.</p>
-          </div>
-          <div className="upload-area">
-            <label htmlFor="subject">Môn học</label>
-            <select
-              id="subject"
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-            >
-              {Object.entries(subjects).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <input
-              className="sr-only"
-              id="document-file"
-              ref={fileInput}
-              type="file"
-              accept=".pdf,.docx"
-              disabled={!worker.online || uploading}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void upload(file);
-              }}
-            />
-            <button
-              className="upload-button"
-              disabled={!worker.online || uploading}
-              onClick={() => fileInput.current?.click()}
-            >
-              {uploading ? "Đang tải tài liệu…" : "Tải tài liệu lên"}
-              <small>PDF, DOCX · Tối đa 20 MB</small>
-            </button>
-          </div>
-          <div className="document-list">
-            {loading ? (
-              <p className="muted">Đang tải thư viện…</p>
-            ) : documents.length === 0 ? (
-              <div className="empty-library">
-                <span className="empty-index">01</span>
-                <h3>Bắt đầu từ giáo trình.</h3>
-                <p>
-                  Tải tài liệu đầu tiên để trợ giảng có thể đồng hành cùng bạn.
-                </p>
-              </div>
-            ) : (
-              documents.map((doc) => (
-                <article
-                  className={`document-card ${selected.includes(doc.id) ? "selected" : ""}`}
-                  key={doc.id}
-                >
-                  <label className="document-select">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(doc.id)}
-                      disabled={doc.status !== "ready"}
-                      onChange={() => choose(doc.id)}
-                    />
-                    <span>
-                      <strong>{doc.name}</strong>
-                      <small>
-                        {subjects[doc.subject as keyof typeof subjects]} ·{" "}
-                        {(doc.size_bytes / 1024 / 1024).toFixed(1)} MB
-                      </small>
-                    </span>
-                  </label>
-                  <div className="document-meta">
-                    <span className={`pill ${doc.status}`}>
-                      {statuses[doc.status]}
-                    </span>
-                    <div>
-                      {doc.status === "failed" && (
-                        <button
-                          className="text-link"
-                          onClick={() => void documentAction(doc.id, "retry")}
-                          disabled={!worker.online}
-                        >
-                          Thử lại
-                        </button>
-                      )}
-                      {doc.status === "uploading" && (
-                        <button
-                          className="text-link"
-                          disabled={!worker.online}
-                          onClick={() =>
-                            void documentAction(doc.id, "complete")
-                          }
-                        >
-                          Xác nhận file
-                        </button>
-                      )}
-                      {doc.status === "deleting" && doc.error && (
-                        <button
-                          className="text-link"
-                          onClick={() => void documentAction(doc.id, "delete")}
-                        >
-                          Thử xóa lại
-                        </button>
-                      )}
-                      {doc.status !== "deleting" && (
-                        <button
-                          className="text-link danger"
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `Xóa tài liệu “${doc.name}” và các đoạn nguồn?`,
-                              )
-                            )
-                              void documentAction(doc.id, "delete");
-                          }}
-                        >
-                          Xóa
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {doc.error && <p className="inline-error">{doc.error}</p>}
-                </article>
-              ))
-            )}
-          </div>
-          <section className="history">
-            <div className="history-heading">
-              <p className="eyebrow">LỊCH SỬ PHIÊN HỌC</p>
-              <button
-                className="text-link"
-                onClick={() => openConversation(null)}
-              >
-                Tạo mới
-              </button>
-            </div>
-            {conversations.length === 0 && (
-              <p className="muted">Hội thoại sẽ được lưu tại đây.</p>
-            )}
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                className={`history-item ${conversation.id === conversationId ? "active" : ""}`}
-                onClick={() => openConversation(conversation.id)}
-              >
-                {conversation.title}
-                <small>
-                  {new Date(conversation.created_at).toLocaleDateString(
-                    "vi-VN",
-                  )}
-                </small>
-              </button>
+    <main className={styles.shell} data-answer-font-size={preferences.answerFontSize} data-view={view}>
+      <aside className={styles.appNavigation} aria-label="Điều hướng ứng dụng">
+        <div className={styles.navigationBrand}><Brand workspace /></div>
+        <nav>
+          <button className={styles.newChatButton} onClick={() => openConversation(null)}>Trò chuyện mới</button>
+          {([["overview", "Tổng quan"], ["study", "Học tập"], ["documents", "Kho tài liệu"], ["history", "Lịch sử"], ["groups", "Nhóm học"]] as const).map(([key, label]) => (
+            <button key={key} aria-current={(view === key || (view === "library" && (key === "documents" ? libraryView !== "history" : key === "history" && libraryView === "history"))) ? "page" : undefined}
+              data-destination={key}
+              onClick={() => {
+                if (key === "overview") setView("overview");
+                else if (key === "study") goToStudy();
+                else if (key === "groups") setView("groups");
+                else {
+                  setView("library");
+                  setLibraryView(key === "documents" ? "knowledge" : key);
+                  setTab("documents");
+                  setSourcesOpen(false);
+                }
+              }} title={label}><SidebarIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
+          ))}
+          <button aria-current={view === "plans" ? "page" : undefined}
+            onClick={() => { setPlansOpened(true); setView("plans"); }}>Kế hoạch</button>
+          <section className={styles.sidebarRecent} aria-label="Hội thoại gần đây">
+            <h2>Gần đây</h2>
+            <label className="sr-only" htmlFor="sidebar-history-search">Tìm trong tên phiên học</label>
+            <input id="sidebar-history-search" type="search" placeholder="Tìm phiên học…" value={historyQuery}
+              onChange={(event) => setHistoryQuery(event.target.value)} />
+            {loading ? <p>Đang tải…</p> : conversations.filter((item) => item.title.toLocaleLowerCase("vi-VN").includes(historyQuery.trim().toLocaleLowerCase("vi-VN"))).slice(0, 8).map((item) => (
+              <button className={styles.recentConversation} key={item.id} title={item.title}
+                aria-current={view === "study" && item.id === conversationId ? "true" : undefined}
+                onClick={() => openConversation(item.id)}>{item.title}</button>
             ))}
+            {!loading && conversations.length === 0 && <p>Phiên học mới sẽ xuất hiện ở đây.</p>}
           </section>
-        </aside>
-        <section
-          id="panel-chat"
-          role="tabpanel"
-          aria-labelledby="tab-chat"
-          className={`chat-pane pane ${tab === "chat" ? "mobile-visible" : ""}`}
-        >
-          <div className="chat-heading">
-            <div>
-              <p className="eyebrow">CÙNG NHAU GỠ RỐI KIẾN THỨC</p>
-              <h2>
-                {conversations.find((item) => item.id === conversationId)
-                  ?.title || "Phiên học mới"}
-              </h2>
-            </div>
-            <span className="pill">{selected.length} tài liệu được chọn</span>
+          <button className={styles.navigationSettings} aria-current={view === "settings" ? "page" : undefined}
+            onClick={() => setView("settings")} title="Cài đặt">
+            <SidebarIcon name="settings" className={styles.navigationIcon} /><span>Cài đặt</span>
+          </button>
+        </nav>
+      </aside>
+      <div className={styles.mainColumn}>
+        <StudyToolbar username={username} online={worker.online} loading={loading} provider={worker.provider}
+          streak={streak} streakError={streakError} onSignOut={signOut}
+          onOpenConversation={openConversation} onOpenGroup={openGroup}
+          showStreak={view !== "overview"}
+          title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan học tập" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
+          subtitle={view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "Mỗi ngày một bước, hiểu thêm một chút." : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
+        {notice && (
+          <div className={styles.notice} role="status">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")}>Đóng</button>
           </div>
-          {!worker.online && (
-            <div className="offline-note">
-              Máy xử lý AI chưa kết nối. Bạn vẫn có thể đọc lại lịch sử; tài
-              liệu và câu hỏi đang chờ sẽ tiếp tục khi máy hoạt động.
+        )}
+        {view === "overview" && <StudyOverview username={username} documents={documents} conversations={conversations}
+          streak={streak} streakError={streakError} loading={loading} unavailable={Boolean(dataError)}
+          onStudy={goToStudy} onNewConversation={() => openConversation(null)} onLibrary={showDocuments} onConversation={openConversation} />}
+        {view === "settings" && <StudySettings preferences={preferences} onChange={updatePreferences} storageAvailable={storageAvailable} />}
+        {view === "groups" && <StudyGroups username={username} initialGroupId={groupToOpen} onSelectGroup={setGroupToOpen} />}
+        {plansOpened && <div className="learning-plans-panel" hidden={view !== "plans"}>
+          <LearningPlans documents={Array.from(new Map([...documents, ...knowledge].map(doc => [doc.id, doc])).values())}
+            onAsk={(ids, topic) => {
+              openConversation(null);
+              setSelected(ids.filter(id => [...documents, ...knowledge].some(doc => doc.id === id && doc.status === "ready")));
+              setQuestion(`Giúp tôi học chủ đề “${topic}” dựa trên tài liệu đã chọn.`);
+            }} />
+        </div>}
+        <div className={styles.contentGrid} hidden={view !== "study" && view !== "library"} data-view={view} data-panel={tab} data-sources-open={sourcesOpen}>
+          <aside id="panel-documents" className={styles.library} aria-label="Thư viện học tập">
+            <div className={styles.libraryHeading}>
+              <h2>{libraryView === "history" ? "Các phiên đã lưu" : "Tất cả tài liệu"}</h2>
+              <span className={styles.counter}>{libraryView === "documents" ? `${documents.length}/20 tệp cá nhân` : libraryView === "knowledge" ? `${knowledge.length} tài liệu chung` : `${conversations.length} phiên`}</span>
+              <button className={styles.quietButton} onClick={() => setLibraryView(libraryView === "history" ? "knowledge" : "history")}>
+                {libraryView === "history" ? "Kho tài liệu" : "Lịch sử"}</button>
+              {view === "library" && <button className={styles.quietButton} onClick={goToStudy}>Vào học{selected.length > 0 ? ` · ${selected.length} tài liệu` : ""}</button>}
             </div>
-          )}
-          {worker.provider === "openrouter" && (
-            <div className="offline-note">
-              Chế độ AI qua OpenRouter/NVIDIA: câu hỏi và các đoạn tài liệu cần xử lý
-              được gửi đến dịch vụ này. Tài liệu và lịch sử vẫn được lưu trong tài khoản của bạn.
-              {" "}Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.
-            </div>
-          )}
-          {worker.provider === "ollama_with_openrouter_fallback" && (
-            <div className="offline-note">
-              Trợ giảng ưu tiên model cục bộ. Khi model không khả dụng, câu hỏi,
-              lịch sử gần đây và các đoạn nguồn sẽ được gửi qua OpenRouter/NVIDIA
-              để trả lời. Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.
-            </div>
-          )}
-          {worker.activeChat &&
-            worker.activeChat.conversation_id !== conversationId && (
-              <div className="offline-note">
-                Bạn đang có câu hỏi ở phiên khác.{" "}
-                <button
-                  className="text-link"
-                  onClick={() =>
-                    openConversation(worker.activeChat!.conversation_id)
-                  }
-                >
-                  Mở phiên đang xử lý
-                </button>
-              </div>
-            )}
-          <div
-            className="chat-scroll"
-            key={conversationId ?? "new"}
-            aria-live="polite"
-            aria-relevant="additions text"
-          >
-            {messages.length === 0 ? (
-              <div className="chat-welcome">
-                <p className="eyebrow">MỘT CÂU HỎI, THÊM MỘT ĐIỀU HAY</p>
-                <h1>
-                  Chào bạn! Hôm nay,
-                  <br />
-                  mình cùng hiểu <em>điều gì?</em>
-                </h1>
-                <p>
-                  Chọn tài liệu ở thư viện và bắt đầu bằng điều bạn còn băn
-                  khoăn. Trợ giảng sẽ tìm những đoạn liên quan để cùng bạn giải
-                  thích.
-                </p>
-                <div className="question-examples">
-                  {[
-                    "Giải thích khái niệm chính trong tài liệu",
-                    "Tóm tắt các công thức quan trọng",
-                    "Giải thích từng bước một ví dụ trong tài liệu",
-                  ].map((text) => (
-                    <button key={text} onClick={() => setQuestion(text)}>
-                      {text}
+            {libraryView !== "history" && <nav className={styles.libraryNav} aria-label="Các khu vực kho tài liệu">
+              <button aria-pressed={libraryView === "knowledge"} aria-controls="library-knowledge"
+                onClick={() => setLibraryView("knowledge")}>Tài liệu chung</button>
+              <button aria-pressed={libraryView === "documents"} aria-controls="library-documents"
+                onClick={() => setLibraryView("documents")}>Tài liệu của tôi</button>
+            </nav>}
+            <section id="library-knowledge" className={styles.librarySection} hidden={libraryView !== "knowledge"} aria-label="Tài liệu chung">
+              <DocumentRepository mode="knowledge" documents={knowledge} selected={selected} loading={loading}
+                error={knowledgeError || dataError} online={worker.online} uploading={uploading}
+                onChoose={choose} onUpload={upload} onAction={documentAction} onRefresh={refresh} />
+            </section>
+            <section id="library-documents" className={styles.librarySection} hidden={libraryView !== "documents"} aria-label="Tài liệu">
+              <DocumentRepository documents={documents} selected={selected} loading={loading} error={dataError}
+                online={worker.online} uploading={uploading} onChoose={choose} onUpload={upload}
+                onAction={documentAction} onRefresh={refresh} />
+            </section>
+            <section id="library-history" className={styles.historyList} hidden={libraryView !== "history"} aria-label="Lịch sử hội thoại">
+              {loading ? <p className={styles.emptyText}>Đang tải lịch sử…</p>
+                : conversations.length === 0 ? <div className={styles.emptyLibrary}><h3>Chưa có hội thoại</h3><p>Các phiên học của bạn sẽ được lưu tại đây.</p></div>
+                  : conversations.map((conversation) => (
+                    <button key={conversation.id} className={styles.historyItem} aria-current={conversation.id === conversationId ? "true" : undefined}
+                      onClick={() => openConversation(conversation.id)}>
+                      <strong>{conversation.title}</strong>
+                      <small>{new Date(conversation.created_at).toLocaleDateString("vi-VN")}</small>
                     </button>
                   ))}
-                </div>
-                <div className="welcome-rule">
-                  <span>ĐỌC</span>
-                  <span>ĐẶT CÂU HỎI</span>
-                  <span>ĐỐI CHIẾU</span>
-                </div>
+            </section>
+          </aside>
+          <section id="panel-chat" className={styles.chatPanel} aria-label="Hội thoại học tập">
+            <div className={styles.chatHeading}>
+              <div className={styles.sessionTitle}>
+                <h2>{conversations.find((item) => item.id === conversationId)?.title || "Phiên học mới"}</h2>
+                <button onClick={showDocuments}>{selected.length ? `${selected.length} tài liệu đã chọn` : "Chọn tài liệu để bắt đầu"}</button>
               </div>
-            ) : (
-              messages.map((message) => (
-                <article className={`message ${message.role}`} key={message.id}>
-                  <div className="message-label">
-                    {message.role === "user" ? "BẠN" : "TRỢ GIẢNG"}
-                    <span>
-                      {message.status !== "completed"
-                        ? statuses[message.status]
-                        : message.role === "assistant" && message.generation_provider === "openrouter"
-                          ? "Trả lời qua OpenRouter"
-                          : ""}
-                    </span>
-                  </div>
-                  {message.content ? (
-                    <Markdown content={message.content} />
-                  ) : (
-                    <p className="muted">
-                      {message.status === "queued"
-                        ? "Câu hỏi đã vào hàng đợi…"
-                        : "Đang tìm và đọc các đoạn liên quan…"}
-                    </p>
-                  )}
-                  {message.status === "completed" &&
-                    message.message_sources.length > 0 && (
-                      <div className="message-citations">
-                        {message.message_sources.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => void openSource(item)}
-                          >
-                            [{item.label}] {item.document_name} ·{" "}
-                            {location(item)}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  {["failed", "interrupted"].includes(message.status) && (
-                    <p className="inline-error">
-                      Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi
-                      sau khi kiểm tra kết nối AI.
-                    </p>
-                  )}
-                </article>
-              ))
+              <div className={styles.chatHeadingActions}>
+              <button className={`${styles.quietButton} ${styles.mobileNewChat}`} type="button" aria-label="Phiên học mới" onClick={() => openConversation(null)}>Mới</button>
+              <button id="show-sources" className={styles.quietButton} aria-controls="panel-sources" aria-expanded={sourcesOpen}
+                onClick={() => {
+                  if (sourcesOpen) closeSources();
+                  else { setSourcesOpen(true); setTab("sources"); }
+                }}>Nguồn <span className={styles.sourceCount}>{allSources.length}</span></button>
+              </div>
+            </div>
+            {worker.activeChat && worker.activeChat.conversation_id !== conversationId && (
+              <div className={styles.activeJob} role="status">
+                <span>Một câu hỏi đang được xử lý ở phiên khác.</span>
+                <button onClick={() => openConversation(worker.activeChat!.conversation_id)}>Mở phiên đó</button>
+              </div>
             )}
-            <div ref={end} />
-          </div>
-          <form className="composer" onSubmit={send}>
-            <label className="sr-only" htmlFor="question">
-              Câu hỏi của bạn
-            </label>
-            <textarea
-              id="question"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              placeholder={
-                selected.length
-                  ? "Đặt câu hỏi từ tài liệu của bạn…"
-                  : "Chọn tài liệu sẵn sàng trước khi đặt câu hỏi…"
-              }
-              maxLength={2000}
-              rows={3}
-            />
-            <div className="composer-bottom">
-              <span>
-                {question.length}/2000 ·{" "}
-                {worker.activeChat
-                  ? "Đang có câu hỏi chờ xử lý"
-                  : "Câu trả lời có thể cần thời gian để suy luận"}
-              </span>
-              <button
-                className="button small"
-                disabled={
-                  !worker.online ||
-                  busy ||
-                  Boolean(worker.activeChat) ||
-                  selected.length === 0 ||
-                  !question.trim()
-                }
-              >
-                {busy ? "Đang gửi…" : "Gửi câu hỏi"}
-              </button>
-            </div>
-            <p className="composer-disclaimer">
-              AI có thể nhầm lẫn. Hãy đối chiếu công thức và lời giải với tài
-              liệu nguồn.
-            </p>
-          </form>
-        </section>
-        <aside
-          id="panel-sources"
-          role="tabpanel"
-          aria-labelledby="tab-sources"
-          className={`sources-pane pane ${tab === "sources" ? "mobile-visible" : ""}`}
-        >
-          <div className="pane-heading">
-            <p className="eyebrow">HIỂU ĐẾN TẬN NGUỒN</p>
-            <h2>Nguồn tham khảo</h2>
-            <p className="muted">Mở trích dẫn để đọc ngữ cảnh gốc.</p>
-          </div>
-          {sourceBusy ? (
-            <p className="muted">Đang mở nguồn…</p>
-          ) : source ? (
-            <article className="source-detail content-transition" key={source.id}>
-              <span className="pill">[{source.label}]</span>
-              <h3>{source.document_name}</h3>
-              <p className="source-location">{location(source)}</p>
-              {source.available ? (
-                <>
-                  <p className="source-excerpt">{source.content}</p>
-                  {source.url && (
-                    <a
-                      className="button secondary small"
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Mở trang PDF gốc
-                    </a>
+            <div className={styles.chatScroll} ref={chatScroll} data-empty={messages.length === 0}
+              key={conversationId ?? "new"} aria-live="polite" aria-relevant="additions text"
+              onScroll={(event) => {
+                const container = event.currentTarget;
+                followConversation.current = container.scrollHeight - container.clientHeight - container.scrollTop < 72;
+              }}>
+              {messages.length === 0 ? (
+                <div className={styles.welcome}>
+                  <p className={styles.greeting}>Chào {username}</p>
+                  <h2>Bạn muốn hiểu rõ điều gì?</h2>
+                  <p>Đặt câu hỏi từ tài liệu của bạn. Mỗi lời giải đều có nguồn để đối chiếu.</p>
+                  {!selected.length && <button className={styles.chooseDocuments} onClick={showDocuments}>Chọn tài liệu</button>}
+                  <div className={styles.examples}>
+                    {[
+                      ["Hiểu khái niệm", "Giải thích khái niệm chính trong tài liệu"],
+                      ["Ôn công thức", "Tóm tắt các công thức quan trọng"],
+                      ["Gỡ một ví dụ", "Giải thích từng bước một ví dụ trong tài liệu"],
+                    ].map(([label, text]) => (
+                      <button key={label} onClick={() => { setQuestion(text); questionInput.current?.focus(); }}>
+                        <strong>{label}</strong><span>{text}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : messages.map((message) => (
+                <article className={styles.message} data-role={message.role} key={message.id}>
+                  <div className={styles.messageLabel}>
+                    <strong>{message.role === "user" ? "Bạn" : "LearnStep"}</strong>
+                    <span>{message.status !== "completed" ? statuses[message.status]
+                      : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
+                  </div>
+                  {message.content ? <Markdown content={message.content} />
+                    : <p className={styles.emptyText}>{message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
+                  {message.status === "completed" && message.message_sources.length > 0 && (
+                    <div className={styles.citations}>{message.message_sources.map((item) => (
+                      <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
+                    ))}</div>
                   )}
-                </>
-              ) : (
-                <p className="notice">
-                  Tài liệu đã bị xóa hoặc nguồn không còn khả dụng.
-                </p>
-              )}
-            </article>
-          ) : (
-            <div className="source-empty">
-              <span className="empty-index">[S1]</span>
-              <h3>
-                Mỗi lời giải,
-                <br />
-                một điểm tựa.
-              </h3>
-              <p>
-                Nguồn được hiển thị khi trợ giảng sử dụng tài liệu để trả lời.
-                Chọn một trích dẫn bên dưới câu trả lời để đọc chi tiết.
-              </p>
-            </div>
-          )}
-          {allSources.length > 0 && (
-            <div className="source-list">
-              <p className="eyebrow">TRONG PHIÊN HỌC NÀY</p>
-              {allSources.map((item) => (
-                <button key={item.id} onClick={() => void openSource(item)}>
-                  <span>[{item.label}]</span>
-                  <strong>{item.document_name}</strong>
-                  <small>{location(item)}</small>
-                </button>
+                  {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
+                  {message.content && <div className={styles.messageTools}>
+                    <button type="button" onClick={() => void copyMessage(message)}>{copiedMessage === message.id ? "Đã sao chép" : "Sao chép"}</button>
+                    {message.role === "user" && <button type="button" onClick={() => { setQuestion(message.content); questionInput.current?.focus(); }}>Dùng lại câu hỏi</button>}
+                  </div>}
+                </article>
               ))}
             </div>
-          )}
-        </aside>
+            <form className={styles.composer} onSubmit={send}>
+              <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
+              <div className={styles.composerBox}>
+                <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
+                  placeholder={selected.length ? "Đặt câu hỏi từ tài liệu…" : "Chọn tài liệu rồi đặt câu hỏi…"}
+                  maxLength={2000} rows={1} aria-describedby="composer-hint" onKeyDown={(event) => {
+                    if (shouldSendQuestion({ key: event.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
+                      metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, preferences.sendWithEnter)) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }} />
+                <div className={styles.composerTools}>
+                  <button type="button" className={styles.composerDocuments} onClick={showDocuments}>Tài liệu <span>{selected.length}/5</span></button>
+                  <button className={styles.sendButton}
+                    disabled={!worker.online || busy || Boolean(worker.activeChat) || !selected.length || !question.trim()}>
+                    {busy ? "Đang gửi…" : "Gửi"}
+                  </button>
+                </div>
+              </div>
+              <div className={styles.composerFooter} id="composer-hint">
+                <span>{loading ? "Đang kết nối…" : !worker.online ? "AI tạm dừng · Bạn có thể xem lại hội thoại."
+                  : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
+                    : "AI có thể nhầm lẫn. Hãy đối chiếu với nguồn."}</span>
+                <span>{question.length}/2000</span>
+              </div>
+            </form>
+          </section>
+          <aside id="panel-sources" className={styles.sourcePanel} aria-label="Nguồn tham khảo"
+            onKeyDown={(event) => { if (event.key === "Escape") closeSources(); }}>
+            <div className={styles.sourceHeading}>
+              <h2 ref={sourceHeading} tabIndex={-1}>Nguồn tham khảo</h2>
+              <button className={styles.quietButton} onClick={closeSources}>Đóng</button>
+            </div>
+            <div className={styles.sourceScroll}>
+              {sourceBusy ? <p className={styles.emptyText} role="status">Đang mở nguồn…</p>
+                : source ? <article className={styles.sourceDetail} key={source.id}>
+                  <span className="pill">[{source.label}]</span>
+                  <h3>{source.document_name}</h3><p className={styles.sourceLocation}>{location(source)}</p>
+                  {source.available ? <>
+                    <p className={styles.sourceExcerpt}>{source.content}</p>
+                    {source.url && <a className={styles.pdfLink} href={source.url} target="_blank" rel="noopener noreferrer">Mở trang PDF gốc</a>}
+                  </> : <p className={styles.emptyText}>Tài liệu đã bị xóa hoặc nguồn không còn khả dụng.</p>}
+                </article>
+                  : <div className={styles.emptyLibrary}><h3>Đối chiếu lời giải</h3><p>Chọn trích dẫn bên dưới câu trả lời để đọc đoạn nguồn và mở tài liệu gốc.</p></div>}
+              {allSources.length > 0 && <div className={styles.sourceList}>
+                <h3>Trong phiên học này</h3>
+                {allSources.map((item) => <button key={item.id} aria-pressed={source?.id === item.id} onClick={() => void openSource(item)}>
+                  <span>[{item.label}]</span><strong>{item.document_name}</strong><small>{location(item)}</small>
+                </button>)}
+              </div>}
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
   );

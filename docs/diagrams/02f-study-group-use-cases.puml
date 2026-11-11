@@ -1,0 +1,32 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+actor "Thành viên nhóm" as M
+actor "Thành viên\nkhông phải chủ nhóm" as N
+actor "Chủ nhóm" as O
+rectangle "LearnStep — Nhóm học tập" {
+ usecase "NH-01\nXem danh mục nhóm" as list
+ usecase "NH-02\nTìm nhóm theo môn" as find
+ usecase "NH-03\nXem thông tin giới thiệu nhóm" as detail
+ usecase "NH-04\nTạo nhóm học" as create
+ usecase "NH-05\nTham gia nhóm" as join
+ usecase "NH-06\nRời nhóm" as leave
+ usecase "NH-07\nĐọc tin nhắn nhóm" as read
+ usecase "NH-08\nGửi tin nhắn nhóm" as post
+}
+L --> list
+L --> find
+L --> detail
+L --> create
+L --> join
+N --> leave
+M --> read
+M --> post
+M --|> L
+N --|> M
+O --|> M
+@enduml

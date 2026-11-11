@@ -1,0 +1,18 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người vận hành\nđặc quyền database" as O
+rectangle "LearnStep — Vận hành công bố tài liệu chung (SQL đặc quyền)" {
+ usecase "VH-01\nXem tài liệu đã sẵn sàng để công bố" as list
+ usecase "VH-02\nCông bố tài liệu vào kho chung" as publish
+ usecase "VH-03\nCập nhật mô tả nguồn đã công bố" as desc
+ usecase "VH-04\nThu hồi công bố tài liệu" as revoke
+}
+O --> list
+O --> publish
+O --> desc
+O --> revoke
+@enduml

@@ -210,16 +210,17 @@ def test_chat_refuses_old_embedding_space_before_any_ai_call():
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.settings = settings()
     pipeline.vectors = SimpleNamespace(collection="new-model")
-    rows = [{"id": "d", "status": "ready", "index_version": 1,
+    rows = [{"id": "d", "user_id": "u", "status": "ready", "index_version": 1,
              "embedding_profile": "ollama:bge-m3", "vector_collection": "old-model"}]
     pipeline.conn = SimpleNamespace(execute=lambda *_: SimpleNamespace(fetchall=lambda: rows))
     with pytest.raises(IndexMismatch):
         pipeline.chat_documents({"user_id": "u", "payload": {"document_ids": ["d"], "versions": {"d": 1}}})
 
 
-def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkeypatch):
+@pytest.mark.parametrize("authorized_owner", ["alice", "library"])
+def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkeypatch, authorized_owner):
     canonical = {
-        "id": "own-chunk", "document_id": "own-doc", "user_id": "alice", "index_version": 1,
+        "id": "own-chunk", "document_id": "own-doc", "user_id": authorized_owner, "index_version": 1,
         "content": "Authorized source", "document_name": "source.pdf", "page": 1, "section": None, "paragraph": None,
     }
     forwarded = []
@@ -232,7 +233,7 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
             if "select role,content" in sql:
                 return SimpleNamespace(fetchall=lambda: [])
             if "select c.*" in sql:
-                assert params[1:] == ("alice", "own-doc", "alice", 1)
+                assert params[1:] == (authorized_owner, "own-doc", authorized_owner, 1, "alice")
                 return SimpleNamespace(fetchone=lambda: canonical if params[0] == "own-chunk" else None)
             return None
 
@@ -253,7 +254,8 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
                                       generate=generate, count=lambda text: len(text.split()))
     hits = [SimpleNamespace(payload={"user_id": owner, "document_id": doc, "chunk_id": chunk}) for owner, doc, chunk in [
         ("bob", "other-doc", "foreign secret"), ("alice", "other-doc", "foreign secret"),
-        ("alice", "own-doc", "forged-chunk"), ("alice", "own-doc", "own-chunk"),
+        ("bob", "own-doc", "foreign secret"),
+        (authorized_owner, "own-doc", "forged-chunk"), (authorized_owner, "own-doc", "own-chunk"),
     ]]
     pipeline.vectors = SimpleNamespace(search=lambda *args: hits)
     pipeline.heartbeat = SimpleNamespace(lost=threading.Event())
@@ -261,6 +263,7 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
     monkeypatch.setattr("study_worker.main.finish", lambda *_: None)
     pipeline.chat({"id": "job", "message_id": "assistant", "user_id": "alice", "payload": {
         "document_ids": ["own-doc"], "versions": {"own-doc": 1}, "conversation_id": "conv",
+        "owners": {"own-doc": authorized_owner},
         "user_message_id": "question", "question": "q",
     }})
     assert forwarded == [canonical]

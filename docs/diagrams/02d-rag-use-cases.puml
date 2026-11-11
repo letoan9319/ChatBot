@@ -1,0 +1,26 @@
+@startuml
+!include style.iuml
+left to right direction
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.5
+skinparam actorBorderColor #273340
+actor "Người học\n(đã đăng nhập)" as L
+rectangle "LearnStep — Hỏi đáp và trích dẫn" {
+ usecase "HD-01\nBắt đầu hội thoại mới" as new
+ usecase "HD-02\nChọn nguồn cho câu hỏi" as select
+ usecase "HD-03\nGửi câu hỏi theo tài liệu" as ask
+ usecase "HD-04\nXem câu trả lời và trạng thái\n--\nĐiểm mở rộng: sau hiển thị" as answer
+ usecase "HD-05\nHỏi tiếp trong hội thoại" as follow
+ usecase "HD-06\nĐối chiếu trích dẫn" as cite
+ usecase "HD-07\nSao chép câu trả lời" as copy
+}
+L --> new
+L --> select
+L --> ask
+L --> answer
+L --> follow
+L --> cite
+L --> copy
+cite ..> answer : <<extend>>\n[có nguồn và người học chọn trích dẫn]\nđiểm mở rộng: sau hiển thị
+copy ..> answer : <<extend>>\n[câu trả lời hoàn tất và người học chọn sao chép]\nđiểm mở rộng: sau hiển thị
+@enduml

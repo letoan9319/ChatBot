@@ -1,0 +1,41 @@
+@startuml
+!include style.iuml
+left to right direction
+package "Next.js application" {
+ component "React UI\nstudy-workspace, document-repository,\ndocument-reader, study-groups" as ui
+ component "API routes\napp/api/[[...path]]/route.ts" as api
+ component "Validation và request security\ncore/validation, request-security" as validation
+ component "Supabase clients\nSSR session / browser / storage admin" as clients
+}
+package "Python worker" {
+ component "Job consumer và Pipeline\nmain.claim, Pipeline, Heartbeat" as pipeline
+ component "Parser và chunking\ndocuments.py" as parser
+ component "Context và citation validation\nrag.py" as rag
+ component "Model adapter\nLocalModels / OpenRouterModels /\nChatFallbackModels" as models
+ component "VectorStore\nmodels.py" as vectors
+}
+package "Dịch vụ bên ngoài tiến trình ứng dụng" {
+ component "Supabase Auth" as auth
+ component "Supabase PostgREST + RPC" as data
+ component "Supabase Storage" as storage
+ database "PostgreSQL + PGMQ" as db
+ component "Qdrant service" as qdrant
+ component "Ollama / OpenRouter\ntheo cấu hình" as ai
+}
+ui ..> api : HTTPS API
+ui ..> clients : browser auth / signed upload
+api ..> validation : kiểm tra input
+api ..> clients : session và storage
+clients ..> auth : Auth API
+clients ..> data : bảng / RPC
+clients ..> storage : object API
+data ..> db : SQL và RLS
+pipeline ..> db : SQL / PGMQ / lease
+pipeline ..> storage : tải và xóa file
+pipeline ..> parser : extract / chunk_sections
+pipeline ..> rag : build_prompt / validate_citations
+pipeline ..> models : embed / rerank / generate
+pipeline ..> vectors : search / upsert / delete
+vectors ..> qdrant : Qdrant client API
+models ..> ai : HTTP theo cấu hình
+@enduml

@@ -1,0 +1,599 @@
+{
+  "label": "LearnStep — Hỗ trợ tự học theo tài liệu",
+  "children": [
+    {
+      "label": "Quản lý tài khoản và hồ sơ",
+      "children": [
+        {
+          "label": "Đăng ký tài khoản",
+          "use_case": "TK-01"
+        },
+        {
+          "label": "Xác nhận email đăng ký",
+          "use_case": "TK-02"
+        },
+        {
+          "label": "Đăng nhập bằng email",
+          "use_case": "TK-03"
+        },
+        {
+          "label": "Yêu cầu liên kết khôi phục mật khẩu",
+          "use_case": "TK-04"
+        },
+        {
+          "label": "Đặt mật khẩu mới",
+          "use_case": "TK-05"
+        },
+        {
+          "label": "Hoàn tất hồ sơ ban đầu",
+          "use_case": "TK-06"
+        },
+        {
+          "label": "Đăng xuất",
+          "use_case": "TK-07"
+        }
+      ],
+      "evidence": "apps/web/src/components/auth-form.tsx; apps/web/src/components/username-setup.tsx"
+    },
+    {
+      "label": "Quản lý kho tài liệu",
+      "children": [
+        {
+          "label": "Quản lý tài liệu cá nhân",
+          "children": [
+            {
+              "label": "Xem danh sách tài liệu của tôi",
+              "use_case": "CN-01"
+            },
+            {
+              "label": "Tra cứu tài liệu cá nhân",
+              "use_case": "CN-02"
+            },
+            {
+              "label": "Tải tài liệu cá nhân lên",
+              "use_case": "CN-03"
+            },
+            {
+              "label": "Xác nhận bản tải đang dở",
+              "use_case": "CN-04"
+            },
+            {
+              "label": "Theo dõi kết quả xử lý tài liệu",
+              "use_case": "CN-05"
+            },
+            {
+              "label": "Thử xử lý lại tài liệu lỗi",
+              "use_case": "CN-06"
+            },
+            {
+              "label": "Đọc tài liệu gốc của tôi",
+              "use_case": "CN-07"
+            },
+            {
+              "label": "Xóa tài liệu của tôi",
+              "use_case": "CN-08"
+            },
+            {
+              "label": "Thử xóa lại khi dọn tệp lỗi",
+              "use_case": "CN-09"
+            }
+          ],
+          "evidence": "apps/web/src/components/document-repository.tsx"
+        },
+        {
+          "label": "Tra cứu và sử dụng tài liệu chung",
+          "children": [
+            {
+              "label": "Xem danh mục tài liệu chung",
+              "use_case": "CH-01"
+            },
+            {
+              "label": "Tra cứu tài liệu chung",
+              "use_case": "CH-02"
+            },
+            {
+              "label": "Xem chi tiết tài liệu chung",
+              "use_case": "CH-03"
+            },
+            {
+              "label": "Đọc tệp gốc đã công bố",
+              "use_case": "CH-04"
+            },
+            {
+              "label": "Chọn nguồn chung cho câu hỏi",
+              "use_case": "CH-05"
+            }
+          ],
+          "evidence": "supabase/migrations/202610300001_document_repository.sql"
+        },
+        {
+          "label": "Xử lý và lập chỉ mục tài liệu",
+          "children": [
+            {
+              "label": "Trích xuất văn bản PDF / DOCX"
+            },
+            {
+              "label": "Chia đoạn và giữ vị trí nguồn"
+            },
+            {
+              "label": "Tạo embedding và ghi chỉ mục vector"
+            },
+            {
+              "label": "Lưu các đoạn văn bản và kết quả xử lý"
+            }
+          ],
+          "evidence": "services/worker/src/study_worker/documents.py; services/worker/src/study_worker/main.py"
+        }
+      ],
+      "evidence": "docs/document-repository.md"
+    },
+    {
+      "label": "Hỗ trợ hỏi đáp và hội thoại",
+      "children": [
+        {
+          "label": "Hỏi đáp và đối chiếu trích dẫn",
+          "children": [
+            {
+              "label": "Bắt đầu hội thoại mới",
+              "use_case": "HD-01"
+            },
+            {
+              "label": "Chọn nguồn cho câu hỏi",
+              "use_case": "HD-02"
+            },
+            {
+              "label": "Gửi câu hỏi theo tài liệu",
+              "use_case": "HD-03"
+            },
+            {
+              "label": "Xem câu trả lời và trạng thái",
+              "use_case": "HD-04"
+            },
+            {
+              "label": "Hỏi tiếp trong hội thoại",
+              "use_case": "HD-05"
+            },
+            {
+              "label": "Đối chiếu trích dẫn",
+              "use_case": "HD-06"
+            },
+            {
+              "label": "Sao chép câu trả lời",
+              "use_case": "HD-07"
+            }
+          ],
+          "evidence": "apps/web/src/components/study-workspace.tsx"
+        },
+        {
+          "label": "Tra cứu và tiếp tục hội thoại đã lưu",
+          "children": [
+            {
+              "label": "Xem danh sách hội thoại đã lưu",
+              "use_case": "LS-01"
+            },
+            {
+              "label": "Tìm hội thoại theo tiêu đề",
+              "use_case": "LS-02"
+            },
+            {
+              "label": "Đọc lại hội thoại đã chọn",
+              "use_case": "LS-03"
+            },
+            {
+              "label": "Tiếp tục hội thoại đã lưu",
+              "use_case": "LS-04"
+            },
+            {
+              "label": "Mở nguồn của câu trả lời cũ",
+              "use_case": "LS-05"
+            },
+            {
+              "label": "Sao chép câu trả lời đã lưu",
+              "use_case": "LS-06"
+            }
+          ],
+          "evidence": "apps/web/src/components/study-workspace.tsx"
+        },
+        {
+          "label": "Xử lý câu hỏi theo nguồn",
+          "children": [
+            {
+              "label": "Truy xuất các đoạn nguồn được phép"
+            },
+            {
+              "label": "Sắp xếp lại nguồn khi bật rerank"
+            },
+            {
+              "label": "Tạo context và sinh câu trả lời"
+            },
+            {
+              "label": "Kiểm tra nhãn trích dẫn / báo thiếu bằng chứng"
+            }
+          ],
+          "evidence": "services/worker/src/study_worker/main.py; services/worker/src/study_worker/rag.py"
+        }
+      ],
+      "evidence": "docs/architecture.md"
+    },
+    {
+      "label": "Hỗ trợ nhóm học tập",
+      "children": [
+        {
+          "label": "Xem danh mục nhóm",
+          "use_case": "NH-01"
+        },
+        {
+          "label": "Tìm nhóm theo môn",
+          "use_case": "NH-02"
+        },
+        {
+          "label": "Xem thông tin giới thiệu nhóm",
+          "use_case": "NH-03"
+        },
+        {
+          "label": "Tạo nhóm học",
+          "use_case": "NH-04"
+        },
+        {
+          "label": "Tham gia nhóm",
+          "use_case": "NH-05"
+        },
+        {
+          "label": "Rời nhóm",
+          "use_case": "NH-06"
+        },
+        {
+          "label": "Đọc tin nhắn nhóm",
+          "use_case": "NH-07"
+        },
+        {
+          "label": "Gửi tin nhắn nhóm",
+          "use_case": "NH-08"
+        }
+      ],
+      "evidence": "apps/web/src/components/study-groups.tsx; supabase/migrations/202610290001_community.sql"
+    },
+    {
+      "label": "Theo dõi hoạt động học",
+      "children": [
+        {
+          "label": "Cung cấp thông tin hoạt động học",
+          "children": [
+            {
+              "label": "Xem tổng quan học tập",
+              "use_case": "HT-01"
+            },
+            {
+              "label": "Xem chuỗi ngày học hiện tại",
+              "use_case": "HT-02"
+            },
+            {
+              "label": "Xem kỷ lục và tổng ngày học",
+              "use_case": "HT-03"
+            },
+            {
+              "label": "Xem lịch học bảy ngày gần nhất",
+              "use_case": "HT-04"
+            },
+            {
+              "label": "Xem cách ghi nhận ngày học",
+              "use_case": "HT-05"
+            },
+            {
+              "label": "Xem số tài liệu sẵn sàng",
+              "use_case": "HT-06"
+            },
+            {
+              "label": "Xem số phiên học đã lưu",
+              "use_case": "HT-07"
+            }
+          ],
+          "evidence": "apps/web/src/components/study-overview.tsx; apps/web/src/components/study-streak.tsx"
+        },
+        {
+          "label": "Ghi nhận ngày học hợp lệ",
+          "children": [
+            {
+              "label": "Ghi ngày khi hoàn tất chat có nguồn"
+            },
+            {
+              "label": "Tính chuỗi ngày, kỷ lục và lịch tuần"
+            }
+          ],
+          "evidence": "supabase/migrations/202610220005_study_streaks.sql; supabase/migrations/202610300001_document_repository.sql"
+        }
+      ],
+      "evidence": "docs/streaks.md"
+    },
+    {
+      "label": "Cung cấp thông báo trong ứng dụng",
+      "children": [
+        {
+          "label": "Tra cứu và xử lý thông báo",
+          "children": [
+            {
+              "label": "Xem danh sách thông báo",
+              "use_case": "TB-01"
+            },
+            {
+              "label": "Xem số thông báo chưa đọc",
+              "use_case": "TB-02"
+            },
+            {
+              "label": "Đánh dấu một thông báo đã đọc",
+              "use_case": "TB-03"
+            },
+            {
+              "label": "Đánh dấu tất cả đã đọc",
+              "use_case": "TB-04"
+            },
+            {
+              "label": "Mở hội thoại từ thông báo",
+              "use_case": "TB-05"
+            },
+            {
+              "label": "Mở nhóm từ thông báo",
+              "use_case": "TB-06"
+            }
+          ],
+          "evidence": "apps/web/src/components/notification-center.tsx"
+        },
+        {
+          "label": "Tạo thông báo theo sự kiện",
+          "children": [
+            {
+              "label": "Thông báo kết quả xử lý tài liệu"
+            },
+            {
+              "label": "Thông báo kết quả / gián đoạn câu trả lời"
+            },
+            {
+              "label": "Thông báo tin nhắn nhóm mới"
+            }
+          ],
+          "evidence": "supabase/migrations/202610290001_community.sql"
+        }
+      ],
+      "evidence": "docs/community.md"
+    },
+    {
+      "label": "Tùy chỉnh trải nghiệm học",
+      "children": [
+        {
+          "label": "Chọn giao diện sáng, tối hoặc theo thiết bị",
+          "use_case": "CD-01"
+        },
+        {
+          "label": "Điều chỉnh cỡ chữ lời giải",
+          "use_case": "CD-02"
+        },
+        {
+          "label": "Chọn phím gửi câu hỏi",
+          "use_case": "CD-03"
+        },
+        {
+          "label": "Bật hoặc tắt tự cuộn",
+          "use_case": "CD-04"
+        },
+        {
+          "label": "Khôi phục cài đặt mặc định",
+          "use_case": "CD-05"
+        }
+      ],
+      "evidence": "apps/web/src/components/study-settings.tsx; apps/web/src/components/use-study-preferences.ts"
+    },
+    {
+      "label": "Vận hành và bảo vệ xử lý",
+      "children": [
+        {
+          "label": "Công bố nguồn chung bằng SQL đặc quyền",
+          "children": [
+            {
+              "label": "Xem tài liệu đã sẵn sàng để công bố",
+              "use_case": "VH-01"
+            },
+            {
+              "label": "Công bố tài liệu vào kho chung",
+              "use_case": "VH-02"
+            },
+            {
+              "label": "Cập nhật mô tả nguồn đã công bố",
+              "use_case": "VH-03"
+            },
+            {
+              "label": "Thu hồi công bố tài liệu",
+              "use_case": "VH-04"
+            }
+          ],
+          "evidence": "docs/document-repository.md; supabase/migrations/202610300001_document_repository.sql"
+        },
+        {
+          "label": "Điều phối công việc nền",
+          "children": [
+            {
+              "label": "Tiếp nhận và nhận xử lý công việc"
+            },
+            {
+              "label": "Giữ lease và cập nhật heartbeat"
+            },
+            {
+              "label": "Thử lại khi lỗi / lưu trạng thái kết thúc"
+            },
+            {
+              "label": "Chọn provider AI và fallback theo cấu hình"
+            }
+          ],
+          "evidence": "services/worker/src/study_worker/main.py; services/worker/src/study_worker/config.py; services/worker/src/study_worker/fallback.py"
+        },
+        {
+          "label": "Kiểm soát truy cập và tính nhất quán",
+          "children": [
+            {
+              "label": "Kiểm tra chủ sở hữu, thành viên và nguồn công bố"
+            },
+            {
+              "label": "Áp dụng quota và khóa idempotency"
+            },
+            {
+              "label": "Kiểm tra phiên bản nguồn trước lưu kết quả"
+            },
+            {
+              "label": "Cấp URL có thời hạn cho tệp được phép"
+            }
+          ],
+          "evidence": "apps/web/src/app/api/[[...path]]/route.ts; supabase/migrations/202610220001_initial.sql; services/worker/src/study_worker/main.py"
+        },
+        {
+          "label": "Dọn dữ liệu tài liệu bị xóa",
+          "children": [
+            {
+              "label": "Xóa tệp, vector và nội dung các đoạn"
+            },
+            {
+              "label": "Dọn upload bỏ dở / quét lại tệp phát sinh trễ"
+            }
+          ],
+          "evidence": "services/worker/src/study_worker/main.py"
+        }
+      ],
+      "evidence": "docs/deployment.md"
+    },
+    {
+      "label": "Học theo tiến trình",
+      "children": [
+        {
+          "label": "Thiết lập lộ trình học",
+          "children": [
+            {
+              "label": "Chọn môn học và mục tiêu đầu ra",
+              "status": "designed"
+            },
+            {
+              "label": "Xác định kiến thức ban đầu",
+              "status": "designed"
+            },
+            {
+              "label": "Lập kế hoạch và nhịp học phù hợp",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        },
+        {
+          "label": "Học lần lượt theo bài và chặng",
+          "children": [
+            {
+              "label": "Nhận thứ tự bài và kiến thức tiên quyết",
+              "status": "designed"
+            },
+            {
+              "label": "Học nội dung gắn với tài liệu nguồn",
+              "status": "designed"
+            },
+            {
+              "label": "Luyện tập và làm kiểm tra cuối bài",
+              "status": "designed"
+            },
+            {
+              "label": "Chuyển chặng khi đạt điều kiện hoàn thành",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        },
+        {
+          "label": "Đánh giá và điều chỉnh tiến trình",
+          "children": [
+            {
+              "label": "Xem mức hoàn thành theo bài và chặng",
+              "status": "designed"
+            },
+            {
+              "label": "Xác định phần kiến thức cần củng cố",
+              "status": "designed"
+            },
+            {
+              "label": "Học bù và điều chỉnh kế hoạch",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        }
+      ],
+      "evidence": "docs/diagrams/learning-modes-proposal.md",
+      "status": "designed"
+    },
+    {
+      "label": "Tự học",
+      "children": [
+        {
+          "label": "Xác định nội dung và mục tiêu tự học",
+          "children": [
+            {
+              "label": "Lựa chọn chủ đề và tài liệu tự học",
+              "status": "designed"
+            },
+            {
+              "label": "Đặt mục tiêu tự học",
+              "status": "designed"
+            },
+            {
+              "label": "Lập kế hoạch thời gian tự học",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        },
+        {
+          "label": "Học và luyện tập",
+          "children": [
+            {
+              "label": "Ghi chú gắn với đoạn tài liệu",
+              "status": "designed"
+            },
+            {
+              "label": "Tạo tóm tắt và thẻ ghi nhớ",
+              "status": "designed"
+            },
+            {
+              "label": "Tự kiểm tra kiến thức theo chủ đề",
+              "status": "designed"
+            },
+            {
+              "label": "Hỏi trợ giảng theo nội dung đang học",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        },
+        {
+          "label": "Ôn tập và theo dõi kết quả",
+          "children": [
+            {
+              "label": "Tự đánh giá mức độ đạt mục tiêu",
+              "status": "designed"
+            },
+            {
+              "label": "Lập lịch ôn lại kiến thức cần nhớ",
+              "status": "designed"
+            },
+            {
+              "label": "Xem lại ghi chú và các lần tự kiểm tra",
+              "status": "designed"
+            }
+          ],
+          "evidence": "docs/diagrams/learning-modes-proposal.md",
+          "status": "designed"
+        }
+      ],
+      "evidence": "docs/diagrams/learning-modes-proposal.md",
+      "status": "designed"
+    }
+  ],
+  "evidence": "docs/diagrams/use-cases.md"
+}

@@ -1,0 +1,51 @@
+@startuml
+!include style.iuml
+hide circle
+skinparam linetype ortho
+entity "public.documents" as documents {
+  * id : uuid <<PK>>
+}
+entity "public.jobs" as jobs {
+  * id : uuid <<PK>>
+  * user_id : uuid <<FK>>
+  * kind : text
+  document_id : uuid <<FK>>
+  message_id : uuid <<FK>>
+  * payload : jsonb
+  * request_key : uuid
+  * status : text
+  * attempts : integer
+  lease_token : uuid
+  error : text
+  * created_at : timestamptz
+  started_at : timestamptz
+  finished_at : timestamptz
+}
+entity "public.messages" as messages {
+  * id : uuid <<PK>>
+}
+entity "public.profiles" as profiles {
+  * id : uuid <<PK>> <<FK>>
+  * username : text <<UK>>
+  * created_at : timestamptz
+}
+entity "public.study_activity_days" as study_activity_days {
+  * user_id : uuid <<PK>> <<FK>>
+  * study_date : date <<PK>>
+  * first_completed_at : timestamptz
+}
+entity "auth.users" as users {
+  * id : uuid <<PK>>
+}
+entity "public.worker_heartbeats" as worker_heartbeats {
+  * id : text <<PK>>
+  * last_seen : timestamptz
+  * ai_provider : text
+  * chat_fallback_enabled : boolean
+}
+users ||--o| profiles : id
+users ||--o{ study_activity_days : user_id
+users ||..o{ jobs : user_id
+documents |o..o{ jobs : document_id
+messages |o..o{ jobs : message_id
+@enduml

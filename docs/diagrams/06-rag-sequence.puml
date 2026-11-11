@@ -1,0 +1,53 @@
+@startuml
+!include style.iuml
+autonumber
+participant "Browser" as B
+participant "Next.js API" as A
+database "PostgreSQL\nRPC + PGMQ" as D
+participant "Python worker" as W
+participant "Model adapter" as M
+participant "Qdrant" as Q
+B -> A : POST conversations/{id}/messages\n(question, 1–5 documentIds, key)
+A -> D : app_send_message / session đã xác thực
+D -> D : Kiểm tra owner hội thoại, quyền nguồn ready, quota;\ntransaction lưu messages + job + owners/versions + queue
+D --> A : job
+A --> B : 202 Accepted
+par Xử lý bất đồng bộ của worker
+W -> D : pgmq.read + claim; lấy nguồn và lịch sử
+D --> W : job + documents + tối đa 6 messages
+W -> W : Kiểm tra quyền hiện tại, owner, version, embedding profile
+W -> M : embed(query gồm câu hỏi và phần câu trước)
+M --> W : query vector
+W -> Q : search với từng bộ owner + document + version
+Q --> W : candidate point IDs + payloads
+W -> D : Đọc lại canonical chunks; kiểm tra quyền và version
+D --> W : Các chunks hợp lệ
+opt OpenRouter với RERANK_MODEL
+ W -> M : rerank(query, canonical candidates)
+ M --> W : Candidates đã sắp xếp
+end
+W -> W : build_prompt / ngân sách context
+alt Không có context đủ điều kiện
+ W -> W : answer = thông báo thiếu bằng chứng
+else Có context
+ W -> M : generate(prompt)
+ loop Mỗi phần nội dung trả về
+  M --> W : token
+  opt Đủ khoảng flush và quyền/lease còn hợp lệ
+   W -> D : save_partial / nội dung đang sinh
+  end
+ end
+ W -> W : validate_citations(answer, selected)
+end
+W -> D : Transaction: kiểm tra lại lease/quyền/version;\ncompleted message + sources + finish + archive
+D -> D : Trigger thông báo; ghi ngày học nếu có nguồn
+D --> W : Commit
+else Polling độc lập với worker
+loop Chưa kết thúc job
+ B -> A : GET messages / jobs
+ A -> D : SELECT theo session / RLS
+ D --> A : Nội dung + sources + trạng thái
+ A --> B : JSON
+end
+end
+@enduml

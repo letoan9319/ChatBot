@@ -7,6 +7,13 @@ export type StudyDocument = {
   status: string;
   error: string | null;
   created_at: string;
+  scope?: "personal" | "knowledge";
+  description?: string;
+};
+export type DocumentDetail = StudyDocument & {
+  scope: "personal" | "knowledge";
+  requested_chunk_available: boolean;
+  excerpt: { id: string; content: string; page: number | null; section: string | null; paragraph: number | null } | null;
 };
 export type Conversation = { id: string; title: string; created_at: string };
 export type StudyStreak = {
@@ -21,6 +28,7 @@ export type StudyStreak = {
 };
 export type Source = {
   id: string;
+  document_id: string;
   label: string;
   document_name: string;
   page: number | null;
