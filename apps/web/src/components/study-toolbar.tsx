@@ -6,11 +6,12 @@ import type { StudyStreak } from "@/core/types";
 import { ThemeToggle } from "./theme-provider";
 import { StreakFlame, StudyStreakCard } from "./study-streak";
 import { NotificationCenter } from "./notification-center";
+import { SidebarIcon } from "./sidebar-icon";
 import styles from "./study-workspace.module.css";
 
 type Panel = "streak" | "status" | "account";
 
-export function StudyToolbar({ username, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup }: {
+export function StudyToolbar({ username, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings }: {
   username: string;
   canManageKnowledge: boolean;
   online: boolean;
@@ -24,6 +25,7 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
   onSignOut: () => Promise<void>;
   onOpenConversation: (id: string) => void;
   onOpenGroup: (id: string) => void;
+  onOpenSettings: () => void;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -96,14 +98,21 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
           lịch sử gần đây và các đoạn nguồn sẽ được gửi qua OpenRouter/NVIDIA để trả lời.
           Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.</p>}
       </section>
-      <section id="toolbar-account-panel" className={styles.popover} hidden={panel !== "account"} aria-label="Tài khoản">
-        <strong>{username}</strong>
-        <p>Góc học tập và tài liệu riêng của bạn.</p>
-        {canManageKnowledge && <p><Link href="/admin/knowledge" prefetch={false}>Quản lý tài liệu chung</Link></p>}
-        <button className={styles.quietButton} disabled={signingOut} onClick={async () => {
+      <section id="toolbar-account-panel" className={`${styles.popover} ${styles.actionPanel} ${styles.accountPanel}`} hidden={panel !== "account"} aria-label="Tài khoản">
+        <strong className={styles.menuIdentity}>{username}</strong>
+        <button type="button" className={styles.menuAction} onClick={() => {
+          setPanel(null);
+          onOpenSettings();
+          document.getElementById("toolbar-account")?.focus();
+        }}><SidebarIcon name="settings" /> Cài đặt</button>
+        {canManageKnowledge && <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
+          <SidebarIcon name="documents" /> Quản lý tài liệu chung
+        </Link>}
+        <hr className={styles.menuDivider} />
+        <button type="button" className={styles.menuAction} disabled={signingOut} onClick={async () => {
           setSigningOut(true);
           try { await onSignOut(); } finally { setSigningOut(false); }
-        }}>{signingOut ? "Đang đăng xuất…" : "Đăng xuất"}</button>
+        }}><SidebarIcon name="signout" /> {signingOut ? "Đang đăng xuất…" : "Đăng xuất"}</button>
       </section>
     </header>
   );

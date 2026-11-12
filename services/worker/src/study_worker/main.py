@@ -16,6 +16,7 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .models import create_models, VectorStore
 from .openrouter import ProviderError
 from .rag import NO_EVIDENCE, build_prompt, validate_citations
+from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
 LOCK_ID = 706294811
@@ -170,13 +171,13 @@ class Pipeline:
     def __init__(self, settings, conn, models, vectors, heartbeat):
         self.settings, self.conn = settings, conn
         self.models, self.vectors, self.heartbeat = models, vectors, heartbeat
+        storage_headers = {"apikey": settings.supabase_key}
+        if not settings.supabase_key.startswith("sb_secret_"):
+            storage_headers["Authorization"] = f"Bearer {settings.supabase_key}"
         self.storage = httpx.Client(
             base_url=settings.supabase_url.rstrip("/"),
             timeout=60,
-            headers={
-                "apikey": settings.supabase_key,
-                "Authorization": f"Bearer {settings.supabase_key}",
-            },
+            headers=storage_headers,
         )
 
     def document(self, job):
@@ -303,6 +304,10 @@ class Pipeline:
 
     def chat_documents(self, job, lock=False):
         ids = job["payload"]["document_ids"]
+        if not ids and job["payload"].get("mode") in ("search", "research", "library"):
+            if self.heartbeat.lost.is_set():
+                raise LostLease()
+            return
         if not 1 <= len(ids) <= 5 or len(set(ids)) != len(ids):
             raise Cancelled()
         owners = job["payload"].get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in ids}
@@ -340,8 +345,21 @@ class Pipeline:
 
     def chat(self, job):
         payload = job["payload"]
+        mode = payload.get("mode", "documents")
         self.chat_documents(job)
-        owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in payload["document_ids"]}
+        document_ids = payload["document_ids"]
+        versions = payload["versions"]
+        owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in document_ids}
+        if mode == "library":
+            catalog = self.conn.execute(
+                """select d.id,d.user_id,d.index_version from public.knowledge_documents k
+                join public.documents d on d.id=k.document_id where d.status='ready'
+                and d.embedding_profile=%s and d.vector_collection=%s""",
+                (self.settings.embedding_profile, self.vectors.collection),
+            ).fetchall()
+            document_ids = [str(row["id"]) for row in catalog]
+            versions = {str(row["id"]): row["index_version"] for row in catalog}
+            owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
         history = self.conn.execute(
             """select role,content from public.messages
             where conversation_id=%s and user_id=%s and status='completed' and sequence <
@@ -350,36 +368,52 @@ class Pipeline:
         ).fetchall()[::-1]
         previous_question = next((item["content"] for item in reversed(history) if item["role"] == "user"), "")
         query = (previous_question[:500] + "\n" + payload["question"]).strip()
-        vector = self.models.embed([query], query=True)[0]
-        hits = self.vectors.search(job["user_id"], payload["document_ids"], payload["versions"], vector, owners)
+        hits = []
+        if document_ids:
+            vector = self.models.embed([query], query=True)[0]
+            hits = self.vectors.search(job["user_id"], document_ids, versions, vector, owners)
         candidates = []
         for hit in hits:
             point = hit.payload or {}
             # Verify vector payload against the canonical owner, document and version in Postgres.
-            if point.get("document_id") not in payload["document_ids"] or point.get("user_id") != owners.get(point.get("document_id")):
+            if point.get("document_id") not in owners or point.get("user_id") != owners[point["document_id"]]:
                 continue
             row = self.conn.execute(
                 """select c.*,d.name as document_name from public.document_chunks c
                 join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
                 and c.document_id=%s and d.user_id=%s and d.status='ready'
                 and c.index_version=d.index_version and c.index_version=%s
-                and (d.user_id=%s or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
+                and ((not %s and d.user_id=%s) or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
                 (
                     point.get("chunk_id"),
                     point.get("user_id"),
                     point.get("document_id"),
                     point.get("user_id"),
-                    payload["versions"].get(point.get("document_id")),
+                    versions.get(point.get("document_id")),
+                    mode == "library",
                     job["user_id"],
                 ),
             ).fetchone()
             if row:
                 candidates.append(row)
         self.chat_documents(job)
-        candidates = self.models.rerank(query, candidates)
+        if candidates:
+            candidates = self.models.rerank(query, candidates)
+        if mode in ("search", "research"):
+            try:
+                web = search_web(payload["question"], mode)
+            except httpx.RequestError:
+                if not candidates:
+                    raise
+                web = []
+            candidates = candidates[:2] + web[:3] + candidates[2:] + web[3:]
         self.chat_documents(job)
-        prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count)
+        prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count, mode)
         answer, used = NO_EVIDENCE, []
+        if mode in ("search", "research") and not candidates:
+            answer = "Mình chưa tìm thấy nguồn Wikipedia phù hợp. Hãy thử một câu hỏi cụ thể hơn hoặc chọn thêm tài liệu."
+        if mode == "library" and not selected:
+            answer = "Mình chưa tìm thấy đoạn phù hợp trong kho tài liệu chung. Hãy thử nêu rõ chủ đề hoặc chọn tài liệu liên quan."
         if selected:
             answer = ""
             last_flush = time.monotonic()
@@ -387,26 +421,48 @@ class Pipeline:
             def reset_answer():
                 nonlocal answer, last_flush
                 answer = ""
-                self.save_partial(job, answer)
+                if mode != "library":
+                    self.save_partial(job, answer)
                 last_flush = time.monotonic()
 
             for token in self.models.generate(prompt, on_reset=reset_answer):
                 if self.heartbeat.lost.is_set():
                     raise LostLease()
                 answer += token
-                if time.monotonic() - last_flush >= 1:
+                if mode != "library" and time.monotonic() - last_flush >= 1:
                     self.save_partial(job, answer)
                     last_flush = time.monotonic()
             answer, used = validate_citations(answer, selected)
+            if mode == "library" and not used:
+                answer = "Mình đã tìm được đoạn liên quan trong kho chung nhưng chưa tạo được câu trả lời có trích dẫn hợp lệ."
         with self.conn.transaction():
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
+            if mode == "library" and selected:
+                source_ids = {str(item["document_id"]) for item in selected}
+                current = self.conn.execute(
+                    """select d.id,d.index_version from public.documents d
+                    join public.knowledge_documents k on k.document_id=d.id
+                    where d.id=any(%s::uuid[]) and d.status='ready'
+                    order by d.id for share of d,k""",
+                    (sorted(source_ids),),
+                ).fetchall()
+                if {str(row["id"]): row["index_version"] for row in current} != {
+                    doc_id: versions[doc_id] for doc_id in source_ids
+                }:
+                    raise Cancelled()
             self.conn.execute(
                 "update public.messages set content=%s,status='completed',generation_provider=%s where id=%s",
                 (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if selected else None,
                  job["message_id"]),
             )
+            if mode in ("search", "research"):
+                web_sources = [{key: item[key] for key in ("label", "title", "url")} for item in used if "url" in item]
+                self.conn.execute("update public.messages set web_sources=%s where id=%s",
+                                  (Jsonb(web_sources), job["message_id"]))
             for item in used:
+                if "url" in item:
+                    continue
                 self.conn.execute(
                     """insert into public.message_sources(message_id,chunk_id,document_id,user_id,label,document_name,page,section,paragraph)
                     values(%s,%s,%s,%s,%s,%s,%s,%s,%s) on conflict(message_id,label) do nothing""",

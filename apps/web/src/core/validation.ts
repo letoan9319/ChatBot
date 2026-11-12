@@ -18,14 +18,17 @@ export const uploadSchema = z.object({
   subject: z.enum(["calculus", "linear-algebra", "physics"]),
   key: uuid,
 });
+export const chatModes = { documents: "Theo tài liệu", search: "Tìm kiếm", research: "Nghiên cứu" } as const;
+export type ChatMode = keyof typeof chatModes;
+
 export const messageSchema = z.object({
   question: z.string().trim().min(1).max(2000),
   documentIds: z
     .array(uuid)
-    .min(1)
     .max(5)
     .refine((ids) => new Set(ids).size === ids.length),
   key: uuid,
+  mode: z.enum(["documents", "search", "research"]).optional(),
 });
 export const keySchema = z.object({ key: uuid });
 

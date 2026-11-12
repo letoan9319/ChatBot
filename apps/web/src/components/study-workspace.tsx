@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
-import { MAX_FILE_SIZE, statuses } from "@/core/validation";
+import { chatModes, MAX_FILE_SIZE, statuses, type ChatMode } from "@/core/validation";
 import type {
   Conversation,
   Message,
@@ -19,6 +19,8 @@ import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
 import { DocumentRepository } from "./document-repository";
 import { SidebarIcon } from "./sidebar-icon";
+import { ChatDocumentMenu } from "./chat-document-menu";
+import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
 import { LearningPlans } from "./learning-plans";
 import { StudyGroups } from "./study-groups";
@@ -78,6 +80,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     activeChat: null,
   });
   const [question, setQuestion] = useState("");
+  const [chatMode, setChatMode] = useState<ChatMode>("documents");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -294,7 +297,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!worker.online || !question.trim() || !selected.length || sending.current || worker.activeChat) return;
+    if (!worker.online || !question.trim() || sending.current || worker.activeChat) return;
 
     const epoch = conversationEpoch.current;
     const submittedDraft = question;
@@ -313,12 +316,12 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           setConversationId(id);
         }
       }
-      const fingerprint = JSON.stringify([id, submittedDraft.trim(), documentIds]);
+      const fingerprint = JSON.stringify([id, submittedDraft.trim(), documentIds, chatMode]);
       const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
         ? requestIdentity.current.key : crypto.randomUUID();
       if (isCurrent()) requestIdentity.current = { fingerprint, key };
       await api(`conversations/${id}/messages`, "POST", {
-        question: submittedDraft.trim(), documentIds, key,
+        question: submittedDraft.trim(), documentIds, key, mode: chatMode,
       });
       if (isCurrent()) {
         followConversation.current = true;
@@ -368,6 +371,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   const allSources = messages
     .filter((message) => message.status === "completed")
     .flatMap((message) => message.message_sources);
+  const allWebSources = messages.filter(message => message.status === "completed")
+    .flatMap(message => (message.web_sources ?? []).map(source => ({ ...source, id: `${message.id}-${source.label}` })));
 
   function showDocuments() {
     setView("library");
@@ -413,14 +418,17 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     <main className={styles.shell} data-answer-font-size={preferences.answerFontSize} data-view={view}>
       <aside className={styles.appNavigation} aria-label="Điều hướng ứng dụng">
         <div className={styles.navigationBrand}><Brand workspace /></div>
-        <nav>
-          <button className={styles.newChatButton} onClick={() => openConversation(null)}>Trò chuyện mới</button>
-          {([["overview", "Tổng quan"], ["study", "Học tập"], ["documents", "Kho tài liệu"], ["history", "Lịch sử"], ["groups", "Nhóm học"]] as const).map(([key, label]) => (
+        <nav aria-label="Điều hướng góc học tập">
+          <button className={styles.newChatButton} onClick={() => openConversation(null)}>
+            <SidebarIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
+          </button>
+          {([["overview", "Tổng quan"], ["study", "Học tập"], ["plans", "Kế hoạch"], ["documents", "Kho tài liệu"], ["groups", "Nhóm học"], ["history", "Lịch sử"]] as const).map(([key, label]) => (
             <button key={key} aria-current={(view === key || (view === "library" && (key === "documents" ? libraryView !== "history" : key === "history" && libraryView === "history"))) ? "page" : undefined}
               data-destination={key}
               onClick={() => {
                 if (key === "overview") setView("overview");
                 else if (key === "study") goToStudy();
+                else if (key === "plans") { setPlansOpened(true); setView("plans"); }
                 else if (key === "groups") setView("groups");
                 else {
                   setView("library");
@@ -430,13 +438,14 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 }
               }} title={label}><SidebarIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
           ))}
-          <button aria-current={view === "plans" ? "page" : undefined}
-            onClick={() => { setPlansOpened(true); setView("plans"); }}>Kế hoạch</button>
           <section className={styles.sidebarRecent} aria-label="Hội thoại gần đây">
             <h2>Gần đây</h2>
             <label className="sr-only" htmlFor="sidebar-history-search">Tìm trong tên phiên học</label>
-            <input id="sidebar-history-search" type="search" placeholder="Tìm phiên học…" value={historyQuery}
-              onChange={(event) => setHistoryQuery(event.target.value)} />
+            <div className={styles.sidebarSearch}>
+              <SidebarIcon name="search" className={styles.navigationIcon} />
+              <input id="sidebar-history-search" type="search" placeholder="Tìm phiên học…" value={historyQuery}
+                onChange={(event) => setHistoryQuery(event.target.value)} />
+            </div>
             {loading ? <p>Đang tải…</p> : conversations.filter((item) => item.title.toLocaleLowerCase("vi-VN").includes(historyQuery.trim().toLocaleLowerCase("vi-VN"))).slice(0, 8).map((item) => (
               <button className={styles.recentConversation} key={item.id} title={item.title}
                 aria-current={view === "study" && item.id === conversationId ? "true" : undefined}
@@ -454,7 +463,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
         <StudyToolbar username={username} canManageKnowledge={canManageKnowledge}
           online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
-          onOpenConversation={openConversation} onOpenGroup={openGroup}
+          onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")}
           showStreak={view !== "overview"}
           title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan học tập" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
           subtitle={view === "plans" ? "Đặt mục tiêu, chọn tài liệu và theo dõi tiến độ của bạn." : view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "Mỗi ngày một bước, hiểu thêm một chút." : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
@@ -518,7 +527,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             <div className={styles.chatHeading}>
               <div className={styles.sessionTitle}>
                 <h2>{conversations.find((item) => item.id === conversationId)?.title || "Phiên học mới"}</h2>
-                <button onClick={showDocuments}>{selected.length ? `${selected.length} tài liệu đã chọn` : "Chọn tài liệu để bắt đầu"}</button>
+                <button onClick={showDocuments}>{selected.length ? `${selected.length} tài liệu đã chọn` : "Chọn nguồn cụ thể"}</button>
               </div>
               <div className={styles.chatHeadingActions}>
               <button className={`${styles.quietButton} ${styles.mobileNewChat}`} type="button" aria-label="Phiên học mới" onClick={() => openConversation(null)}>Mới</button>
@@ -526,7 +535,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 onClick={() => {
                   if (sourcesOpen) closeSources();
                   else { setSourcesOpen(true); setTab("sources"); }
-                }}>Nguồn <span className={styles.sourceCount}>{allSources.length}</span></button>
+                }}>Nguồn <span className={styles.sourceCount}>{allSources.length + allWebSources.length}</span></button>
               </div>
             </div>
             {worker.activeChat && worker.activeChat.conversation_id !== conversationId && (
@@ -545,8 +554,9 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 <div className={styles.welcome}>
                   <p className={styles.greeting}>Chào {username}</p>
                   <h2>Bạn muốn hiểu rõ điều gì?</h2>
-                  <p>Đặt câu hỏi từ tài liệu của bạn. Mỗi lời giải đều có nguồn để đối chiếu.</p>
-                  {!selected.length && <button className={styles.chooseDocuments} onClick={showDocuments}>Chọn tài liệu</button>}
+                  <p>{chatMode === "research" ? "Đặt câu hỏi để tổng hợp và đối chiếu nhiều nguồn."
+                    : chatMode === "search" ? "Đặt câu hỏi để tìm thêm nguồn trên Wikipedia."
+                      : "Đặt câu hỏi để tra cứu kho tài liệu chung, hoặc dùng dấu cộng để chọn nguồn cụ thể."}</p>
                   <div className={styles.examples}>
                     {[
                       ["Hiểu khái niệm", "Giải thích khái niệm chính trong tài liệu"],
@@ -573,6 +583,11 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
                     ))}</div>
                   )}
+                  {message.status === "completed" && Boolean(message.web_sources?.length) && (
+                    <div className={styles.citations}>{message.web_sources?.map(item => (
+                      <a key={item.label} href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · Wikipedia</a>
+                    ))}</div>
+                  )}
                   {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
                   {message.content && <div className={styles.messageTools}>
                     <button type="button" onClick={() => void copyMessage(message)}>{copiedMessage === message.id ? "Đã sao chép" : "Sao chép"}</button>
@@ -585,7 +600,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
               <div className={styles.composerBox}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
-                  placeholder={selected.length ? "Đặt câu hỏi từ tài liệu…" : "Chọn tài liệu rồi đặt câu hỏi…"}
+                  placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onKeyDown={(event) => {
                     if (shouldSendQuestion({ key: event.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
                       metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, preferences.sendWithEnter)) {
@@ -594,9 +609,15 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                     }
                   }} />
                 <div className={styles.composerTools}>
-                  <button type="button" className={styles.composerDocuments} onClick={showDocuments}>Tài liệu <span>{selected.length}/5</span></button>
+                  <div className={styles.composerOptions}>
+                    <ChatDocumentMenu selected={selected.length} canUpload={worker.online && !uploading && documents.length < 20}
+                      onChoose={showDocuments} onUpload={upload} />
+                    <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
+                      options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
+                      onChange={value => setChatMode(value as ChatMode)} />
+                  </div>
                   <button className={styles.sendButton}
-                    disabled={!worker.online || busy || Boolean(worker.activeChat) || !selected.length || !question.trim()}>
+                    disabled={!worker.online || busy || Boolean(worker.activeChat) || !question.trim()}>
                     {busy ? "Đang gửi…" : "Gửi"}
                   </button>
                 </div>
@@ -604,7 +625,9 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
               <div className={styles.composerFooter} id="composer-hint">
                 <span>{loading ? "Đang kết nối…" : !worker.online ? "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
-                    : "AI có thể nhầm lẫn. Hãy đối chiếu với nguồn."}</span>
+                    : chatMode === "research" ? "Đối chiếu nhiều truy vấn Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."
+                      : chatMode === "search" ? "Tìm trên Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."
+                        : selected.length ? "Đang dùng tài liệu đã chọn." : "Tự động tìm trong tài liệu chung."}</span>
                 <span>{question.length}/2000</span>
               </div>
             </form>
@@ -626,11 +649,13 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   </> : <p className={styles.emptyText}>Tài liệu đã bị xóa hoặc nguồn không còn khả dụng.</p>}
                 </article>
                   : <div className={styles.emptyLibrary}><h3>Đối chiếu lời giải</h3><p>Chọn trích dẫn bên dưới câu trả lời để đọc đoạn nguồn và mở tài liệu gốc.</p></div>}
-              {allSources.length > 0 && <div className={styles.sourceList}>
+              {(allSources.length > 0 || allWebSources.length > 0) && <div className={styles.sourceList}>
                 <h3>Trong phiên học này</h3>
                 {allSources.map((item) => <button key={item.id} aria-pressed={source?.id === item.id} onClick={() => void openSource(item)}>
                   <span>[{item.label}]</span><strong>{item.document_name}</strong><small>{location(item)}</small>
                 </button>)}
+                {allWebSources.map(item => <a className={styles.pdfLink} key={item.id} href={item.url}
+                  target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · Wikipedia</a>)}
               </div>}
             </div>
           </aside>

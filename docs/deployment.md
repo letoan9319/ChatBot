@@ -23,7 +23,25 @@
 3. Thêm `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` và `SUPABASE_SERVICE_ROLE_KEY` theo [mẫu web](../apps/web/.env.example). Giữ khóa service role ở phía máy chủ và dùng dự án thử nghiệm riêng cho Preview.
 4. Áp dụng migration trước khi deploy web. Sau khi có domain, cập nhật Site URL và redirect URL trong Supabase Auth.
 
+Chế độ **Tìm kiếm** và **Nghiên cứu** cần migration `20261112205940_chat_search_modes.sql` và worker từ cùng bản mã nguồn. Worker cần truy cập Wikipedia qua HTTPS. Wikipedia nhận từ khóa trích từ câu hỏi, còn các tài liệu đã chọn vẫn được truy xuất qua RAG. Cả hai chế độ dùng hàng đợi hiện có và cần worker đang chạy.
+
+Tra cứu kho chung tự động cần migration `202611130001_chat_shared_library.sql` và worker cập nhật. Chế độ **Theo tài liệu** dùng kho chung đã công bố khi người học chưa chọn tệp. Các tài liệu chung đã lập chỉ mục bằng cấu hình embedding hiện tại có thể dùng ngay.
+
 ## Chạy worker trên máy cá nhân
+
+### Kiểm thử toàn bộ trên local
+
+Trỏ web và worker vào cùng Supabase local. Dùng URL và khóa local từ `npx supabase status` cho `apps/web/.env.local` và `services/worker/.env.local`. Trong file worker, dùng URL PostgreSQL local, `QDRANT_URL=http://127.0.0.1:6333`, `QDRANT_API_KEY=`, `AI_PROVIDER=ollama` và `CHAT_FALLBACK_PROVIDER=none`. Có thể đặt `TOKENIZER_PATH` đến bản tokenizer đã tải.
+
+```powershell
+docker run -d --name learnstep-qdrant-local --restart unless-stopped -p 127.0.0.1:6333:6333 -v learnstep-qdrant-local:/qdrant/storage qdrant/qdrant:v1.20.0
+Set-Location services/worker
+uv run --env-file .env.local learnstep-worker
+```
+
+Nếu container Qdrant đã tồn tại và đang dừng, dùng `docker start learnstep-qdrant-local`. Khi web báo **AI sẵn sàng**, có thể thử tải tài liệu và hỏi đáp qua Storage, hàng đợi và worker local.
+
+### Worker kết nối môi trường cloud
 
 Mở Ollama trên `127.0.0.1:11434`. Tạo file cấu hình worker từ mẫu nếu chưa có, rồi điền thông tin Supabase và Qdrant của môi trường đang chạy.
 

@@ -109,7 +109,7 @@ class VectorStore:
             # Even equal-dimensional models must never share an embedding space.
             fingerprint = hashlib.sha256(settings.embedding_profile.encode()).hexdigest()[:16]
             self.collection = f"{settings.collection}_or_{fingerprint}_{dimensions}"
-        self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_key, timeout=30)
+        self.client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_key or None, timeout=30)
 
     def setup(self):
         name = self.collection
@@ -142,12 +142,16 @@ class VectorStore:
                 raise ValueError("At least one authorized document is required.")
             # Each allowed document keeps its canonical tenant and index version.
             # Never use separate owner/doc OR lists, which form a cross product.
+            groups = {}
+            for doc_id in document_ids:
+                key = (str(owners[str(doc_id)]), int(versions[str(doc_id)]))
+                groups.setdefault(key, []).append(str(doc_id))
             return models.Filter(should=[
                 models.Filter(must=[
-                    models.FieldCondition(key="user_id", match=models.MatchValue(value=str(owners[str(doc_id)]))),
-                    models.FieldCondition(key="document_id", match=models.MatchValue(value=str(doc_id))),
-                    models.FieldCondition(key="index_version", match=models.MatchValue(value=int(versions[str(doc_id)]))),
-                ]) for doc_id in document_ids
+                    models.FieldCondition(key="user_id", match=models.MatchValue(value=owner)),
+                    models.FieldCondition(key="document_id", match=models.MatchAny(any=ids)),
+                    models.FieldCondition(key="index_version", match=models.MatchValue(value=version)),
+                ]) for (owner, version), ids in groups.items()
             ])
         conditions = [models.FieldCondition(key="user_id", match=models.MatchValue(value=str(user_id)))]
         if versions:

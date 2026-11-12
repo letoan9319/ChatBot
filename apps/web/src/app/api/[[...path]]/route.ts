@@ -396,6 +396,9 @@ async function handle(request: NextRequest) {
             p_question: value.question,
             p_documents: value.documentIds,
             p_key: value.key,
+            ...(!value.documentIds.length && (!value.mode || value.mode === "documents")
+              ? { p_mode: "library" }
+              : value.mode && value.mode !== "documents" ? { p_mode: value.mode } : {}),
           });
           check(error);
           return json(data, 202);

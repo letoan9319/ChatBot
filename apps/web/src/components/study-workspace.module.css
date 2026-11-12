@@ -15,14 +15,17 @@
 .navigationBrand :global(.brand) { font-size: 24px; }
 .navigationBrand :global(.brand span) { display: none; }
 .appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; overflow-y: auto; scrollbar-width: thin; }
-.appNavigation nav button { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-height: 44px; padding: 10px 14px; border: 1px solid transparent; border-radius: 12px; color: var(--muted); text-align: left; font-size: 13px; font-weight: 700; }
+.appNavigation nav button { display: flex; flex-shrink: 0; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; color: var(--text); text-align: left; font-size: 13px; font-weight: 700; }
 .appNavigation nav button[aria-current="page"] { background: var(--primary-soft); color: var(--primary-edge); border-color: var(--green-line); }
 .navigationIcon { width: 20px; height: 20px; flex-shrink: 0; color: var(--primary-edge); }
 .appNavigation nav .navigationSettings { margin-top: auto; }
-.appNavigation nav .newChatButton { justify-content: center; margin-bottom: 12px; border-color: var(--line-strong); background: var(--surface); color: var(--text); font-size: 12px; }
-.sidebarRecent { flex-shrink: 0; margin: 12px 0 20px; }
+.appNavigation nav .newChatButton { margin-bottom: 10px; border-color: var(--green-line); background: var(--primary-soft); color: var(--primary-ink); }
+.appNavigation nav [data-destination="documents"] { margin-top: 8px; }
+.sidebarRecent { flex-shrink: 0; margin: 10px 0 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .sidebarRecent h2 { margin: 0 10px 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
-.sidebarRecent input { width: 100%; min-height: 34px; margin-bottom: 8px; padding: 6px 10px; border-width: 1px; border-radius: 9px; background: var(--surface); font-size: 12px; }
+.sidebarSearch { position: relative; margin-bottom: 8px; }
+.sidebarSearch > svg { position: absolute; top: 10px; left: 10px; width: 16px; height: 16px; pointer-events: none; color: var(--muted); }
+.sidebarRecent input { width: 100%; min-height: 36px; padding: 6px 9px 6px 32px; border-width: 1px; border-radius: 9px; background: var(--surface); font-size: 12px; }
 .sidebarRecent p { margin: 8px 10px; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .appNavigation nav .recentConversation { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 500; }
 .recentConversation[aria-current="true"] { background: var(--primary-soft); color: var(--primary-edge); }
@@ -95,6 +98,60 @@
 }
 .popover p { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 .popover > button { margin-top: 12px; }
+.actionPanel {
+  width: min(17.5rem, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
+}
+.accountPanel > button.menuAction { margin-top: 0; }
+.menuIdentity {
+  display: block;
+  padding: 5px 10px 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.menuAction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 650;
+}
+.menuAction svg { width: 18px; height: 18px; flex: none; }
+.menuAction:not(:disabled):hover, .menuAction:focus-visible { background: var(--neutral-hover); }
+.menuAction:disabled { opacity: 0.55; }
+.menuDivider { margin: 4px 8px; border: 0; border-top: 1px solid var(--line); }
+.menuMeta { margin-inline-start: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.menuField {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 4px 38px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.menuField select {
+  min-height: 32px;
+  width: 100%;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-alt);
+  color: var(--text);
+}
 .streakPopover { width: min(660px, calc(100vw - 24px)); padding: 0; }
 .streakPopover :global(.study-streak) { width: 100%; max-width: none; margin: 0; padding: 16px; border: 0; background: transparent; }
 .notice {
@@ -236,8 +293,20 @@
 .composerBox textarea:focus { outline: none; }
 .sendButton { min-width: 62px; min-height: 34px; padding: 6px 16px; border-radius: 999px; font-size: 12px; }
 .composerTools { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.composerDocuments { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 11px; font-weight: 700; }
-.composerDocuments span { color: var(--muted); font-weight: 500; }
+.composerOptions { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.documentMenu { position: relative; }
+.documentMenu > summary {
+  display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 42px; min-height: 42px;
+  padding-inline: 9px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface);
+  color: var(--primary-edge); font-size: 12px; font-weight: 750; list-style: none; cursor: pointer;
+}
+.documentMenu > summary::-webkit-details-marker { display: none; }
+.documentMenu > summary span:empty { display: none; }
+.documentMenu[open] > summary { background: var(--primary-soft); }
+.documentMenuPanel {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 8;
+  width: min(17.5rem, 76vw);
+}
 .messageTools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .messageTools button { min-height: 28px; padding: 3px 6px; border-radius: 6px; color: var(--muted); font-size: 11px; }
 .composerFooter { display: flex; justify-content: space-between; gap: 12px; max-width: 820px; margin: 7px auto 0; color: var(--muted); font-size: 10px; }
@@ -311,6 +380,7 @@
   .appNavigation nav { flex-direction: row; gap: 3px; margin: 0; overflow: visible; }
   .appNavigation nav button { flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; min-height: 50px; padding: 5px 2px; text-align: center; font-size: 11px; border-radius: 8px; }
   .appNavigation nav button span { white-space: nowrap; }
+  .appNavigation nav [data-destination="documents"] { margin-top: 0; }
   .appNavigation nav .navigationSettings { margin-top: 0; }
   .appNavigation nav .newChatButton, .appNavigation nav [data-destination="history"], .sidebarRecent { display: none; }
   .topbar { align-items: center; min-height: 64px; padding: 10px 16px; gap: 8px; }

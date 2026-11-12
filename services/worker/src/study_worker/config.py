@@ -43,11 +43,15 @@ class Settings:
         if provider not in ("ollama", "openrouter"):
             raise ValueError("AI_PROVIDER must be ollama or openrouter.")
         remote = provider == "openrouter"
-        names = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "QDRANT_URL", "QDRANT_API_KEY"]
+        names = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "QDRANT_URL"]
         if any(not os.getenv(name) for name in names):
             raise ValueError("Missing configuration. Copy .env.example to .env and fill all required values.")
+        qdrant_key = os.getenv("QDRANT_API_KEY", "")
+        if not qdrant_key and urlparse(os.environ["QDRANT_URL"]).hostname not in ("localhost", "127.0.0.1", "::1"):
+            raise ValueError("QDRANT_API_KEY is required for remote Qdrant.")
         settings = cls(
             *[os.environ[name] for name in names],
+            qdrant_key=qdrant_key,
             collection=os.getenv("QDRANT_COLLECTION", "study_bge_m3_v1"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
             chat_model=os.getenv("CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free" if remote else "qwen3:4b"),

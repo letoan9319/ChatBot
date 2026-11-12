@@ -33,12 +33,32 @@ before(async () => {
     "202610300001_document_repository.sql",
     "202611120001_learning_plans.sql",
     "20261112150505_content_management.sql",
+    "20261112205940_chat_search_modes.sql",
+    "202611130001_chat_shared_library.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", ""));
   }
 });
 after(async () => { await db?.close(); });
+
+test("external chat modes allow zero sources and participate in idempotency", async () => {
+  const user = await learner();
+  await db.query("insert into worker_heartbeats(id) values($1)", [randomUUID()]);
+  const conversation = await rpc(user, "app_create_conversation", [randomUUID()]);
+  const args = [conversation, "Định luật Newton là gì?", [], randomUUID()];
+  await assert.rejects(rpc(user, "app_send_message", args), /INVALID_QUESTION/);
+  await assert.rejects(rpc(user, "app_send_message", [...args, "invalid"]), /INVALID_QUESTION/);
+  const job = await rpc(user, "app_send_message", [...args, "research"]);
+  assert.equal(job.payload.mode, "research");
+  assert.equal((await rpc(user, "app_send_message", [...args, "research"])).id, job.id);
+  await assert.rejects(rpc(user, "app_send_message", [...args, "library"]), /IDEMPOTENCY_CONFLICT/);
+  const other = await learner();
+  const otherConversation = await rpc(other, "app_create_conversation", [randomUUID()]);
+  const libraryJob = await rpc(other, "app_send_message", [otherConversation, args[1], [], randomUUID(), "library"]);
+  assert.equal(libraryJob.payload.mode, "library");
+  assert.deepEqual(libraryJob.payload.document_ids, []);
+});
 
 async function learner(name) {
   const id = randomUUID();

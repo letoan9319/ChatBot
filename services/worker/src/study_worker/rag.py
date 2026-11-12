@@ -12,7 +12,10 @@ Lịch sử hội thoại chỉ để hiểu câu hỏi tiếp nối, không ph�
 """
 
 
-def build_prompt(question, history, candidates, count):
+def build_prompt(question, history, candidates, count, mode="documents"):
+    system = SYSTEM
+    if mode == "research":
+        system += "Tóm tắt kết luận, đối chiếu các nguồn và nêu phần còn thiếu bằng chứng.\n"
     recent = []
     history_tokens = 0
     for message in reversed(history[-6:]):
@@ -32,7 +35,7 @@ def build_prompt(question, history, candidates, count):
             [{"label": item["label"], "text": item["content"]} for item in proposed], ensure_ascii=False
         )
         # Reserve output (768) and chat-template overhead (>300) within 4096.
-        if count(SYSTEM + source_text + question) + history_tokens > 2900:
+        if count(system + source_text + question) + history_tokens > 2900:
             continue
         chosen = proposed
         seen.add(normalized)
@@ -40,7 +43,7 @@ def build_prompt(question, history, candidates, count):
             break
     sources = json.dumps([{"label": item["label"], "text": item["content"]} for item in chosen], ensure_ascii=False)
     return [
-        {"role": "system", "content": SYSTEM + "\nNGUỒN THAM KHẢO (JSON):\n" + sources},
+        {"role": "system", "content": system + "\nNGUỒN THAM KHẢO (JSON):\n" + sources},
         *recent,
         {"role": "user", "content": question},
     ], chosen

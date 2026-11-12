@@ -22,13 +22,13 @@ describe("upload and chat boundaries", () => {
       );
     }
   });
-  it("requires selected unique IDs, a nonempty question and a stable request UUID", () => {
+  it("accepts automatic source selection and validates explicit sources and request IDs", () => {
     const value = { question: "Đạo hàm là gì?", documentIds: [id], key: id };
     expect(messageSchema.safeParse(value).success).toBe(true);
+    expect(messageSchema.safeParse({ ...value, documentIds: [] }).success).toBe(true);
     for (const change of [
       { question: "  " },
       { question: "a".repeat(2001) },
-      { documentIds: [] },
       { documentIds: [id, id] },
       { key: "not-a-uuid" },
     ]) {
