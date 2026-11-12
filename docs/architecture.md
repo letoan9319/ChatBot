@@ -2,7 +2,14 @@
 
 ## Quyền truy cập
 
-API dùng cookie Supabase SSR, xác minh người dùng bằng `getUser()`. Mọi mutation giới hạn trong RPC `security definer` có `search_path` rỗng, lấy chủ sở hữu từ `auth.uid()`. Trình duyệt chỉ có SELECT qua RLS; không thể ghi trực tiếp `messages`, `jobs`, chunks hoặc nhận việc từ queue. Các RPC nội bộ bị revoke quyền PUBLIC/anon/authenticated.
+API xác thực cookie Supabase SSR bằng `getUser()`. RLS và các hàm PostgreSQL
+kiểm tra quyền bằng `auth.uid()`. Trình duyệt không được ghi trực tiếp
+`messages`, `jobs`, chunks hoặc nhận việc từ hàng đợi.
+
+Trang `/admin/knowledge` đọc vai trò `content_manager` của người đăng nhập.
+Server Action gọi RPC bằng phiên của người dùng. Hàm nội bộ kiểm tra lại vai trò
+trong transaction, kiểm tra tài liệu thuộc người công bố và đã sẵn sàng, rồi
+cập nhật kho chung và ghi nhật ký. [Cấp quyền quản lý kho](document-repository.md#quản-lý-kho-chung)
 
 Storage private. API dùng service-role key để cấp upload token sau RPC kiểm tra quota. Upload không cho ghi đè; complete kiểm tra dung lượng/MIME trong Storage, worker kiểm tra chữ ký và nội dung thực tế. Biết tên file hoặc UUID không đủ để lấy nguồn của người khác.
 
@@ -22,12 +29,16 @@ Tất cả các endpoint dưới đây yêu cầu đăng nhập. Body JSON, tố
 | POST `/api/documents/:id/retry` | `{key}` -> job, HTTP 202 |
 | DELETE `/api/documents/:id` | `{key}` -> cleanup job, HTTP 202 |
 | GET `/api/documents` | Danh sách tài liệu chưa deleted của người dùng |
+| GET `/api/documents/:id`, GET `/api/documents/:id/file` | Chi tiết và liên kết đọc tài liệu được phép |
+| GET `/api/knowledge` | Danh mục tài liệu đã công bố |
 | POST `/api/conversations` | `{key}` -> `{id}`; key đồng thời là conversation UUID |
 | GET `/api/conversations` | 100 hội thoại mới nhất |
 | GET `/api/conversations/:id/messages` | Messages theo sequence, kèm `message_sources` đã hoàn tất |
 | POST `/api/conversations/:id/messages` | `{question, documentIds, key}` -> job, HTTP 202 |
 | GET `/api/jobs/:id` | Status, attempts, timestamps, error an toàn để hiển thị |
 | GET `/api/sources/:id` | `{available,content,url,...metadata}`; PDF URL có hiệu lực 120 giây |
+| GET, POST `/api/learning-plans` | Đọc, tạo hoặc cập nhật kế hoạch của tài khoản, có kiểm tra revision |
+| `/api/groups`, `/api/notifications` | [API nhóm học và thông báo](community.md#api) |
 
 `key` là UUID idempotency: giữ nguyên khi thử lại cùng yêu cầu, đổi khi nội dung thay đổi. API trả `{error: string}` và mã HTTP 400/401/403/404/409/413/429/503 phù hợp. Các lỗi dịch vụ nội bộ trả thông báo chung.
 

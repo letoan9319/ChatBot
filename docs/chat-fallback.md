@@ -10,10 +10,9 @@ sang API vì thiếu bằng chứng hoặc vì câu trả lời không đạt ki
 
 ## Cài đặt
 
-1. Áp dụng các migration còn thiếu theo thứ tự từ 001 đến
-   `supabase/migrations/202610220004_chat_fallback.sql`. Migration 004 bổ sung cờ
-   cấu hình fallback vào heartbeat và provider thực tế vào mỗi câu trả lời,
-   giữ nguyên RLS và quyền chỉ ghi qua worker.
+1. [Áp dụng các migration còn thiếu](deployment.md#chuẩn-bị-hạ-tầng).
+   Migration `202610220004_chat_fallback.sql` thêm cờ fallback vào heartbeat
+   và lưu provider thực tế của từng câu trả lời.
 2. Trên máy chạy worker, dùng mẫu `services/worker/.env.fallback.example` để tạo
    `.env` riêng. Nếu đã có `.env`, cập nhật các trường tương ứng, giữ credentials
    và tên collection BGE đang dùng. Không ghi đè file cấu hình đã điền.

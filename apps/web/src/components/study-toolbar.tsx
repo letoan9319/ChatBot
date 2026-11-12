@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { StudyStreak } from "@/core/types";
 import { ThemeToggle } from "./theme-provider";
 import { StreakFlame, StudyStreakCard } from "./study-streak";
@@ -9,8 +10,9 @@ import styles from "./study-workspace.module.css";
 
 type Panel = "streak" | "status" | "account";
 
-export function StudyToolbar({ username, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup }: {
+export function StudyToolbar({ username, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup }: {
   username: string;
+  canManageKnowledge: boolean;
   online: boolean;
   loading: boolean;
   provider: string | null;
@@ -97,6 +99,7 @@ export function StudyToolbar({ username, online, loading, provider, streak, stre
       <section id="toolbar-account-panel" className={styles.popover} hidden={panel !== "account"} aria-label="Tài khoản">
         <strong>{username}</strong>
         <p>Góc học tập và tài liệu riêng của bạn.</p>
+        {canManageKnowledge && <p><Link href="/admin/knowledge" prefetch={false}>Quản lý tài liệu chung</Link></p>}
         <button className={styles.quietButton} disabled={signingOut} onClick={async () => {
           setSigningOut(true);
           try { await onSignOut(); } finally { setSigningOut(false); }

@@ -78,8 +78,8 @@ def build_tree():
         node('Tùy chỉnh trải nghiệm học', use_cases('02i-settings-use-cases.puml'),
              'apps/web/src/components/study-settings.tsx; apps/web/src/components/use-study-preferences.ts'),
         node('Vận hành và bảo vệ xử lý', [
-            node('Công bố nguồn chung bằng SQL đặc quyền', use_cases('02j-publication-use-cases.puml'),
-                 'docs/document-repository.md; supabase/migrations/202610300001_document_repository.sql'),
+            node('Quản lý tài liệu chung', use_cases('02j-publication-use-cases.puml'),
+                 'docs/document-repository.md; supabase/migrations/20261112150505_content_management.sql'),
             node('Điều phối công việc nền', leaves(
                 'Tiếp nhận và nhận xử lý công việc', 'Giữ lease và cập nhật heartbeat',
                 'Thử lại khi lỗi / lưu trạng thái kết thúc', 'Chọn provider AI và fallback theo cấu hình'),

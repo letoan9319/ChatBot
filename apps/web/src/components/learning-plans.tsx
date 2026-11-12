@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { completedLessons, lessons, recordAttempt, type LearningPlan, type PlanInput } from "@/core/learning-plan";
 import { subjects, uuid } from "@/core/validation";
+import { MAX_JSON_BYTES } from "@/core/request-security";
 
 type Content = PlanInput["content"];
 const empty: Content = { subject: "calculus", topic: "", goal: "", baseline: "", schedule: "", documents: [],
@@ -23,6 +24,17 @@ export function LearningPlans({ documents, onAsk }: {
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [lessonIndex, setLessonIndex] = useState(0);
+  const savedContent = draft && (plans.find(plan => plan.id === draft.id)?.content ?? empty);
+  const dirty = Boolean(draft && (JSON.stringify(draft.content) !== JSON.stringify(savedContent) || note || source || front || back));
+  const payload = draft ? JSON.stringify(draft) : "";
+  const payloadBytes = new TextEncoder().encode(payload).byteLength;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = true; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,6 +49,8 @@ export function LearningPlans({ documents, onAsk }: {
   }, []);
 
   function select(plan: PlanInput | null) {
+    if (plan && plan.id === draft?.id) return false;
+    if (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Bỏ các thay đổi này?")) return false;
     setDraft(plan);
     setLessonIndex(plan ? Math.min(completedLessons(plan.content), 2) : 0);
     setNote("");
@@ -44,6 +58,7 @@ export function LearningPlans({ documents, onAsk }: {
     setFront("");
     setBack("");
     setMessage("");
+    return true;
   }
 
   function edit<K extends keyof Content>(key: K, value: Content[K]) {
@@ -52,11 +67,11 @@ export function LearningPlans({ documents, onAsk }: {
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft || busy) return;
+    if (!draft || busy || payloadBytes > MAX_JSON_BYTES) return;
     setBusy(true);
     try {
       const response = await fetch("/api/learning-plans", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: payload,
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Không lưu được kế hoạch.");
@@ -88,7 +103,9 @@ export function LearningPlans({ documents, onAsk }: {
   const lesson = course?.[lessonIndex];
   const progress = content ? completedLessons(content) : 0;
   const attempt = content?.attempts.find(item => item.lesson === lessonIndex);
-  const update = (value: PlanInput["mode"]) => { setMode(value); select(null); };
+  const update = (value: PlanInput["mode"]) => {
+    if (value !== mode && select(null)) setMode(value);
+  };
 
   return <section className="learning-plans" aria-label="Kế hoạch học tập">
     <nav aria-label="Phương thức học">
@@ -161,7 +178,9 @@ export function LearningPlans({ documents, onAsk }: {
         <label>Mức đạt mục tiêu và nội dung cần ôn <textarea maxLength={400} value={content.assessment}
           onChange={event => edit("assessment", event.target.value)} /></label>
       </fieldset>
-      <button disabled={busy} type="submit">{busy ? "Đang lưu…" : "Lưu kế hoạch"}</button>
+      <p>Dung lượng bản lưu: {payloadBytes.toLocaleString("vi-VN")}/{MAX_JSON_BYTES.toLocaleString("vi-VN")} byte.</p>
+      {payloadBytes > MAX_JSON_BYTES && <p role="alert">Kế hoạch vượt giới hạn lưu. Hãy rút ngắn ghi chú, tóm tắt hoặc thẻ ghi nhớ.</p>}
+      <button disabled={busy || payloadBytes > MAX_JSON_BYTES} type="submit">{busy ? "Đang lưu…" : "Lưu kế hoạch"}</button>
     </form>}
   </section>;
 }

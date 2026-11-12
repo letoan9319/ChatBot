@@ -222,6 +222,11 @@ test-results/
 .evaluation/
 tmp/pdfs/
 
+# Generated documentation exports
+/output/
+/docs/diagrams/*.png
+/docs/diagrams/archive/
+
 # Private keys, credentials, and machine-specific settings
 *.pem
 *.key

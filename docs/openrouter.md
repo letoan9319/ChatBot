@@ -15,24 +15,13 @@ trả `202` và polling, không giữ một Function chờ toàn bộ ingestion/
 
 ## 1. Chuẩn bị Supabase và phiên bản web
 
-Dùng đúng project Supabase mà web trên Vercel đang kết nối. Áp dụng các migration
-chưa chạy theo thứ tự:
+[Áp dụng các migration còn thiếu](deployment.md#chuẩn-bị-hạ-tầng) lên đúng project
+Supabase trước khi cập nhật web và worker. Migration embedding lưu model và
+collection theo tài liệu, cùng provider trong heartbeat.
 
-1. `supabase/migrations/202610220001_initial.sql`
-2. `supabase/migrations/202610220002_profiles.sql`
-3. `supabase/migrations/202610220003_embedding_profiles.sql`
-4. `supabase/migrations/202610220004_chat_fallback.sql`
-
-CLI `supabase db push --dry-run` rồi `supabase db push` theo dõi lịch sử migration.
-Nếu dùng SQL Editor, mỗi file chỉ chạy một lần; không chạy lại migration đã áp dụng.
-Migration 003 lưu model/collection theo tài liệu và provider của heartbeat, giữ nguyên
-RLS và quyền ghi qua RPC/worker. Chạy migration trước khi cập nhật web và worker.
-
-Vercel vẫn dùng ba biến Supabase trong `apps/web/.env.example`. Khi muốn deploy
-nhánh thử nghiệm, tạo một Preview deployment từ `codex/openrouter-rag`; cấu hình
-Supabase Auth redirect đúng URL đó. Preview nên dùng Supabase/Qdrant thử nghiệm
-và worker riêng. Không trộn dữ liệu production vào preview. Với web production,
-chỉ chuyển sang bản mới sau khi smoke test đạt yêu cầu.
+Vercel dùng ba biến Supabase trong [mẫu cấu hình web](../apps/web/.env.example).
+Với Preview, dùng Supabase, Qdrant và worker thử nghiệm riêng. Cấu hình redirect
+Supabase Auth theo URL Preview thực tế.
 
 ## 2. Cấu hình worker
 

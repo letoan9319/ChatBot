@@ -1,108 +1,58 @@
-# Triển khai và vận hành demo
+# Triển khai và vận hành LearnStep
 
-## Deploy trên Vercel
+## Chuẩn bị hạ tầng
 
-Phiên bản có streak cần migration `202610220005_study_streaks.sql` sau 001–004.
-Áp dụng SQL trước khi deploy web; [hướng dẫn streak](streaks.md) mô tả quy tắc và
-backfill lịch sử. Không cần thêm biến môi trường hay đổi cách worker finish job.
+1. Chọn một dự án Supabase và cluster Qdrant cho từng môi trường cần chạy. Với Supabase local, khởi động Docker rồi chạy `npx supabase start` và `npx supabase migration up` từ thư mục gốc.
+2. Với Supabase Cloud, đăng nhập CLI, liên kết đúng project rồi kiểm tra danh sách migration trước khi áp dụng. Supabase CLI v3 mặc định nhắm vào local khi thiếu `--remote`. [Thay đổi của Supabase CLI v3](https://supabase.com/changelog/supabase-cli-v3)
 
-Thông báo và nhóm học tập cần thêm migration `202610290001_community.sql`
-sau migration streak. Áp dụng migration trên Supabase Cloud trước khi deploy
-phiên bản web này; [hướng dẫn community](community.md) mô tả quyền truy cập,
-giới hạn và các bước kiểm tra. Migration này đã được thử trên Supabase local,
-chưa được áp dụng vào project production trong phiên triển khai này.
+   ```powershell
+   npx supabase login
+   npx supabase link --project-ref <project-ref>
+   npx supabase db push --remote --dry-run --skip-vault
+   npx supabase db push --remote --skip-vault
+   ```
 
-Kho tài liệu hai tab và nguồn RAG chung cần migration
-`202610300001_document_repository.sql`. Sau migration, cập nhật/khởi động lại
-worker rồi deploy web. [Hướng dẫn kho tài liệu](document-repository.md) mô tả
-cách công bố nguồn chung; migration không tự công bố file cá nhân.
+   Các file trong [`supabase/migrations`](../supabase/migrations) tạo schema, RLS, RPC, bucket riêng tư `documents` và hàng đợi `study_jobs`. Với cơ sở dữ liệu đã có dữ liệu, kiểm tra lịch sử migration nếu có sai lệch. Trang quản lý kho chung cần `20261112150505_content_management.sql` và [vai trò `content_manager`](document-repository.md#quản-lý-kho-chung).
+3. Bật đăng ký bằng email và mật khẩu trong Supabase Auth. Đặt **Site URL** thành địa chỉ web thực tế và cho phép hai URL đầy đủ `/auth/callback` và `/auth/confirm`. Dùng đúng hostname cho môi trường local, ví dụ `http://127.0.0.1:3000`. Nếu bật xác nhận email cho người dùng ngoài nhóm dự án Supabase, cấu hình [SMTP riêng](https://supabase.com/docs/guides/auth/auth-smtp). Template dùng token hash có thể dẫn tới `/auth/confirm?token_hash={{ .TokenHash }}&type=email` cho xác nhận hoặc `type=recovery` cho đặt lại mật khẩu.
+4. Lấy Project URL, publishable/anon key và service-role key cho web. Worker cần thêm chuỗi kết nối PostgreSQL trực tiếp hoặc **Session pooler cổng 5432** với SSL cho Cloud, cùng URL và API key Qdrant. URL-encode mật khẩu trong chuỗi kết nối. Worker cần giữ advisory lock theo session, nên dùng kết nối hỗ trợ session.
 
-Lệnh `npm run build` dùng Webpack được Next.js hỗ trợ. Trên máy Windows hiện
-tại, Turbopack 16.4.2 dừng khi tạo tiến trình PostCSS; cùng mã nguồn đã build
-thành công bằng Webpack. Vercel có thể giữ Build Command mặc định của dự án
-(`npm run build`); không cần thêm cờ build ở dashboard.
+## Vercel
 
-Trước khi deploy web, cần áp dụng migration lên đúng Supabase project. File
-`supabase/config.toml` cấu hình môi trường local; import repository vào Vercel
-không tự tạo bảng hay thiết lập Auth trên Supabase Cloud.
+1. Import repository từ GitHub, chọn **Next.js** và **Root Directory** là `apps/web`. Bật **Include source files outside of the Root Directory** để build dùng được workspace và lockfile ở gốc. [Hướng dẫn Vercel cho monorepo](https://vercel.com/docs/monorepos/monorepo-faq#can-i-share-source-files-between-projects-are-shared-packages-supported)
+2. Dùng Node.js 22 trở lên và Build Command `npm run build`. Region được đặt trong [`vercel.json`](../apps/web/vercel.json).
+3. Thêm `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` và `SUPABASE_SERVICE_ROLE_KEY` theo [mẫu web](../apps/web/.env.example). Giữ khóa service role ở phía máy chủ và dùng dự án thử nghiệm riêng cho Preview.
+4. Áp dụng migration trước khi deploy web. Sau khi có domain, cập nhật Site URL và redirect URL trong Supabase Auth.
 
-Với project mới chưa có bảng, dùng Supabase CLI theo thứ tự:
+## Chạy worker trên máy cá nhân
+
+Mở Ollama trên `127.0.0.1:11434`. Tạo file cấu hình worker từ mẫu nếu chưa có, rồi điền thông tin Supabase và Qdrant của môi trường đang chạy.
 
 ```powershell
-npx supabase login
-npx supabase link --project-ref <project-ref>
-npx supabase db push --dry-run
-npx supabase db push
+ollama pull qwen3:4b
+ollama pull bge-m3
+Set-Location services/worker
+Copy-Item .env.example .env
+# Điền thông tin kết nối vào .env trước khi chạy worker.
+uv sync --frozen --python 3.12
+uv run learnstep-worker
 ```
 
-Migration `supabase/migrations/202610220001_initial.sql` tạo 7 bảng nghiệp vụ,
-RLS, RPC, bucket private `documents` và queue `study_jobs`. Không chạy lại toàn
-bộ migration trong SQL Editor nếu đã tạo một phần schema; kiểm tra lịch sử
-migration và lỗi trước khi tiếp tục.
+Worker tự tạo collection và chỉ mục Qdrant theo cấu hình. Lần đầu cần tải tokenizer Qwen, hoặc dùng `TOKENIZER_PATH` trỏ tới `tokenizer.json` đã tải. Giữ máy thức trong thời gian sử dụng. [Cấu hình OpenRouter dự phòng](chat-fallback.md) · [Cấu hình pipeline OpenRouter](openrouter.md)
 
-Migration tiếp theo `202610220002_profiles.sql` tạo bảng `profiles`, RLS đọc
-hồ sơ của chính mình và RPC `app_set_username` chỉ cho tài khoản đã đăng nhập.
-Áp dụng migration này trước khi deploy phiên bản có bước tạo username. Nếu
-dùng CLI, `db push` sẽ áp dụng các migration còn thiếu theo thứ tự. Nếu dùng SQL
-Editor, chỉ chạy các file chưa áp dụng trên project đó. Username
-không được dùng làm quyền truy cập: mọi kiểm tra vẫn dựa trên `auth.uid()`.
+## Kiểm tra sau triển khai
 
-Migration `202610220003_embedding_profiles.sql` lưu model/collection của tài liệu,
-provider của heartbeat và RPC đọc provider. Cả web và worker bản này cần migration
-đó kể cả khi vẫn dùng Ollama. [Cấu hình NVIDIA trên OpenRouter](openrouter.md) cho
-phép chạy worker CPU, không cần Ollama/GPU; key OpenRouter chỉ đặt trên worker.
+- Đăng ký, xác nhận email, chọn username và đăng nhập từ URL Vercel.
+- Kiểm tra trợ giảng báo sẵn sàng. Tải PDF có văn bản, chờ tài liệu sẵn sàng, hỏi một câu có đáp án và mở trích dẫn.
+- Dùng tài khoản thứ hai để xác nhận tài liệu cá nhân của tài khoản đầu không xuất hiện. Nếu dùng kho chung, kiểm tra công bố và thu hồi từ trang quản lý.
 
-Migration `202610220004_chat_fallback.sql` bổ sung metadata cho chế độ
-[Ollama chính, OpenRouter dự phòng](chat-fallback.md). Chế độ đó vẫn cần Ollama/BGE;
-key chỉ ở worker và không có request API khi model chat chính hoạt động bình thường.
+## Khi gặp lỗi
 
-Tài khoản được Supabase quản lý trong schema `auth`, không phải `public`.
-Schema `public` trống cho biết ứng dụng chưa có bảng nghiệp vụ, nhưng không
-tự chứng minh nguyên nhân đăng ký thất bại. Trong Supabase Dashboard cần bật
-email/password và cho phép đăng ký mới, cấu hình Site URL và các redirect URL
-theo domain Vercel thực tế. Nếu bật xác nhận email, cần SMTP riêng để gửi cho
-người ngoài team của project; SMTP mặc định chỉ gửi cho thành viên tổ chức và
-có hạn mức thấp. Tham khảo [SMTP của Supabase](https://supabase.com/docs/guides/auth/auth-smtp).
+| Hiện tượng | Kiểm tra |
+| --- | --- |
+| Trợ giảng báo offline | Kiểm tra worker và log `worker_ready`, cấu hình kết nối, Ollama hoặc OpenRouter. Hệ thống coi heartbeat quá 60 giây là offline. |
+| Tệp chưa xử lý hoặc báo lỗi | Kiểm tra trạng thái tài liệu và job. Với PDF chỉ có ảnh hoặc tệp hỏng, đổi sang bản có văn bản. Có thể thử lại khi lỗi tạm thời. |
+| Tài liệu ở trạng thái đang xóa | Worker xử lý file, chunk và vector qua hàng đợi. Có thể yêu cầu xóa lại nếu job dọn dẹp đã thất bại. |
+| Sai profile embedding | Dùng collection phù hợp với model và số chiều. Khi đổi model embedding, cần index lại tài liệu. |
+| Bản web mới có lỗi | Rollback về deployment trước trên Vercel. Với schema đang dùng, điều chỉnh bằng migration tiếp theo. |
 
-1. Push repository lên GitHub của bạn và import vào Vercel.
-2. Chọn framework Next.js, **Root Directory `apps/web`**. Cho phép build sử dụng các file ngoài root directory để npm đọc workspace và lockfile ở gốc.
-3. Dùng Node.js 22 hoặc 24; giữ Install Command mặc định npm và Build Command `npm run build`. `apps/web/vercel.json` đặt region `sin1`, thời gian tối đa API 30 giây.
-4. Thêm ba biến môi trường từ `.env.example`: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Không thêm `NEXT_PUBLIC_` cho secret.
-5. Production dùng project Supabase và collection Qdrant riêng. Preview dùng project Supabase thử nghiệm với worker riêng tại thời điểm cần kiểm thử; nếu chưa cấu hình preview, giữ trang hướng dẫn setup. Không copy production keys sang preview.
-6. Deploy, lấy URL thực và cập nhật Supabase Authentication Site URL cùng các redirect `/auth/callback`, `/auth/confirm`. Cấu hình SMTP phù hợp nếu dùng nhiều tài khoản; hạn mức email mặc định không phù hợp gửi hàng loạt.
-7. Chuẩn bị hai tài khoản đã xác minh email, upload tài liệu, hỏi một câu có đáp án và một câu ngoài tài liệu từ URL Vercel thật.
-
-Không cần public endpoint cho máy cá nhân. Web dùng Supabase làm đầu mối. Chi phí và quota Vercel, Supabase, Qdrant phải kiểm tra theo tài khoản tại thời điểm deploy.
-
-## Quy trình trước buổi demo
-
-1. Kiểm tra Internet, dung lượng Storage và Qdrant, các project cloud chưa bị pause.
-2. Với Ollama, xác nhận `ollama list` có hai model. Với OpenRouter, kiểm tra API key/quota và cấu hình model free.
-3. Mở worker, chờ log `worker_ready`; trang học tập phải báo online trong khoảng 15 giây.
-4. Upload một PDF có văn bản, đợi `Sẵn sàng`; hỏi, mở trích dẫn và trang PDF gốc.
-5. Dùng tài khoản thứ hai kiểm tra không thấy tài liệu của tài khoản đầu.
-6. Giữ laptop cắm nguồn và không sleep trong thời gian demo.
-
-## Khôi phục lỗi
-
-| Trường hợp | Hành vi / xử lý |
-|---|---|
-| Worker tắt | Sau 60 giây UI báo offline và từ chối job AI mới; vẫn cho đọc lịch sử và enqueue xóa |
-| Worker khởi động lại | Queue giao lại job sau visibility timeout 120 giây; bắt đầu lại cùng ID, tăng attempts |
-| Lỗi mạng tạm thời | Thử lại sau 10 giây, tối đa 3 lượt; câu trả lời tạm có trạng thái gián đoạn |
-| Parser từ chối file | Báo lỗi ngay, không tự thử lại dữ liệu hỏng; người dùng xóa hoặc thay file |
-| Ingestion thất bại | Nút Thử lại tạo index version mới và dọn vector cũ trước khi ghi |
-| Cleanup thất bại | Giữ trạng thái deleting; có thể gửi DELETE lại để tạo job mới sau khi job cũ kết thúc |
-| Upload bỏ dở | Có thể xác nhận lại hoặc xóa từ UI; worker tự enqueue cleanup sau 24 giờ |
-| GPU hết VRAM | Kiểm tra ứng dụng đang chiếm GPU bằng `nvidia-smi`, đóng ứng dụng không cần thiết, khởi động lại worker |
-| Collection sai chiều | Tạo collection phiên bản mới; không đổi embedding trên collection đang dùng |
-
-Ollama chỉ bind localhost. Secrets chỉ ở Vercel/server và `.env` của worker. Log ứng dụng chỉ chứa job ID, loại lỗi và thời gian; không đưa văn bản giáo trình vào log.
-
-## Theo dõi và rollback
-
-- Xem `jobs` để biết thời gian chờ, thời gian xử lý và tỉ lệ thất bại; SQL mẫu trong `supabase/metrics.sql`.
-- Heartbeat chỉ báo sức sống của worker, không đảm bảo dịch vụ upstream chưa bị lỗi sau lần kiểm tra đầu.
-- Dùng dashboard Supabase/Qdrant kiểm tra quota, dung lượng và lỗi kết nối. Không cấu hình theo dõi lặp hay thông báo bên ngoài trong repository này.
-- Rollback web bằng phiên deploy trước trong Vercel. Migration đầu tiên chỉ áp dụng cho project mới; các thay đổi tiếp theo cần migration mới, ưu tiên tương thích bản web/worker đang chạy.
-- Khi đổi model embedding: tạo collection mới, tăng index version và chạy index lại; chỉ chuyển cấu hình sau khi đánh giá xong. Đổi SLM không cần index lại nhưng cần chạy lại bộ kiểm tra chất lượng.
+[`supabase/metrics.sql`](../supabase/metrics.sql) có truy vấn theo dõi thời gian chờ, xử lý và lỗi của job.

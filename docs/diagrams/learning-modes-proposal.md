@@ -5,7 +5,7 @@ Hai nhánh 9 và 10 được bổ sung vào cây phân rã chức năng theo yê
 Các hộp màu vàng nhạt mang trạng thái `proposed` trong cây JSON. Mã 1–8 được
 giữ để tiếp tục đối chiếu các chức năng đã khảo sát trước đó.
 
-![Hai nhánh phương thức học đề xuất](13b-learning-modes-proposal.png)
+![Hai nhánh phương thức học đề xuất](13b-learning-modes-proposal.svg)
 
 [SVG phóng to](13b-learning-modes-proposal.svg) ·
 [Toàn bộ cây chức năng](functional-decomposition.md).

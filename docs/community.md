@@ -1,10 +1,8 @@
 # Thông báo và nhóm học tập
 
-Áp dụng migration `supabase/migrations/202610290001_community.sql` sau các
-migration hiện có. Với Supabase project đã link, dùng `supabase db push`;
-với local dùng `supabase migration up --local`. Không cần reset database.
-Local của phiên triển khai đã áp dụng migration này; cloud cần áp dụng riêng
-trước khi sử dụng API mới. Nếu thiếu migration, API trả lỗi 503 rõ ràng.
+Tính năng cần migration `202610290001_community.sql`. [Áp dụng migration vào
+đúng môi trường](deployment.md#chuẩn-bị-hạ-tầng) trước khi sử dụng. Nếu thiếu
+migration, API trả lỗi 503.
 
 ## Thông báo
 

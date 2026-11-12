@@ -386,7 +386,7 @@
       "label": "Vận hành và bảo vệ xử lý",
       "children": [
         {
-          "label": "Công bố nguồn chung bằng SQL đặc quyền",
+          "label": "Quản lý tài liệu chung",
           "children": [
             {
               "label": "Xem tài liệu đã sẵn sàng để công bố",
@@ -397,7 +397,7 @@
               "use_case": "VH-02"
             },
             {
-              "label": "Cập nhật mô tả nguồn đã công bố",
+              "label": "Thêm mô tả khi công bố",
               "use_case": "VH-03"
             },
             {
@@ -405,7 +405,7 @@
               "use_case": "VH-04"
             }
           ],
-          "evidence": "docs/document-repository.md; supabase/migrations/202610300001_document_repository.sql"
+          "evidence": "docs/document-repository.md; supabase/migrations/20261112150505_content_management.sql"
         },
         {
           "label": "Điều phối công việc nền",

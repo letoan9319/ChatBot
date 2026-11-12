@@ -123,10 +123,10 @@ wbsDiagram {
 ***< 7.4. Bật hoặc tắt tự cuộn
 ***< 7.5. Khôi phục cài đặt mặc định
 ** 8. Vận hành và bảo vệ xử lý
-***< 8.1. Công bố nguồn chung bằng SQL đặc quyền
+***< 8.1. Quản lý tài liệu chung
 ****< 8.1.1. Xem tài liệu đã sẵn sàng để công bố
 ****< 8.1.2. Công bố tài liệu vào kho chung
-****< 8.1.3. Cập nhật mô tả nguồn đã công bố
+****< 8.1.3. Thêm mô tả khi công bố
 ****< 8.1.4. Thu hồi công bố tài liệu
 ***< 8.2. Điều phối công việc nền
 ****< 8.2.1. Tiếp nhận và nhận xử lý công việc

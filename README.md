@@ -1,136 +1,61 @@
-# LearnStep - Hiểu thêm mỗi ngày
+# LearnStep
 
-[Bộ sơ đồ hệ thống](docs/system-diagrams.md): use case, kiến trúc, ERD,
-sequence upload/RAG, kho tài liệu, trạng thái và hoạt động cộng đồng.
+LearnStep hỗ trợ tự học Giải tích, Đại số tuyến tính và Vật lý đại cương. Người học có thể tải PDF/DOCX, hỏi đáp bằng tiếng Việt dựa trên tài liệu đã chọn, mở đoạn trích dẫn và xem lại hội thoại.
 
-LearnStep là website hỗ trợ tự học Giải tích, Đại số tuyến tính và Vật lý đại cương bằng RAG và SLM. Sinh viên đăng nhập, tải PDF/DOCX, chọn tối đa 5 tài liệu, hỏi đáp tiếng Việt có LaTeX và nguồn trích dẫn, xem lại lịch sử.
-
-[Streak theo ngày học](docs/streaks.md) ghi nhận chuỗi liên tiếp, kỷ lục và lịch
-7 ngày theo giờ Việt Nam khi hoàn tất câu hỏi có nguồn.
-
-[Kho tài liệu](docs/document-repository.md) có hai tab: tài liệu chung dùng
-cho RAG và tài liệu người dùng tải lên. Trích dẫn mở đúng tài liệu và đoạn nguồn.
-
-[Thông báo và nhóm học tập](docs/community.md) hỗ trợ trao đổi theo môn với
-quyền thành viên riêng. [Giao diện học tập](docs/workspace.md) có lịch sử nhanh,
-cài đặt và khung chat tập trung. Các thay đổi và phạm vi kiểm tra bảo mật được
-ghi trong [báo cáo rà soát](docs/security-review.md).
+- **Kho tài liệu** gồm tài liệu cá nhân và tài liệu chung dùng cho RAG. Tài khoản có quyền `content_manager` quản lý việc công bố và thu hồi nguồn chung.
+- **Kế hoạch học** hỗ trợ học theo tiến trình và tự học, với bài mẫu, ghi chú, thẻ ghi nhớ và lịch ôn.
+- **Góc học tập** có chuỗi ngày học, nhóm theo môn, thông báo và tùy chỉnh giao diện.
 
 ## Kiến trúc
 
-```mermaid
-flowchart LR
-    U[Trình duyệt] --> V[Next.js trên Vercel]
-    U -->|Upload có chữ ký| S[Supabase Storage private]
-    V -->|Auth, RLS, RPC| D[Supabase PostgreSQL]
-    D --- Q[Supabase Queues]
-    W[Worker Python trên máy cá nhân] -->|Nhận job, gia hạn lease| Q
-    W --> S
-    W --> D
-    W --> E[Qdrant Cloud]
-    W --> O[Ollama localhost]
-    W --> R[OpenRouter NVIDIA tùy chọn]
-```
+| Thành phần | Vai trò |
+| --- | --- |
+| [`apps/web`](apps/web) | Giao diện và API Next.js trên Vercel |
+| [`supabase`](supabase) | Auth, PostgreSQL, Storage riêng tư và hàng đợi PGMQ |
+| [`services/worker`](services/worker) | Worker Python trên máy cá nhân, xử lý tài liệu và câu hỏi |
+| Qdrant Cloud | Lưu và tìm kiếm vector |
+| Ollama | Embedding BGE-M3 và sinh câu trả lời với Qwen. Có thể cấu hình OpenRouter cho worker. |
 
-Worker chỉ kết nối ra ngoài; không mở cổng máy cá nhân. Vercel không chạy model và không chờ inference. API trả `202`, giao diện đọc trạng thái/câu trả lời mỗi 2 giây khi có việc, 15 giây khi nghỉ. AI cần worker đang chạy cùng Ollama hoặc kết nối OpenRouter. [Hướng dẫn dùng NVIDIA free qua OpenRouter, gồm embedding và rerank](docs/openrouter.md).
+Trình duyệt tải tệp trực tiếp lên Supabase Storage. Worker chủ động nhận tác vụ từ Supabase, nên cần chạy worker để xử lý tài liệu mới và trả lời câu hỏi, kể cả khi bật OpenRouter dự phòng. [Kiến trúc và API](docs/architecture.md) · [Bộ sơ đồ](docs/diagrams/README.md)
 
-Có thể [dùng Ollama làm model chính và OpenRouter dự phòng cho câu trả lời](docs/chat-fallback.md).
-Embedding vẫn là BGE-M3; OpenRouter chỉ được gọi khi model chat chính lỗi.
+## Chạy trên máy cá nhân
 
-## Cấu trúc
+1. Chuẩn bị Node.js 22 trở lên, Python 3.12 và uv. [Thiết lập Supabase, Qdrant và Auth](docs/deployment.md#chuẩn-bị-hạ-tầng).
+2. Từ thư mục gốc, tạo cấu hình web từ mẫu, điền các giá trị của môi trường phát triển rồi chạy Next.js.
 
-```text
-apps/web/                 Next.js, Auth, giao diện, API
-services/worker/          Parser, embedding, Qdrant, RAG, đánh giá
-supabase/migrations/     Schema, RLS, RPC, bucket và hàng đợi
-tests/                   Kiểm thử PostgreSQL nhúng
-docs/                    Triển khai, vận hành, đánh giá
-```
+   ```powershell
+   Copy-Item apps/web/.env.example apps/web/.env.local
+   npm ci
+   npm run dev
+   ```
 
-## 1. Chuẩn bị
+3. Mở [http://127.0.0.1:3000](http://127.0.0.1:3000), đăng ký, xác nhận email và chọn username. [Khởi động worker và Ollama](docs/deployment.md#chạy-worker-trên-máy-cá-nhân) để tải và hỏi đáp theo tài liệu.
 
-- Node.js 22 trở lên và npm; dùng `npm ci` để giữ đúng phiên bản trong lockfile.
-- Python 3.12 hoặc 3.13 và [uv](https://docs.astral.sh/uv/).
-- Supabase project mới, Qdrant Cloud cluster, [Ollama](https://ollama.com/download).
-- Máy demo dự kiến: RTX 3060 Laptop 6 GB VRAM, RAM 16 GB. Chỉ một job AI chạy tại một thời điểm.
+Nếu đã có file cấu hình, cập nhật các giá trị cần thiết trong file hiện có. Chỉ đưa các file `.env.example` lên Git.
 
-Không đưa secret vào Git. Hai file cấu hình dưới đây đã được `.gitignore` loại trừ.
-
-## 2. Supabase và Qdrant
-
-1. Tạo project Supabase riêng cho development. Dùng Supabase CLI: `supabase link --project-ref <ref>` rồi `supabase db push`. Nếu dùng SQL Editor trên project mới, chạy lần lượt các migration từ `202610220001_initial.sql` đến `202610300001_document_repository.sql` trong `supabase/migrations`, mỗi file một lần. Project đã có schema chỉ áp dụng các migration còn thiếu.
-2. Migration tạo bucket private `documents`, extension PGMQ, queue `study_jobs`, các bảng và RPC. Không bật public bucket hoặc cấp quyền queue cho trình duyệt.
-3. Trong Authentication bật email/password, xác nhận email, password tối thiểu 8 ký tự. Cấu hình Site URL `http://localhost:3000`; thêm redirect `http://localhost:3000/auth/callback` và `http://localhost:3000/auth/confirm`. Nếu dùng `127.0.0.1`, thêm URL tương ứng.
-4. Lấy Project URL, publishable/anon key và service-role key từ Supabase. Lấy chuỗi kết nối **Session pooler port 5432** hoặc direct connection có SSL từ mục Connect. URL-encode mật khẩu. Không dùng transaction pooler port 6543: worker cần session advisory lock.
-5. Tạo Qdrant Cloud cluster, lấy URL và API key. Worker tự tạo collection `study_bge_m3_v1` (1024 chiều, cosine) và payload indexes lúc khởi động.
-
-Đường dẫn file có dạng `<user_uuid>/<document_uuid>.pdf` hoặc `.docx`. Client không có quyền ghi trực tiếp bảng nghiệp vụ hay queue. API cấp signed upload URL sau khi RPC kiểm tra quota; bucket không cho phép client sửa/ghi đè file đã tồn tại.
-
-## 3. Chạy web
-
-Từ thư mục gốc, PowerShell:
+## Kiểm thử
 
 ```powershell
-Copy-Item apps/web/.env.example apps/web/.env.local
-# Điền URL, anon key, service-role key vào file vừa tạo.
-npm ci
-npm run dev
-```
-
-Mở địa chỉ Local do Next.js in ra, mặc định `http://127.0.0.1:3000`. Đăng ký và xác nhận email. Nếu chưa có biến môi trường, trang chủ vẫn chạy và trang học tập hướng dẫn cấu hình.
-
-Sau đăng ký, giao diện chuyển sang bước chọn username (3–24 ký tự, chữ cái
-không dấu, số, `_`, bắt đầu bằng chữ cái). Nếu chưa xác nhận email, tên chỉ
-được ghi nhớ trên thiết bị và chưa giữ chỗ. Sau xác nhận hoặc đăng nhập, người
-dùng hoàn tất chọn tên trên `/onboarding` rồi vào `/study`. Tài khoản cũ chưa
-có tên cũng được đưa qua bước này. Username duy nhất được lưu trong bảng
-`profiles` có RLS; ứng dụng vẫn dùng email và mật khẩu để đăng nhập. Nút
-`Hiện / Ẩn` mật khẩu có ở đăng ký, đăng nhập và đặt lại mật khẩu.
-
-Nếu liên kết email được mở trên thiết bị khác, PKCE callback có thể thiếu code verifier. Có thể dùng email template với token hash: `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email` cho xác nhận tài khoản; dùng `type=recovery` cho đặt lại mật khẩu. Không thêm wildcard redirect rộng vào môi trường production.
-
-## 4. Chạy AI và worker
-
-```powershell
-ollama pull qwen3:4b
-ollama pull bge-m3
-cd services/worker
-Copy-Item .env.example .env
-# Điền DATABASE_URL, Supabase URL/service-role key, Qdrant URL/API key.
-uv sync --frozen --python 3.12
-uv run learnstep-worker
-```
-
-Ollama desktop phải đang chạy tại `http://127.0.0.1:11434`. Không đặt `OLLAMA_HOST=0.0.0.0`. Lần khởi động đầu cần Internet để tải tokenizer `Qwen/Qwen3-4B`; có thể tải trước và đặt `TOKENIZER_PATH` tới file `tokenizer.json` trên máy.
-
-Worker kiểm tra model đã cài, collection và session lock trước khi báo online. Model embedding được giải phóng trước khi chạy SLM và ngược lại. SLM dùng context 4096, tối đa 768 token trả lời, thinking tắt. Nếu hết bộ nhớ hoặc bị cắt ngang, câu trả lời không được đánh dấu hoàn tất.
-
-Khởi chạy worker bằng terminal riêng và giữ máy không sleep trong buổi demo. Dừng bằng Ctrl+C; job còn lease sẽ được nhận lại sau khi lease hết hạn. Nếu một worker khác đang giữ khóa, tiến trình mới sẽ dừng thay vì chạy đồng thời.
-
-## 5. Kiểm tra
-
-```powershell
-# Từ gốc repository
 npm test
 npm run typecheck
 npm run build
 
-cd services/worker
+Set-Location services/worker
+uv sync --frozen --python 3.12
 uv run pytest
 uv run ruff check src tests
 ```
 
-Kiểm thử database dùng PostgreSQL/PLpgSQL thật qua PGlite với schema Auth/Storage và `pgmq.create/send` thay thế tối thiểu. Kiểm thử này xác minh RLS, grants, transaction enqueue, quota và idempotency; không xác nhận dịch vụ Supabase hoặc PGMQ đang chạy thực tế. Kiểm thử vector dùng Qdrant in-memory. Kiểm thử inference dùng HTTP mock, không giả định đã benchmark model thật.
+`npm test` chạy kiểm thử web và PostgreSQL nhúng. [Đánh giá chất lượng RAG và benchmark](docs/evaluation.md) mô tả cách chạy với dữ liệu và model thực.
 
-Hướng dẫn tiếp theo:
+## Tài liệu
 
-- [Báo cáo tính năng hiện tại của LearnStep (PDF)](output/pdf/LearnStep-Bao-cao-tinh-nang-hien-tai.pdf)
-- [Deploy Vercel và vận hành](docs/deployment.md)
-- [API, trạng thái và quyền truy cập](docs/architecture.md)
-- [Bộ dữ liệu và nghiệm thu RAG](docs/evaluation.md)
+- [Triển khai Vercel và vận hành worker](docs/deployment.md)
+- [Kho tài liệu, trích dẫn và cấp quyền quản lý](docs/document-repository.md)
+- [OpenRouter dự phòng cho câu trả lời](docs/chat-fallback.md) hoặc [OpenRouter cho cả pipeline](docs/openrouter.md)
+- [Góc học tập](docs/workspace.md), [kế hoạch](docs/learning-plans.md), [nhóm và thông báo](docs/community.md), [chuỗi ngày học](docs/streaks.md)
+- [Kiểm tra bảo mật và dependency](docs/security-checks.md)
 
-## Giới hạn MVP
+Giới hạn hiện tại gồm PDF/DOCX tối đa 20 MB, 20 tài liệu mỗi tài khoản và tối đa 5 nguồn mỗi câu hỏi. PDF cần có văn bản trích xuất được.
 
-PDF/DOCX tối đa 20 MB, 20 tài liệu/tài khoản; PDF tối đa 200 trang. Chưa hỗ trợ OCR, tài liệu mã hóa, nhận dạng công thức trong ảnh hoặc khôi phục chính xác công thức bị parser làm mất cấu trúc. DOCX trích xuất đoạn văn/bảng và tiêu đề; trích dẫn theo mục/đoạn, không giả lập số trang. Worker giới hạn văn bản trích xuất 1 triệu ký tự và DOCX giải nén 80 MB.
-
-Mỗi tài khoản có một câu hỏi đang chờ/chạy, tối đa 30 câu/giờ. Không có cam kết thời gian phản hồi trước khi benchmark. Kiểm tra nhãn nguồn bảo đảm trích dẫn thuộc context được phép; mức độ nguồn thực sự hỗ trợ câu trả lời vẫn cần đánh giá thủ công. OCR, đề ôn tập, cá nhân hóa và LoRA/QLoRA nằm ngoài MVP này.
+[Giấy phép GNU GPL v3](LICENSE)

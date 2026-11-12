@@ -55,8 +55,9 @@ const location = (source: Source) =>
         .filter(Boolean)
         .join(" · ");
 
-export function StudyWorkspace({ username, initialConversationId = null, initialLibrary = null }: {
+export function StudyWorkspace({ username, canManageKnowledge, initialConversationId = null, initialLibrary = null }: {
   username: string;
+  canManageKnowledge: boolean;
   initialConversationId?: string | null;
   initialLibrary?: "knowledge" | "documents" | null;
 }) {
@@ -107,78 +108,88 @@ export function StudyWorkspace({ username, initialConversationId = null, initial
   );
   const sourceRequest = useRef(0);
   const refreshRequest = useRef(0);
+  const refreshInFlight = useRef<number | null>(null);
+  const conversationEpoch = useRef(0);
+  const sending = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (active?: { documents: boolean; chat: boolean }) => {
+    if (active && refreshInFlight.current !== null) return;
     const requestId = ++refreshRequest.current;
+    refreshInFlight.current = requestId;
     try {
-      const [docs, convs, health, history, streakResult, knowledgeResult] = await Promise.all([
-        api<StudyDocument[]>("documents"),
-        api<Conversation[]>("conversations"),
+      const [docs, convs, health, history, streakResult, knowledgeResult] = await Promise.allSettled([
+        !active || active.documents ? api<StudyDocument[]>("documents") : null,
+        !active ? api<Conversation[]>("conversations") : null,
         api<WorkerStatus>("status"),
-        conversationId
-          ? api<Message[]>(`conversations/${conversationId}/messages`)
-          : Promise.resolve([]),
-        api<StudyStreak>("streak")
-          .then((data) => ({ data, error: "" }))
-          .catch((error: Error) => ({ data: null, error: error.message })),
-        api<StudyDocument[]>("knowledge")
-          .then((data) => ({ data, error: "" }))
-          .catch((error: Error) => ({ data: null, error: error.message })),
+        conversationId && (!active || active.chat) ? api<Message[]>(`conversations/${conversationId}/messages`) : null,
+        !active ? api<StudyStreak>("streak") : null,
+        !active ? api<StudyDocument[]>("knowledge") : null,
       ]);
-      if (
-        currentConversation.current !== conversationId ||
-        requestId !== refreshRequest.current
-      )
-        return;
-      setDocuments(docs);
-      if (knowledgeResult.data) setKnowledge(knowledgeResult.data);
-      setKnowledgeError(knowledgeResult.error);
-      setDataError("");
-      setConversations(convs);
-      setWorker(health);
-      setMessages(history);
-      setStreak(streakResult.data);
-      setStreakError(streakResult.error);
-      setSelected((previous) =>
-        previous.filter((id) =>
-          [...docs, ...(knowledgeResult.data ?? currentKnowledge.current)].some((doc) => doc.id === id && doc.status === "ready"),
-        ),
-      );
-      setLoading(false);
-    } catch (error) {
       if (currentConversation.current !== conversationId || requestId !== refreshRequest.current) return;
-      setNotice((error as Error).message);
+      const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : "Không thể cập nhật dữ liệu.";
+      if (docs.status === "fulfilled" && docs.value) {
+        const readyDocuments = docs.value;
+        const shared = knowledgeResult.status === "fulfilled" && knowledgeResult.value
+          ? knowledgeResult.value : currentKnowledge.current;
+        setDocuments(readyDocuments);
+        setDataError("");
+        setSelected(previous => previous.filter(id =>
+          [...readyDocuments, ...shared].some(doc => doc.id === id && doc.status === "ready")));
+      } else if (docs.status === "rejected") {
+        setDataError(errorMessage(docs.reason));
+      }
+      if (convs.status === "fulfilled" && convs.value) setConversations(convs.value);
+      if (health.status === "fulfilled") setWorker(health.value);
+      else setWorker({ online: false, provider: null, activeChat: null });
+      if (history.status === "fulfilled" && history.value) setMessages(history.value);
+      if (streakResult.status === "fulfilled" && streakResult.value) {
+        setStreak(streakResult.value);
+        setStreakError("");
+      } else if (streakResult.status === "rejected") {
+        setStreakError(errorMessage(streakResult.reason));
+      }
+      if (knowledgeResult.status === "fulfilled" && knowledgeResult.value) {
+        setKnowledge(knowledgeResult.value);
+        setKnowledgeError("");
+      } else if (knowledgeResult.status === "rejected") {
+        setKnowledgeError(errorMessage(knowledgeResult.reason));
+      }
+      const failure = [health, history, convs].find(result => result.status === "rejected");
+      if (failure?.status === "rejected" && !active) setNotice(errorMessage(failure.reason));
       setLoading(false);
-      setDataError((error as Error).message);
-      setStreak(null);
-      setStreakError("Chưa thể cập nhật chuỗi ngày học. Vui lòng thử lại.");
+    } finally {
+      if (refreshInFlight.current === requestId) refreshInFlight.current = null;
     }
   }, [conversationId]);
-  const pending =
-    uploading ||
-    busy ||
-    Boolean(worker.activeChat) ||
-    documents.some((doc) =>
-      ["queued", "processing", "deleting"].includes(doc.status),
-    ) ||
-    messages.some((message) =>
-      ["queued", "generating"].includes(message.status),
-    );
+  const latestRefresh = useRef(refresh);
+  latestRefresh.current = refresh;
+
+  const pendingDocuments = uploading || documents.some(doc => ["queued", "processing", "deleting"].includes(doc.status));
+  const pendingChat = busy || Boolean(worker.activeChat) ||
+    messages.some(message => ["queued", "generating"].includes(message.status));
+
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), pending ? 2000 : 15000);
-    const onFocus = () => void refresh();
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    window.addEventListener("focus", onFocus);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const timer = setInterval(onVisible, 15000);
+    window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, pending]);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!worker.online || (!pendingDocuments && !pendingChat)) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refresh({ documents: pendingDocuments, chat: pendingChat });
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [refresh, pendingDocuments, pendingChat, worker.online]);
   useEffect(() => {
     const container = chatScroll.current;
     if (!container || !container.clientHeight || !preferences.autoScroll || !followConversation.current) return;
@@ -283,41 +294,42 @@ export function StudyWorkspace({ username, initialConversationId = null, initial
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!worker.online || !question.trim() || !selected.length || busy || worker.activeChat)
-      return;
+    if (!worker.online || !question.trim() || !selected.length || sending.current || worker.activeChat) return;
+
+    const epoch = conversationEpoch.current;
+    const submittedDraft = question;
+    const documentIds = selected;
+    const isCurrent = () => conversationEpoch.current === epoch;
+    sending.current = true;
     setBusy(true);
     setNotice("");
     try {
-      let id = conversationId;
+      let id = currentConversation.current;
       if (!id) {
-        const conversation = await api<{ id: string }>(
-          "conversations",
-          "POST",
-          { key: crypto.randomUUID() },
-        );
+        const conversation = await api<{ id: string }>("conversations", "POST", { key: crypto.randomUUID() });
         id = conversation.id;
-        currentConversation.current = id;
-        setConversationId(id);
+        if (isCurrent()) {
+          currentConversation.current = id;
+          setConversationId(id);
+        }
       }
-      const fingerprint = JSON.stringify([id, question.trim(), selected]);
-      if (requestIdentity.current?.fingerprint !== fingerprint)
-        requestIdentity.current = { fingerprint, key: crypto.randomUUID() };
+      const fingerprint = JSON.stringify([id, submittedDraft.trim(), documentIds]);
+      const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
+        ? requestIdentity.current.key : crypto.randomUUID();
+      if (isCurrent()) requestIdentity.current = { fingerprint, key };
       await api(`conversations/${id}/messages`, "POST", {
-        question: question.trim(),
-        documentIds: selected,
-        key: requestIdentity.current.key,
+        question: submittedDraft.trim(), documentIds, key,
       });
-      followConversation.current = true;
-      setQuestion("");
-      requestIdentity.current = null;
-      ++refreshRequest.current;
-      const history = await api<Message[]>(`conversations/${id}/messages`);
-      if (currentConversation.current === id) setMessages(history);
-      const health = await api<WorkerStatus>("status");
-      setWorker(health);
+      if (isCurrent()) {
+        followConversation.current = true;
+        setQuestion(current => current === submittedDraft ? "" : current);
+        requestIdentity.current = null;
+      }
+      void latestRefresh.current();
     } catch (error) {
-      setNotice((error as Error).message);
+      if (isCurrent()) setNotice((error as Error).message);
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }
@@ -337,6 +349,7 @@ export function StudyWorkspace({ username, initialConversationId = null, initial
     }
   }
   function openConversation(id: string | null) {
+    ++conversationEpoch.current;
     ++refreshRequest.current;
     setView("study");
     if (id && id === currentConversation.current) void refresh();
@@ -438,7 +451,8 @@ export function StudyWorkspace({ username, initialConversationId = null, initial
         </nav>
       </aside>
       <div className={styles.mainColumn}>
-        <StudyToolbar username={username} online={worker.online} loading={loading} provider={worker.provider}
+        <StudyToolbar username={username} canManageKnowledge={canManageKnowledge}
+          online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
           onOpenConversation={openConversation} onOpenGroup={openGroup}
           showStreak={view !== "overview"}
@@ -480,7 +494,7 @@ export function StudyWorkspace({ username, initialConversationId = null, initial
             </nav>}
             <section id="library-knowledge" className={styles.librarySection} hidden={libraryView !== "knowledge"} aria-label="Tài liệu chung">
               <DocumentRepository mode="knowledge" documents={knowledge} selected={selected} loading={loading}
-                error={knowledgeError || dataError} online={worker.online} uploading={uploading}
+                error={knowledgeError} online={worker.online} uploading={uploading}
                 onChoose={choose} onUpload={upload} onAction={documentAction} onRefresh={refresh} />
             </section>
             <section id="library-documents" className={styles.librarySection} hidden={libraryView !== "documents"} aria-label="Tài liệu">

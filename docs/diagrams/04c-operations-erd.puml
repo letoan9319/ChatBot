@@ -21,6 +21,14 @@ entity "public.jobs" as jobs {
   started_at : timestamptz
   finished_at : timestamptz
 }
+entity "public.learning_plans" as learning_plans {
+  * id : uuid <<PK>>
+  * user_id : uuid <<FK>>
+  * mode : text
+  * content : jsonb
+  * revision : integer
+  * created_at : timestamptz
+}
 entity "public.messages" as messages {
   * id : uuid <<PK>>
 }
@@ -34,6 +42,10 @@ entity "public.study_activity_days" as study_activity_days {
   * study_date : date <<PK>>
   * first_completed_at : timestamptz
 }
+entity "public.user_roles" as user_roles {
+  * user_id : uuid <<PK>> <<FK>>
+  * role : text <<PK>>
+}
 entity "auth.users" as users {
   * id : uuid <<PK>>
 }
@@ -44,6 +56,8 @@ entity "public.worker_heartbeats" as worker_heartbeats {
   * chat_fallback_enabled : boolean
 }
 users ||--o| profiles : id
+users ||--o{ user_roles : user_id
+users ||..o{ learning_plans : user_id
 users ||--o{ study_activity_days : user_id
 users ||..o{ jobs : user_id
 documents |o..o{ jobs : document_id

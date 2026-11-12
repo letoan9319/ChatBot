@@ -56,9 +56,8 @@ trình bày như một chuỗi hiện tại chính xác.
 
 ## Triển khai và kiểm thử
 
-1. Áp dụng các migration còn thiếu theo thứ tự đến `202610220005_study_streaks.sql`.
-   Dùng `supabase db push` với project đã link, hoặc chạy riêng file 005 trong SQL
-   Editor nếu 001–004 đã được áp dụng. Không chạy lại các migration cũ.
+1. Áp dụng migration `202610220005_study_streaks.sql` cùng các migration còn thiếu
+   theo [hướng dẫn triển khai](deployment.md#chuẩn-bị-hạ-tầng).
 2. Deploy web mới từ nhánh GitHub; worker tiếp tục finish job như trước.
 3. Đăng nhập, hoàn tất câu hỏi có nguồn và chờ polling. Hôm nay được đánh dấu
    “Đã học”; gửi thêm câu hỏi không làm số ngày tăng thêm.

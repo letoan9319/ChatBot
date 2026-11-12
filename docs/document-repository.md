@@ -24,45 +24,46 @@ File gốc mở qua `/api/documents/<id>/file`, kiểm tra quyền lại rồi c
 signed URL Supabase có hạn 120 giây. DOCX được tải xuống, PDF mở trong tab mới.
 Phản hồi API và redirect dùng `Cache-Control: private, no-store`.
 
-## Cài đặt
+## Quản lý kho chung
 
-1. Áp dụng `202610300001_document_repository.sql` sau các migration hiện có.
-   Local dùng `npx supabase migration up --local`; cloud đã link dùng
-   `npx supabase db push --dry-run` rồi `npx supabase db push`.
-2. Cập nhật và khởi động lại worker cùng phiên bản, sau đó deploy web. Worker
-   cũ chỉ hỗ trợ tài liệu riêng nên không xử lý được nguồn chung.
-3. Tải một tài liệu qua **Tài liệu của tôi**, chờ worker xử lý thành `ready`.
-   Chỉ công bố nội dung phù hợp để chia sẻ cho mọi người dùng đã đăng nhập.
-4. Quản trị viên dùng SQL Editor của Supabase để xem ID và công bố rõ ràng:
+Áp dụng các migration theo [hướng dẫn triển khai](deployment.md). Sau khi
+áp dụng `20261112150505_content_management.sql`, lấy **User UID** của tài khoản
+LearnStep đã đăng ký trong **Supabase → Authentication → Users**. Người vận hành
+cấp quyền bằng SQL Editor trên đúng project.
 
 ```sql
--- Chỉ thực hiện trong phiên quản trị database.
-select id, name, subject, status from public.documents
-where status='ready' order by created_at desc;
-
-insert into public.knowledge_documents(document_id, description)
-values ('<document-uuid>', 'Mô tả nguồn kiến thức dùng cho RAG')
-on conflict (document_id) do update set description=excluded.description;
+insert into public.user_roles (user_id, role)
+values ('<user-uid>', 'content_manager')
+on conflict (user_id, role) do nothing;
 ```
 
-Không cho client tự công bố qua API hoặc sửa bảng registry. Kho chung khởi
-đầu trống cho đến khi có nguồn được công bố; migration không chia sẻ tài liệu
-cá nhân hiện có. Không seed bản ghi `ready` khi chưa thực sự xử lý file.
+Đăng nhập LearnStep bằng email và mật khẩu như bình thường, vào góc học tập và
+mở menu tài khoản ở góc trên bên phải. Chọn **Quản lý tài liệu chung** để mở
+`/admin/knowledge`.
 
-Ngừng công bố bằng SQL quản trị:
+- **Công bố** một tài liệu do chính bạn tải lên và đã xử lý xong. Mở tên tài liệu
+  để xem trước, thêm mô tả nếu cần và xác nhận. Mọi tài khoản đã đăng nhập có thể
+  đọc và dùng tài liệu đó làm nguồn RAG.
+- **Thu hồi** bất kỳ tài liệu đang công bố trong kho chung. Tệp gốc vẫn thuộc về
+  người tải lên. Các lần đọc mới từ kho chung và tác vụ RAG dùng nguồn chung
+  bị chặn sau khi thu hồi. URL đọc đã cấp vẫn có thể hoạt động tới khi hết hạn.
+
+Thao tác công bố và thu hồi trong LearnStep ghi UID người thực hiện, ID tài
+liệu, loại thao tác và thời điểm vào `app_private.knowledge_document_audit`.
+
+Để thu hồi quyền quản lý của một tài khoản, dùng SQL Editor.
 
 ```sql
-delete from public.knowledge_documents where document_id='<document-uuid>';
+delete from public.user_roles
+where user_id = '<user-uid>' and role = 'content_manager';
 ```
-
-Các lần đọc, ký URL mới và tác vụ RAG tiếp theo bị chặn sau khi thu hồi.
-Signed URL đã cấp trước đó có thể còn dùng được đến hết hạn 120 giây.
-Ngừng công bố không xóa tệp gốc của chủ sở hữu hoặc lịch sử hội thoại.
 
 ## Quyền dữ liệu và worker
 
-`documents` giữ RLS riêng tư. Registry `knowledge_documents` chỉ được ghi bởi
-quản trị viên/service role. RPC trả metadata cần hiển thị, không trả owner ID,
+`documents` giữ RLS riêng tư. Người quản lý cập nhật `knowledge_documents`
+qua RPC kiểm tra vai trò và quyền sở hữu khi công bố. Tài khoản đăng ký mới
+chưa được cấp vai trò nào và client không có quyền ghi trực tiếp vào bảng
+vai trò hoặc bảng công bố. RPC đọc kho chung trả metadata cần hiển thị, không trả owner ID,
 upload key hay đường dẫn storage trong danh mục/chi tiết.
 
 RLS trên chunks và Storage cho phép chủ sở hữu hoặc người đọc tài liệu đã công
@@ -77,13 +78,5 @@ hoàn tất. Thu hồi/công bố khóa cùng hàng document với bước enque
 Không cần đổi collection hoặc index lại chỉ vì công bố; vẫn cần index lại khi
 đổi embedding model/profile.
 
-## Bằng chứng kiểm tra ngày 2026-10-30
-
-- Web: 62 test pass; database/RLS: 37 test pass; TypeScript và production build pass.
-- Worker: 62 test pass, Ruff pass, gồm Qdrant in-memory kiểm tra bộ lọc nhiều
-  chủ sở hữu và hủy job khi nguồn bị thu hồi/sai phiên bản.
-- Migration đã áp dụng Supabase local, giữ dữ liệu hiện có. HTTP/API local với
-  hai tài khoản và PDF tạm xác nhận tách hai kho, mở đoạn trích dẫn, ký file chung,
-  chặn file cá nhân khác và thu hồi quyền. Dữ liệu thử đã tự dọn.
-- Chưa deploy/migrate production, chưa chạy inference AI/GPU hoặc kiểm tra
-  trực quan bằng browser automation trong phiên này.
+Các ca kiểm thử quyền công bố và truy cập nguồn nằm trong
+[`tests/community-database.test.mjs`](../tests/community-database.test.mjs).

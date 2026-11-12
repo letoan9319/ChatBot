@@ -5,7 +5,7 @@ nhóm chức năng và các mục tiêu/thao tác người dùng hiện có. N�
 header/footer. Actor chỉ liên kết tới chức năng được phép; điều kiện trạng thái
 được ghi bên dưới thay vì vẽ thành use case kiểm tra nội bộ.
 
-Có 9 sơ đồ chức năng người dùng và 1 sơ đồ vận hành SQL riêng. Mũi tên nét
+Có 9 sơ đồ chức năng người học và 1 sơ đồ quản lý kho chung. Mũi tên nét
 liền từ actor tới use case biểu thị hướng tương tác theo quy ước trình bày
 của bộ này, không phải thứ tự thực hiện các chức năng. UML không bắt buộc mọi
 association phải có mũi tên. Tam giác rỗng hướng tới actor tổng quát là
@@ -22,13 +22,13 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 - [Thông báo](#7)
 - [Tổng quan và hoạt động học](#8)
 - [Cài đặt trải nghiệm học](#9)
-- [Vận hành công bố tài liệu chung (SQL đặc quyền)](#10)
+- [Quản lý tài liệu chung](#10)
 
 <a id="1"></a>
 
 ## 1. Tài khoản và hồ sơ
 
-![Tài khoản và hồ sơ](02a-account-use-cases.png)
+![Tài khoản và hồ sơ](02a-account-use-cases.svg)
 
 [SVG](02a-account-use-cases.svg) · [Nguồn PlantUML](02a-account-use-cases.puml)
 
@@ -50,7 +50,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 2. Tài liệu của tôi
 
-![Tài liệu của tôi](02b-personal-document-use-cases.png)
+![Tài liệu của tôi](02b-personal-document-use-cases.svg)
 
 [SVG](02b-personal-document-use-cases.svg) · [Nguồn PlantUML](02b-personal-document-use-cases.puml)
 
@@ -74,7 +74,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 3. Tài liệu chung
 
-![Tài liệu chung](02c-shared-document-use-cases.png)
+![Tài liệu chung](02c-shared-document-use-cases.svg)
 
 [SVG](02c-shared-document-use-cases.svg) · [Nguồn PlantUML](02c-shared-document-use-cases.puml)
 
@@ -94,7 +94,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 4. Hỏi đáp và trích dẫn
 
-![Hỏi đáp và trích dẫn](02d-rag-use-cases.png)
+![Hỏi đáp và trích dẫn](02d-rag-use-cases.svg)
 
 [SVG](02d-rag-use-cases.svg) · [Nguồn PlantUML](02d-rag-use-cases.puml)
 
@@ -116,7 +116,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 5. Lịch sử hội thoại
 
-![Lịch sử hội thoại](02e-history-use-cases.png)
+![Lịch sử hội thoại](02e-history-use-cases.svg)
 
 [SVG](02e-history-use-cases.svg) · [Nguồn PlantUML](02e-history-use-cases.puml)
 
@@ -137,7 +137,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 6. Nhóm học tập
 
-![Nhóm học tập](02f-study-group-use-cases.png)
+![Nhóm học tập](02f-study-group-use-cases.svg)
 
 [SVG](02f-study-group-use-cases.svg) · [Nguồn PlantUML](02f-study-group-use-cases.puml)
 
@@ -160,7 +160,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 7. Thông báo
 
-![Thông báo](02g-notification-use-cases.png)
+![Thông báo](02g-notification-use-cases.svg)
 
 [SVG](02g-notification-use-cases.svg) · [Nguồn PlantUML](02g-notification-use-cases.puml)
 
@@ -181,7 +181,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 8. Tổng quan và hoạt động học
 
-![Tổng quan và hoạt động học](02h-learning-activity-use-cases.png)
+![Tổng quan và hoạt động học](02h-learning-activity-use-cases.svg)
 
 [SVG](02h-learning-activity-use-cases.svg) · [Nguồn PlantUML](02h-learning-activity-use-cases.puml)
 
@@ -203,7 +203,7 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 ## 9. Cài đặt trải nghiệm học
 
-![Cài đặt trải nghiệm học](02i-settings-use-cases.png)
+![Cài đặt trải nghiệm học](02i-settings-use-cases.svg)
 
 [SVG](02i-settings-use-cases.svg) · [Nguồn PlantUML](02i-settings-use-cases.puml)
 
@@ -221,9 +221,9 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 
 <a id="10"></a>
 
-## 10. Vận hành công bố tài liệu chung (SQL đặc quyền)
+## 10. Quản lý tài liệu chung
 
-![Vận hành công bố tài liệu chung (SQL đặc quyền)](02j-publication-use-cases.png)
+![Quản lý tài liệu chung](02j-publication-use-cases.svg)
 
 [SVG](02j-publication-use-cases.svg) · [Nguồn PlantUML](02j-publication-use-cases.puml)
 
@@ -231,11 +231,11 @@ Không dùng include/extend để biểu diễn thứ tự các bước thao tá
 |---|---|
 | VH-01 | Xem tài liệu đã sẵn sàng để công bố |
 | VH-02 | Công bố tài liệu vào kho chung |
-| VH-03 | Cập nhật mô tả nguồn đã công bố |
+| VH-03 | Thêm mô tả khi công bố |
 | VH-04 | Thu hồi công bố tài liệu |
 
-**Điều kiện và giới hạn:** Đây là thao tác SQL của người vận hành, chưa có web admin/API công bố. Chỉ công bố tài liệu ready; cập nhật mô tả cũng qua trigger kiểm tra ready. Thu hồi registry không xóa file gốc hay hội thoại; URL đã cấp có thể còn hạn 120 giây.
+**Điều kiện và giới hạn** — Tài khoản có vai trò `content_manager` dùng trang `/admin/knowledge` để công bố tài liệu của mình đã sẵn sàng và thu hồi nguồn đã công bố. Thu hồi giữ lại tệp gốc và hội thoại. URL đọc đã cấp có thể hoạt động tới khi hết hạn.
 
-**Bằng chứng:** [document-repository.md](../../docs/document-repository.md), [202610300001_document_repository.sql](../../supabase/migrations/202610300001_document_repository.sql).
+**Mã nguồn** — [Trang quản lý](../../apps/web/src/app/admin/knowledge/page.tsx), [migration phân quyền](../../supabase/migrations/20261112150505_content_management.sql).
 
-[Quay lại bộ sơ đồ kiến trúc và dữ liệu](README.md). Các bản use case cũ đã chuyển vào archive/system-use-cases.
+[Quay lại bộ sơ đồ kiến trúc và dữ liệu](README.md).

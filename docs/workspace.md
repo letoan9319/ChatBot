@@ -5,13 +5,11 @@ chuỗi ngày học, tổng ngày học, số tài liệu sẵn sàng và số p
 kiếm tài liệu/phiên theo tên, lọc tài liệu theo môn học và mở phiên gần đây.
 Thẻ không tự tạo XP, độ chính xác hay dữ liệu tiến độ ngoài các số liệu đã có.
 
-Menu bên trái có Tổng quan, Học tập, Tài liệu, Lịch sử và Nhóm học; có nút tạo
-cuộc trò chuyện mới, tìm tên phiên và mở nhanh các hội thoại gần đây. Cài đặt
-ở cuối menu. Trên điện thoại, Lịch sử mở qua Thư viện, năm mục còn lại nằm ở
-thanh dưới cùng. Thanh trên chứa tiêu đề trang, trạng thái AI, chuỗi ngày học,
-thông báo, chuyển sáng/tối và tài khoản ở góc trên bên phải. Chi tiết trạng thái, cấu hình
-OpenRouter, lịch streak và đăng xuất mở từ các nút tương ứng; Escape hoặc bấm
-ra ngoài đóng phần chi tiết.
+Menu bên trái có Tổng quan, Học tập, Kho tài liệu, Lịch sử, Nhóm học, Kế hoạch
+và Cài đặt. Từ đây có thể tạo cuộc trò chuyện hoặc mở phiên gần đây. Thanh
+trên có trạng thái AI, chuỗi ngày học, thông báo, nút sáng/tối và tài khoản.
+Tài khoản có vai trò `content_manager` mở trang Quản lý tài liệu chung từ
+menu tài khoản. [Cách cấp quyền](document-repository.md#quản-lý-kho-chung)
 
 Hội thoại dùng một cột nội dung ở giữa, lời nhắn người dùng nằm bên phải, lời
 giải có trích dẫn và nút sao chép. Ô nhập bo tròn nằm cuối khung, có nút chọn

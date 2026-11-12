@@ -24,7 +24,7 @@ def schema():
                     continue
                 field, kind, suffix = match.groups()
                 pk = field in keys or 'primary key' in suffix
-                ref = re.search(r'references (\w+)\.(\w+)\((\w+)\)', suffix)
+                ref = re.search(r'references (\w+)\.(\w+)(?:\((\w+)\))?', suffix)
                 columns.append(dict(name=field, type=kind, pk=pk, required=pk or 'not null' in suffix,
                                     unique='unique' in suffix, ref=tuple(ref.groups()) if ref else None))
             tables[name] = columns
@@ -41,7 +41,7 @@ def build_erds():
         '04-erd': ['documents', 'document_chunks', 'knowledge_documents'],
         '04a-conversation-erd': ['conversations', 'messages', 'message_sources'],
         '04b-community-erd': ['study_groups', 'study_group_members', 'study_group_messages', 'notifications'],
-        '04c-operations-erd': ['profiles', 'study_activity_days', 'jobs', 'worker_heartbeats'],
+        '04c-operations-erd': ['profiles', 'user_roles', 'learning_plans', 'study_activity_days', 'jobs', 'worker_heartbeats'],
     }
     assert set(tables) == {table for group in groups.values() for table in group}, 'ERD table coverage changed'
     refs = 0
@@ -56,7 +56,7 @@ def build_erds():
             for col in fields:
                 marks = [mark for mark, present in [('PK', col['pk']), ('FK', col['ref']), ('UK', col['unique'])] if present]
                 tags = ' '.join(f'<<{mark}>>' for mark in marks)
-                lines.append(f"  {'* ' if col['required'] else ''}{col['name']} : {col['type']} {tags}")
+                lines.append(f"  {'* ' if col['required'] else ''}{col['name']} : {col['type']} {tags}".rstrip())
             lines.append('}')
         for table in owned:
             pk = {c['name'] for c in tables[table] if c['pk']}

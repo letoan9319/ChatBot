@@ -32,6 +32,7 @@ before(async () => {
     "202610220005_study_streaks.sql", "202610290001_community.sql",
     "202610300001_document_repository.sql",
     "202611120001_learning_plans.sql",
+    "20261112150505_content_management.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", ""));
@@ -72,6 +73,49 @@ async function repositoryDocument(owner, status = "ready") {
   await db.query("insert into storage.objects(bucket_id,name) values('documents',$1)", [path]);
   return { id, chunk, path };
 }
+
+test("content managers can publish only their ready uploads and audit changes to the shared library", async () => {
+  const manager = await learner(), viewer = await learner();
+  const own = await repositoryDocument(manager), processing = await repositoryDocument(manager, "processing");
+  const foreign = await repositoryDocument(viewer), shared = await repositoryDocument(viewer);
+  const change = (user, document, publish, description = "") =>
+    rpc(user, "app_set_knowledge_publication", [document.id, publish, description]);
+  await db.query("insert into user_roles(user_id,role) values($1,'content_manager')", [manager]);
+  await asUser(viewer, async () => {
+    assert.equal((await db.query("select role from user_roles")).rows.length, 0);
+    await assert.rejects(db.query("insert into user_roles values($1,'content_manager')", [viewer]), /permission denied/);
+    await assert.rejects(db.query("select * from app_private.knowledge_document_audit"), /permission denied/);
+  });
+  await db.exec("set role anon");
+  try {
+    await assert.rejects(db.query("select app_set_knowledge_publication($1,true)", [own.id]), /permission denied/);
+  } finally {
+    await db.exec("reset role");
+  }
+  await assert.rejects(change(viewer, foreign, true), /FORBIDDEN/);
+  await assert.rejects(change(manager, foreign, true), /DOCUMENT_NOT_PUBLISHABLE/);
+  await assert.rejects(change(manager, processing, true), /DOCUMENT_NOT_PUBLISHABLE/);
+  await assert.rejects(change(manager, own, true, "a".repeat(2001)), /INVALID_INPUT/);
+  assert.equal(await change(manager, own, true, " Mô tả chung "), true);
+  assert.equal(await change(manager, own, true, "Mô tả khác"), false);
+  assert.equal((await rpc(viewer, "app_get_document", [own.id])).description, "Mô tả chung");
+  await assert.rejects(change(viewer, own, false), /FORBIDDEN/);
+  await db.query("insert into knowledge_documents(document_id) values($1)", [shared.id]);
+  assert.equal(await change(manager, shared, false), true);
+  await assert.rejects(rpc(manager, "app_get_document", [shared.id]), /NOT_FOUND/);
+  assert.equal((await rpc(viewer, "app_get_document", [shared.id])).scope, "personal");
+  assert.equal(await change(manager, own, false), true);
+  assert.equal(await change(manager, own, false), false);
+  await assert.rejects(rpc(viewer, "app_get_document", [own.id]), /NOT_FOUND/);
+  await db.query("delete from user_roles where user_id=$1", [manager]);
+  await assert.rejects(change(manager, own, true), /FORBIDDEN/);
+  const audit = await db.query("select actor_id,document_id,action from app_private.knowledge_document_audit where actor_id=$1 order by id", [manager]);
+  assert.deepEqual(audit.rows, [
+    { actor_id: manager, document_id: own.id, action: "publish" },
+    { actor_id: manager, document_id: shared.id, action: "revoke" },
+    { actor_id: manager, document_id: own.id, action: "revoke" },
+  ]);
+});
 
 test("repository publication exposes safe metadata and authorized source/file access, never private uploads", async () => {
   const owner = await learner(), viewer = await learner();

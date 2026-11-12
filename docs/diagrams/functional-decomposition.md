@@ -6,7 +6,7 @@ Toàn bộ các nhánh dùng cùng ký pháp và màu xanh nhạt trên nền tr
 
 ## Bản khái quát
 
-![Phân rã chức năng khái quát](13-functional-decomposition.png)
+![Phân rã chức năng khái quát](13-functional-decomposition.svg)
 
 [SVG phóng to](13-functional-decomposition.svg) · [Nguồn PlantUML](13-functional-decomposition.puml).
 Bản này dừng ở cấp 2 để thấy cấu trúc chung; những nhánh còn phân rã tiếp được
@@ -14,9 +14,8 @@ thể hiện đầy đủ trong bản chi tiết.
 
 ## Bản đầy đủ
 
-![Phân rã chức năng đầy đủ](13a-functional-decomposition-detail.png)
+![Phân rã chức năng đầy đủ](13a-functional-decomposition-detail.svg)
 
-[PNG bản đầy đủ](13a-functional-decomposition-detail.png) ·
 [SVG phóng to](13a-functional-decomposition-detail.svg) ·
 [Nguồn PlantUML](13a-functional-decomposition-detail.puml) ·
 [Cây dữ liệu JSON](functional-decomposition.json).
@@ -41,8 +40,8 @@ với chuỗi ngày hoạt động. [Mô tả phương thức học](learning-mo
   không phải sơ đồ use case, DFD hoặc kiến trúc triển khai.
 - Các nhánh 2.3, 3.3, 5.2, 6.2 và 8.2–8.4 là chức năng nội bộ hỗ trợ. Chúng
   không được hiểu là các màn hình hoặc nút mà người học có thể thao tác.
-- 8.1 là công bố nguồn bằng SQL đặc quyền của người vận hành, chưa có admin web.
-  Nhánh 2.2 là đọc/chọn nguồn chung của người học. Hai phạm vi quyền khác nhau.
+- 8.1 là quản lý công bố và thu hồi nguồn của tài khoản có quyền `content_manager`.
+  Nhánh 2.2 là đọc và chọn nguồn chung của người học.
 - Tài liệu cá nhân chỉ chủ sở hữu quản lý; nguồn chung cần được công bố và ready.
   Đọc/gửi tin nhóm yêu cầu là thành viên; chủ nhóm hiện chưa được rời nhóm.
 - Hoàn tất hồ sơ chỉ chọn username ban đầu. Ngày học được ghi phía server khi
@@ -138,10 +137,10 @@ server không được đặt thành use case người học riêng.
 | 7.3 | Chọn phím gửi câu hỏi | CD-03 | [study-settings.tsx](../../apps/web/src/components/study-settings.tsx), [use-study-preferences.ts](../../apps/web/src/components/use-study-preferences.ts) |
 | 7.4 | Bật hoặc tắt tự cuộn | CD-04 | [study-settings.tsx](../../apps/web/src/components/study-settings.tsx), [use-study-preferences.ts](../../apps/web/src/components/use-study-preferences.ts) |
 | 7.5 | Khôi phục cài đặt mặc định | CD-05 | [study-settings.tsx](../../apps/web/src/components/study-settings.tsx), [use-study-preferences.ts](../../apps/web/src/components/use-study-preferences.ts) |
-| 8.1.1 | Xem tài liệu đã sẵn sàng để công bố | VH-01 | [document-repository.md](../../docs/document-repository.md), [202610300001_document_repository.sql](../../supabase/migrations/202610300001_document_repository.sql) |
-| 8.1.2 | Công bố tài liệu vào kho chung | VH-02 | [document-repository.md](../../docs/document-repository.md), [202610300001_document_repository.sql](../../supabase/migrations/202610300001_document_repository.sql) |
-| 8.1.3 | Cập nhật mô tả nguồn đã công bố | VH-03 | [document-repository.md](../../docs/document-repository.md), [202610300001_document_repository.sql](../../supabase/migrations/202610300001_document_repository.sql) |
-| 8.1.4 | Thu hồi công bố tài liệu | VH-04 | [document-repository.md](../../docs/document-repository.md), [202610300001_document_repository.sql](../../supabase/migrations/202610300001_document_repository.sql) |
+| 8.1.1 | Xem tài liệu đã sẵn sàng để công bố | VH-01 | [Trang quản lý kho](../../apps/web/src/app/admin/knowledge/page.tsx) |
+| 8.1.2 | Công bố tài liệu vào kho chung | VH-02 | [RPC phân quyền](../../supabase/migrations/20261112150505_content_management.sql) |
+| 8.1.3 | Thêm mô tả khi công bố | VH-03 | [Trang quản lý kho](../../apps/web/src/app/admin/knowledge/knowledge-manager.tsx) |
+| 8.1.4 | Thu hồi công bố tài liệu | VH-04 | [RPC phân quyền](../../supabase/migrations/20261112150505_content_management.sql) |
 | 8.2.1 | Tiếp nhận và nhận xử lý công việc | — | [main.py](../../services/worker/src/study_worker/main.py), [config.py](../../services/worker/src/study_worker/config.py), [fallback.py](../../services/worker/src/study_worker/fallback.py) |
 | 8.2.2 | Giữ lease và cập nhật heartbeat | — | [main.py](../../services/worker/src/study_worker/main.py), [config.py](../../services/worker/src/study_worker/config.py), [fallback.py](../../services/worker/src/study_worker/fallback.py) |
 | 8.2.3 | Thử lại khi lỗi / lưu trạng thái kết thúc | — | [main.py](../../services/worker/src/study_worker/main.py), [config.py](../../services/worker/src/study_worker/config.py), [fallback.py](../../services/worker/src/study_worker/fallback.py) |

@@ -35,11 +35,14 @@ export default async function StudyPage({ searchParams }: { searchParams: Promis
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/auth");
-  const { data: profile, error } = await db.from("profiles")
-    .select("username").eq("id", user.id).maybeSingle();
+  const [{ data: profile, error }, { data: contentRole }] = await Promise.all([
+    db.from("profiles").select("username").eq("id", user.id).maybeSingle(),
+    db.from("user_roles").select("role").eq("user_id", user.id).eq("role", "content_manager").maybeSingle(),
+  ]);
   if (error || !profile?.username) redirect("/onboarding");
   const query = await searchParams;
   const conversation = uuid.safeParse(query.conversation);
   const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
-  return <StudyWorkspace username={profile.username} initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
+  return <StudyWorkspace username={profile.username} canManageKnowledge={Boolean(contentRole)}
+    initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
 }

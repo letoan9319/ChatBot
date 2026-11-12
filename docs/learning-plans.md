@@ -9,7 +9,7 @@
 | 5. Hoạt động | Tổng quan, streak, lịch, số tài liệu và số phiên đã có. |
 | 6. Thông báo | Đọc, đánh dấu đã đọc và mở nhóm/hội thoại liên quan đã có. |
 | 7. Tùy chỉnh | Giao diện, cỡ chữ, phím gửi, tự cuộn và khôi phục mặc định đã có. |
-| 8. Vận hành | Công bố nguồn bằng SQL, hàng đợi, phân quyền, cleanup và fallback đã có. |
+| 8. Vận hành | Quản lý công bố nguồn chung, hàng đợi, phân quyền, dọn dữ liệu và fallback. |
 | 9. Học theo tiến trình | Có kế hoạch riêng theo tài khoản, tự khai kiến thức ban đầu và nhịp học. Mỗi môn có ba bài mẫu theo thứ tự. Trả lời đúng mở bài tiếp theo. Có lịch sử kiểm tra và ghi phần cần củng cố. |
 | 10. Tự học | Có kế hoạch theo chủ đề, mục tiêu, nguồn và lịch. Người học tự viết ghi chú, tóm tắt và thẻ, làm câu hỏi mẫu theo môn và ghi tự đánh giá. Trợ giảng dùng tài liệu đã chọn. |
 

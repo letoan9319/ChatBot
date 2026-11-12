@@ -1,13 +1,16 @@
 @startuml
 !include style.iuml
 autonumber
-actor "Người vận hành\nđặc quyền database" as O
+actor "Người quản lý nội dung" as O
 database "PostgreSQL" as D
-participant "Next.js API" as A
+participant "Next.js" as A
 participant "Worker RAG" as W
-O -> D : INSERT / DELETE knowledge_documents\nbằng SQL quản trị
-D -> D : Trigger khóa hàng document;\nINSERT/UPDATE chỉ khi ready
-D --> O : Commit công bố / thu hồi
+O -> A : Xác nhận công bố hoặc thu hồi
+A -> D : RPC app_set_knowledge_publication
+D -> D : Kiểm tra content_manager;\nkhi công bố kiểm tra chủ tài liệu và ready
+D -> D : Khóa tài liệu, cập nhật kho chung và ghi nhật ký
+D --> A : Kết quả thao tác
+A --> O : Cập nhật danh sách kho chung
 A -> D : RPC liệt kê, đọc file hoặc enqueue chat
 D -> D : Kiểm tra quyền chủ sở hữu hoặc publication hiện tại
 D --> A : Metadata được phép hoặc lỗi
