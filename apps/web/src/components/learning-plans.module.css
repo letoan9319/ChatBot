@@ -1,0 +1,79 @@
+.plans {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding: clamp(16px, 3vw, 38px);
+  font-family: "Inter Variable", var(--font-body);
+  font-size: .9375rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.modes, .workspace { display: grid; gap: 16px; }
+.modes { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; }
+.workspace { grid-template-columns: minmax(13rem, 1fr) minmax(0, 2.55fr); align-items: start; }
+.detail { min-width: 0; }
+
+.plans button {
+  padding: 9px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 650;
+}
+.plans button:hover:not(:disabled) { border-color: var(--green-strong-line); background: var(--neutral-hover); }
+.plans button:disabled { cursor: not-allowed; opacity: .6; }
+.plans button[aria-pressed="true"], .plans button[aria-current="true"] {
+  border-color: var(--green-strong-line);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+.plans .primary { background: var(--primary); border-color: var(--primary-edge); color: var(--on-primary); }
+.plans .primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+.modes button, .saved li button { display: grid; gap: 4px; text-align: left; }
+.modes button { align-content: start; min-height: 108px; padding: 18px 20px; }
+.modes strong { font-size: 1.08rem; font-weight: 750; }
+.modes span, .saved li span, .meta { color: var(--muted); font-weight: 500; }
+.saved, .state, .plans fieldset {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: clamp(16px, 2.25vw, 24px);
+}
+.saved h2, .state h2 { margin: 0 0 12px; font-size: 1.12rem; font-weight: 750; }
+.saved button { width: 100%; overflow-wrap: anywhere; }
+.saved ul { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.state p { margin: 0; color: var(--muted); }
+.state button { margin-top: 12px; }
+.message { padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+
+.plans form, .plans fieldset { display: grid; gap: 14px; }
+.plans form > button { justify-self: start; }
+.plans fieldset { margin: 0; }
+.plans legend { padding-inline: 6px; font-weight: 750; }
+.plans fieldset nav, .plans fieldset > div:not(.sources) { display: flex; flex-wrap: wrap; gap: 8px; }
+.plans fieldset label { display: grid; gap: 5px; font-weight: 650; }
+.plans input:not([type="checkbox"]), .plans textarea, .plans select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--control-line);
+  border-radius: 9px;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-weight: 500;
+}
+.plans textarea { min-height: 76px; resize: vertical; }
+.sources { max-height: 15rem; overflow: auto; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; }
+.plans fieldset .check { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; overflow-wrap: anywhere; }
+.check + .check { border-top: 1px solid var(--line); }
+.check input { flex-shrink: 0; accent-color: var(--primary-edge); }
+.plans a { color: var(--primary-edge); text-decoration: underline; }
+
+@media (max-width: 660px) {
+  .workspace, .modes { grid-template-columns: minmax(0, 1fr); }
+  .modes { gap: 8px; margin-bottom: 16px; }
+  .modes button { min-height: 0; padding: 12px 14px; }
+}

@@ -10,6 +10,8 @@
 }
 .appNavigation { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 24px 12px 16px; border-right: 1px solid var(--line); background: var(--surface-alt); }
 .navigationBrand { padding-inline: 6px; }
+.mainColumn[data-view="plans"] .pageHeading { font-family: "Inter Variable", var(--font-body); }
+.mainColumn[data-view="plans"] .pageHeading p { font-weight: 500; }
 .navigationBrand :global(.brand) { font-size: 24px; }
 .navigationBrand :global(.brand span) { display: none; }
 .appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; overflow-y: auto; scrollbar-width: thin; }
@@ -313,6 +315,7 @@
   .appNavigation nav .newChatButton, .appNavigation nav [data-destination="history"], .sidebarRecent { display: none; }
   .topbar { align-items: center; min-height: 64px; padding: 10px 16px; gap: 8px; }
   .pageHeading h1 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mainColumn[data-view="plans"] .pageHeading h1 { font-size: 16px; white-space: normal; }
   .pageHeading p { display: none; }
   .toolbarActions { gap: 7px; }
   .streakUnit { display: none; }

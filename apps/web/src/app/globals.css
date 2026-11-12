@@ -1983,16 +1983,3 @@ label {
 
 .learning-plans-panel { flex: 1; min-height: 0; overflow: auto; }
 .learning-plans-panel[hidden] { display: none; }
-.learning-plans { max-width: 58rem; margin: auto; padding: 1rem; }
-.learning-plans nav, .learning-plans form { display: flex; gap: .65rem; flex-wrap: wrap; }
-.learning-plans form { flex-direction: column; }
-.learning-plans fieldset { border: 1px solid currentColor; border-radius: .7rem; padding: 1rem; min-width: 0; }
-.learning-plans label { display: grid; gap: .25rem; margin-block: .65rem; }
-.learning-plans input:not([type="checkbox"]), .learning-plans textarea, .learning-plans select {
-  width: 100%; border: 1px solid currentColor; border-radius: .4rem; padding: .45rem; background: transparent;
-}
-.learning-plans .learning-check { display: flex; align-items: center; gap: .5rem; }
-.learning-plans button { padding: .4rem .65rem; border: 1px solid currentColor; border-radius: .4rem; margin: .2rem; }
-.learning-plans button[aria-pressed="true"] { font-weight: bold; text-decoration: underline; }
-.learning-plans button:disabled { opacity: .55; }
-.learning-plans a { text-decoration: underline; }

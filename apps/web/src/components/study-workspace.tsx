@@ -450,14 +450,14 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           </button>
         </nav>
       </aside>
-      <div className={styles.mainColumn}>
+      <div className={styles.mainColumn} data-view={view}>
         <StudyToolbar username={username} canManageKnowledge={canManageKnowledge}
           online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
           onOpenConversation={openConversation} onOpenGroup={openGroup}
           showStreak={view !== "overview"}
           title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan học tập" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
-          subtitle={view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "Mỗi ngày một bước, hiểu thêm một chút." : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
+          subtitle={view === "plans" ? "Đặt mục tiêu, chọn tài liệu và theo dõi tiến độ của bạn." : view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "Mỗi ngày một bước, hiểu thêm một chút." : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
         {notice && (
           <div className={styles.notice} role="status">
             <span>{notice}</span>
