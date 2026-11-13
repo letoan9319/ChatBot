@@ -55,7 +55,8 @@ def main():
                     worker.start()
             self.respond(202)
 
-    server = ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), Handler)
+    # Render's reverse proxy requires an all-interface bind. /wake checks the shared secret.
+    server = ThreadingHTTPServer(("0.0.0.0", int(os.getenv("PORT", "10000"))), Handler)  # nosec B104
 
     def shutdown(*_):
         stopped.set()
