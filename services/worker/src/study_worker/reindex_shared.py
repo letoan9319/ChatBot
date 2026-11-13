@@ -64,6 +64,13 @@ def main():
                     print(f"Indexed shared document {doc['id']}: {len(rows)} chunks", flush=True)
                 if args.activate:
                     with conn.transaction():
+                        catalog = conn.execute(
+                            """select d.id,d.user_id,d.index_version from public.documents d
+                            join public.knowledge_documents k on k.document_id=d.id
+                            where d.status='ready' order by d.id for update of d""",
+                        ).fetchall()
+                        if not docs or catalog != docs:
+                            raise RuntimeError("Shared catalog is empty or changed during reindex; rerun")
                         for doc in docs:
                             result = conn.execute(
                                 """update public.documents d set embedding_profile=%s,vector_collection=%s

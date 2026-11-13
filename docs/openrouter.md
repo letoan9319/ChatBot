@@ -44,7 +44,7 @@ Nếu đã có `.env`, giữ bản cấu hình hiện tại trong nơi riêng v�
 | `OPENROUTER_API_KEY` | API key tạo tại OpenRouter Settings → API Keys |
 | `AI_PROVIDER` | `openrouter` |
 | `CHAT_MODEL` | `nvidia/nemotron-3.5-lightning:free` |
-| `EMBED_MODEL` | `nvidia/nemotron-3.5-embed-1b:free` |
+| `EMBED_MODEL` | `nvidia/nemotron-3-embed-1b:free` |
 | `RERANK_MODEL` | Để trống, hoặc `nvidia/nemotron-3.5-rerank-8b:free` |
 | `QDRANT_COLLECTION` | Tiền tố, ví dụ `learnstep`; worker tự thêm mã model và kích thước |
 
@@ -139,7 +139,7 @@ cho chat. File gốc vẫn lưu tại Supabase. NVIDIA free endpoint có điều
 nhật ký và sử dụng dữ liệu để cải thiện dịch vụ; chỉ dùng tài liệu thử nghiệm
 không chứa thông tin cá nhân/bí mật. Trang học tập hiển thị rõ provider đang dùng.
 Xóa dữ liệu LearnStep không phải là yêu cầu xóa nhật ký phía OpenRouter/NVIDIA.
-Đọc [điều khoản trên trang model](https://openrouter.ai/nvidia/nemotron-3.5-embed-1b:free).
+Đọc [điều khoản trên trang model](https://openrouter.ai/nvidia/nemotron-3-embed-1b:free).
 
 ## Kiểm chứng và đánh giá
 

@@ -62,7 +62,7 @@ class Settings:
             collection=os.getenv("QDRANT_COLLECTION", "study_bge_m3_v1"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
             chat_model=os.getenv("CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free" if remote else "qwen3:4b"),
-            embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3.5-embed-1b:free" if remote else "bge-m3"),
+            embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free" if remote else "bge-m3"),
             tokenizer_model=os.getenv("TOKENIZER_MODEL", "Qwen/Qwen3-4B"),
             tokenizer_path=os.getenv("TOKENIZER_PATH", ""),
             min_score=float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35")),

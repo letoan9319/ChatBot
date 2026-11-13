@@ -18,7 +18,7 @@ def settings(**kwargs):
     return Settings(
         "db", "https://example.supabase.co", "service-placeholder", "https://qdrant.example", "qdrant-placeholder",
         ai_provider="openrouter", openrouter_key="openrouter-placeholder",
-        chat_model="nvidia/nemotron-3.5-lightning:free", embed_model="nvidia/nemotron-3.5-embed-1b:free", **kwargs,
+        chat_model="nvidia/nemotron-3.5-lightning:free", embed_model="nvidia/nemotron-3-embed-1b:free", **kwargs,
     )
 
 
