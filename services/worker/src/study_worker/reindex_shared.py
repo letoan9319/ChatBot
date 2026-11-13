@@ -21,7 +21,7 @@ def main():
         parser.error("Configure native OpenRouter embeddings first")
     models = OpenRouterModels(settings)
     try:
-        models.prepare(chat_only=False)
+        models.prepare(embeddings_only=True)
         vectors = VectorStore(settings, models.dimensions)
         try:
             vectors.setup()

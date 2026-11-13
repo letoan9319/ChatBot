@@ -585,7 +585,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   <div className={styles.messageLabel}>
                     <strong>{message.role === "user" ? "Bạn" : "LearnStep"}</strong>
                     <span>{message.status !== "completed" ? statuses[message.status]
-                      : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
+                      : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
+                        : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
                   {message.content ? <Markdown content={message.content} />
                     : <p className={styles.emptyText}>{message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}

@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-DEEPSEEK_FLASH = "deepseek/deepseek-v4.1-flash-1017"
+DEEPSEEK_FLASH = "deepseek-ai/deepseek-v4.1-flash-1017"
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,7 @@ class Settings:
     cloud_embedding_url: str = ""
     cloud_embedding_key: str = field(default="", repr=False)
     cloud_embedding_model: str = "BAAI/bge-m3"
+    deploy_api_key: str = field(default="", repr=False)
 
     def fallback_settings(self):
         # Only the chat model is used in fallback mode. Embedding identity is unchanged.
@@ -61,7 +62,7 @@ class Settings:
             qdrant_key=qdrant_key,
             collection=os.getenv("QDRANT_COLLECTION", "study_bge_m3_v1"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
-            chat_model=os.getenv("CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free" if remote else "qwen3:4b"),
+            chat_model=os.getenv("CHAT_MODEL", DEEPSEEK_FLASH if remote else "qwen3:4b"),
             embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free" if remote else "bge-m3"),
             tokenizer_model=os.getenv("TOKENIZER_MODEL", "Qwen/Qwen3-4B"),
             tokenizer_path=os.getenv("TOKENIZER_PATH", ""),
@@ -75,6 +76,7 @@ class Settings:
             cloud_embedding_url=os.getenv("BGE_EMBEDDINGS_URL", ""),
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
+            deploy_api_key=os.getenv("DEPLOY_API_KEY", ""),
         )
         if settings.cloud_embedding_url:
             endpoint = urlparse(settings.cloud_embedding_url)
@@ -101,7 +103,7 @@ class Settings:
                 else (settings.fallback_chat_model,)
             )
             for index, model in enumerate(selected_models):
-                if index == 0 and model == DEEPSEEK_FLASH and os.getenv("ALLOW_PAID_DEEPSEEK") == "1":
+                if remote and index == 0 and model == DEEPSEEK_FLASH:
                     continue
                 if model and (not model.startswith("nvidia/") or not model.endswith(":free")):
                     raise ValueError("OpenRouter trial only accepts explicit nvidia/...:free model IDs.")

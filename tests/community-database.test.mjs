@@ -35,6 +35,7 @@ before(async () => {
     "20261112150505_content_management.sql",
     "20261112205940_chat_search_modes.sql",
     "202611130001_chat_shared_library.sql",
+    "202611140001_deploy_generation_provider.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", ""));

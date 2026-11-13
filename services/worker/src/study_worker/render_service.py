@@ -7,7 +7,7 @@ import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .config import Settings
+from .config import DEEPSEEK_FLASH, Settings
 from .main import serve
 
 
@@ -16,6 +16,8 @@ def main():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     settings = Settings.load()
+    if settings.chat_model != DEEPSEEK_FLASH or not settings.deploy_api_key:
+        raise ValueError("Render requires the Deploy.com DeepSeek model and DEPLOY_API_KEY.")
     secret = os.environ["WORKER_WAKE_SECRET"].encode()
     if len(secret) < 32 or settings.ai_provider != "openrouter":
         raise ValueError("Render requires a wake secret of at least 32 bytes and AI_PROVIDER=openrouter.")

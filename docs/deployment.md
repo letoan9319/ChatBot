@@ -33,7 +33,7 @@ Tra cứu kho chung tự động cần migration `202611130001_chat_shared_libra
 
 Tạo **Web Service** với **Language** là Python, **Root Directory** là `services/worker`, **Build Command** là `uv sync --frozen --no-dev --python 3.12` và **Start Command** là `uv run --frozen --no-dev python -m study_worker.render_service`. Đặt **Health Check Path** thành `/healthz`.
 
-Điền các biến phía Render theo [mẫu worker](../services/worker/.env.render.example). Dùng Supabase Session pooler. Cấu hình mẫu gọi Nemotron 3 Embed 1B qua OpenRouter và dùng collection riêng theo model embedding. DeepSeek trên OpenRouter tính phí theo API. Chỉ dùng endpoint NVIDIA Free với câu hỏi và tài liệu được phép gửi ra ngoài, không chứa thông tin cá nhân hay thông tin mật.
+Điền các biến phía Render theo [mẫu worker](../services/worker/.env.render.example). Dùng Supabase Session pooler và áp dụng migration `202611140001_deploy_generation_provider.sql` trước khi bật worker cloud. OpenRouter dùng `OPENROUTER_API_KEY` cho Nemotron 3 Embed 1B và collection riêng. DeepSeek dùng `DEPLOY_API_KEY` để gọi Deploy.com. Xóa biến `ALLOW_PAID_DEEPSEEK` cũ trên Render và đặt `CHAT_MODEL=deepseek-ai/deepseek-v4.1-flash-1017`. Chỉ dùng endpoint NVIDIA Free với câu hỏi và tài liệu được phép gửi ra ngoài, không chứa thông tin cá nhân hay thông tin mật. [API DeepSeek trên Deploy.com](https://docs.deploy.com/deepseek-v4-1-flash-1017)
 
 Để chuyển kho chung, dùng cùng cấu hình OpenRouter và Qdrant với worker Render, sau đó chạy từ `services/worker`:
 
@@ -46,7 +46,7 @@ Lệnh lấy văn bản từ các đoạn đã lưu trong Supabase và tiếp t�
 
 Nếu đã điền `EMBED_MODEL` ở Render hoặc trong file môi trường riêng, cập nhật thành `nvidia/nemotron-3-embed-1b:free`. Tên collection thực tế bao gồm dấu vân tay của model và số chiều. Có thể tạo chỉ mục mới song song với chỉ mục cũ.
 
-Sau khi Render báo dịch vụ hoạt động, đặt `CLOUD_WORKER_URL` và `WORKER_WAKE_SECRET` trên Vercel. Cả hai bên dùng cùng một secret ngẫu nhiên tối thiểu 32 byte. Vercel chỉ gọi Render khi Supabase báo worker offline. Worker đang giữ khóa hàng đợi tiếp tục xử lý đến khi nhả khóa. Render tự dừng vòng lặp sau 150 giây không có việc. Tệp gốc vẫn đi qua Supabase Storage, văn bản được gửi đến endpoint embedding và các đoạn truy xuất được gửi sang OpenRouter khi cần trả lời.
+Sau khi Render báo dịch vụ hoạt động, đặt `CLOUD_WORKER_URL` và `WORKER_WAKE_SECRET` trên Vercel. Cả hai bên dùng cùng một secret ngẫu nhiên tối thiểu 32 byte. Vercel chỉ gọi Render khi Supabase báo worker offline. Worker đang giữ khóa hàng đợi tiếp tục xử lý đến khi nhả khóa. Render tự dừng vòng lặp sau 150 giây không có việc. Tệp gốc vẫn đi qua Supabase Storage. Văn bản được gửi đến OpenRouter để tạo embedding và các đoạn truy xuất được gửi sang Deploy.com khi cần trả lời.
 
 Thử với worker local đã tắt. Gửi một câu hỏi không chọn tệp, mở nguồn, rồi tải một PDF/DOCX và kiểm tra tệp chuyển sang **Sẵn sàng**. Gói Free có thể mất khoảng một phút để khởi động lại. [Render Free](https://render.com/docs/free)
 

@@ -42,7 +42,7 @@ export type Message = {
   content: string;
   status: string;
   sequence: number;
-  generation_provider: "ollama" | "openrouter" | null;
+  generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
   web_sources?: { label: string; title: string; url: string }[];
 };

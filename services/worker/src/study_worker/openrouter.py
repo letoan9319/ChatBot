@@ -22,6 +22,10 @@ class OutputLimit(Exception):
 
 
 class OpenRouterModels:
+    @property
+    def last_generation_provider(self):
+        return "deploy" if self.settings.chat_model == DEEPSEEK_FLASH else "openrouter"
+
     def __init__(self, settings, *, tokenizer=None):
         self.settings = settings
         self.dimensions = None
@@ -81,14 +85,14 @@ class OpenRouterModels:
             raise ProviderError("OpenRouter trả về lỗi xử lý.")
         return result
 
-    def prepare(self, *, chat_only=False):
+    def prepare(self, *, chat_only=False, embeddings_only=False):
         # Reject retired, wrong-modality or paid endpoints before publishing a heartbeat.
         configured = (
             (self.settings.chat_model, "text"),
             (self.settings.embed_model, "embeddings"),
             (self.settings.rerank_model, "rerank"),
         )
-        for model, modality in configured[:1] if chat_only else configured:
+        for model, modality in configured[:1] if chat_only else configured[1:] if embeddings_only else configured:
             if model == DEEPSEEK_FLASH and modality == "text":
                 continue
             if modality == "embeddings" and self.settings.cloud_embedding_url:
@@ -177,16 +181,20 @@ class OpenRouterModels:
         return [candidates[item["index"]] for item in sorted(results, key=lambda item: item["relevance_score"], reverse=True)]
 
     def generate(self, messages, *, on_reset=None):
+        if self.settings.chat_model == DEEPSEEK_FLASH:
+            from .deploy_chat import generate
+
+            yield from generate(self.settings.deploy_api_key, messages)
+            return
         self.pace()
-        paid = self.settings.chat_model == DEEPSEEK_FLASH
         with self.http.stream("POST", "chat/completions", json={
             "model": self.settings.chat_model,
             "messages": messages,
             "stream": True,
             "temperature": 0.2,
-            "max_tokens": 2048 if paid else 768,
+            "max_tokens": 768,
             "reasoning": {"enabled": False, "exclude": True},
-            "provider": {"allow_fallbacks": False} if paid else self.routing(),
+            "provider": self.routing(),
         }) as response:
             self.check(response)
             finished = False
