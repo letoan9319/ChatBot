@@ -33,7 +33,16 @@ Tra cứu kho chung tự động cần migration `202611130001_chat_shared_libra
 
 Tạo **Web Service** với **Language** là Python, **Root Directory** là `services/worker`, **Build Command** là `uv sync --frozen --no-dev --python 3.12` và **Start Command** là `uv run --frozen --no-dev python -m study_worker.render_service`. Đặt **Health Check Path** thành `/healthz`.
 
-Điền các biến phía Render theo [mẫu worker](../services/worker/.env.render.example). Dùng Supabase Session pooler và đúng collection BGE-M3 mà worker Ollama dùng. So sánh kết quả endpoint BGE-M3 và Ollama trên cùng các đoạn tiếng Việt và truy vấn mẫu. Cả hai phải trả vector 1024 chiều và cho kết quả truy xuất tương đương trước khi bật `BGE_COMPATIBILITY_VERIFIED=1`. DeepSeek trên OpenRouter tính phí theo API.
+Điền các biến phía Render theo [mẫu worker](../services/worker/.env.render.example). Dùng Supabase Session pooler. Cấu hình mẫu gọi Nemotron 3.5 Embed 1B qua OpenRouter và dùng collection riêng theo model embedding. DeepSeek trên OpenRouter tính phí theo API. Chỉ dùng endpoint NVIDIA Free với câu hỏi và tài liệu được phép gửi ra ngoài, không chứa thông tin cá nhân hay thông tin mật.
+
+Để chuyển kho chung, dùng cùng cấu hình OpenRouter và Qdrant với worker Render, sau đó chạy từ `services/worker`:
+
+```powershell
+uv run --env-file .env.render python -m study_worker.reindex_shared --limit 5
+uv run --env-file .env.render python -m study_worker.reindex_shared
+```
+
+Lệnh lấy văn bản từ các đoạn đã lưu trong Supabase và tiếp tục từ các vector đã tạo. Kiểm tra chất lượng truy xuất trên câu hỏi tiếng Việt có nguồn chuẩn. Khi sẵn sàng chuyển, dừng worker hiện tại rồi chạy lại với `--activate` để cập nhật metadata kho chung. Giữ cùng cấu hình embedding cho mọi worker đọc chung hàng đợi. Các tệp riêng dùng BGE-M3 cần kế hoạch chuyển riêng trước khi đổi worker production. Lệnh chuyển kho chung giữ lại vector BGE-M3 cũ.
 
 Sau khi Render báo dịch vụ hoạt động, đặt `CLOUD_WORKER_URL` và `WORKER_WAKE_SECRET` trên Vercel. Cả hai bên dùng cùng một secret ngẫu nhiên tối thiểu 32 byte. Vercel chỉ gọi Render khi Supabase báo worker offline. Worker đang giữ khóa hàng đợi tiếp tục xử lý đến khi nhả khóa. Render tự dừng vòng lặp sau 150 giây không có việc. Tệp gốc vẫn đi qua Supabase Storage, văn bản được gửi đến endpoint embedding và các đoạn truy xuất được gửi sang OpenRouter khi cần trả lời.
 

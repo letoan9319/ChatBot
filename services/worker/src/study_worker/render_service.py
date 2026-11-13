@@ -17,8 +17,8 @@ def main():
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     settings = Settings.load()
     secret = os.environ["WORKER_WAKE_SECRET"].encode()
-    if len(secret) < 32 or not settings.cloud_embedding_url:
-        raise ValueError("Render requires a wake secret of at least 32 bytes and a BGE embedding endpoint.")
+    if len(secret) < 32 or settings.ai_provider != "openrouter":
+        raise ValueError("Render requires a wake secret of at least 32 bytes and AI_PROVIDER=openrouter.")
     stopped = threading.Event()
     lock = threading.Lock()
     worker = None
