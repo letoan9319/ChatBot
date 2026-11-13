@@ -51,6 +51,12 @@ class Settings:
         if provider not in ("ollama", "openrouter"):
             raise ValueError("AI_PROVIDER must be ollama or openrouter.")
         remote = provider == "openrouter"
+        chat_model = os.getenv("CHAT_MODEL", DEEPSEEK_FLASH if remote else "qwen3:4b").strip()
+        deploy_api_key = os.getenv("DEPLOY_API_KEY", "").strip()
+        if remote and chat_model == "deepseek/deepseek-v4.1-flash-1017":
+            if not deploy_api_key:
+                raise ValueError("CHAT_MODEL is the legacy DeepSeek ID. Set DEPLOY_API_KEY to use Deploy.com.")
+            chat_model = DEEPSEEK_FLASH
         names = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "QDRANT_URL"]
         if any(not os.getenv(name) for name in names):
             raise ValueError("Missing configuration. Copy .env.example to .env and fill all required values.")
@@ -62,21 +68,21 @@ class Settings:
             qdrant_key=qdrant_key,
             collection=os.getenv("QDRANT_COLLECTION", "study_bge_m3_v1"),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434"),
-            chat_model=os.getenv("CHAT_MODEL", DEEPSEEK_FLASH if remote else "qwen3:4b"),
-            embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free" if remote else "bge-m3"),
+            chat_model=chat_model,
+            embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free" if remote else "bge-m3").strip(),
             tokenizer_model=os.getenv("TOKENIZER_MODEL", "Qwen/Qwen3-4B"),
             tokenizer_path=os.getenv("TOKENIZER_PATH", ""),
             min_score=float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35")),
             ai_provider=provider,
             openrouter_key=os.getenv("OPENROUTER_API_KEY", ""),
-            rerank_model=os.getenv("RERANK_MODEL", ""),
+            rerank_model=os.getenv("RERANK_MODEL", "").strip(),
             api_request_interval=float(os.getenv("OPENROUTER_REQUEST_INTERVAL", "3.2")),
             chat_fallback=os.getenv("CHAT_FALLBACK_PROVIDER", "none"),
             fallback_chat_model=os.getenv("OPENROUTER_CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free"),
             cloud_embedding_url=os.getenv("BGE_EMBEDDINGS_URL", ""),
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
-            deploy_api_key=os.getenv("DEPLOY_API_KEY", ""),
+            deploy_api_key=deploy_api_key,
         )
         if settings.cloud_embedding_url:
             endpoint = urlparse(settings.cloud_embedding_url)
@@ -98,15 +104,18 @@ class Settings:
             if not settings.openrouter_key:
                 raise ValueError("OPENROUTER_API_KEY is required on the worker.")
             selected_models = (
-                (settings.chat_model, settings.embed_model if not settings.cloud_embedding_url else "",
-                 settings.rerank_model) if remote
-                else (settings.fallback_chat_model,)
+                {"CHAT_MODEL": settings.chat_model,
+                 "EMBED_MODEL": settings.embed_model if not settings.cloud_embedding_url else "",
+                 "RERANK_MODEL": settings.rerank_model} if remote
+                else {"OPENROUTER_CHAT_MODEL": settings.fallback_chat_model}
             )
-            for index, model in enumerate(selected_models):
-                if remote and index == 0 and model == DEEPSEEK_FLASH:
+            if remote and not settings.cloud_embedding_url and not settings.embed_model:
+                raise ValueError("EMBED_MODEL is empty. Set nvidia/nemotron-3-embed-1b:free.")
+            for name, model in selected_models.items():
+                if name == "CHAT_MODEL" and model == DEEPSEEK_FLASH:
                     continue
                 if model and (not model.startswith("nvidia/") or not model.endswith(":free")):
-                    raise ValueError("OpenRouter trial only accepts explicit nvidia/...:free model IDs.")
+                    raise ValueError(f"{name} must be an explicit nvidia/...:free model ID for OpenRouter.")
             if not 3.2 <= settings.api_request_interval <= 60:
                 raise ValueError("OPENROUTER_REQUEST_INTERVAL must be between 3.2 and 60 seconds.")
         if not remote and settings.rerank_model:
