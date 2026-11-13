@@ -7,12 +7,18 @@ import time
 import httpx
 from tokenizers import Tokenizer
 
+from .config import DEEPSEEK_FLASH
+
 
 class ProviderError(RuntimeError):
     def __init__(self, message, *, permanent=False, retry_after=60):
         super().__init__(message)
         self.permanent = permanent
         self.retry_after = retry_after
+
+
+class OutputLimit(Exception):
+    """The provider completed the stream at its output budget."""
 
 
 class OpenRouterModels:
@@ -83,6 +89,10 @@ class OpenRouterModels:
             (self.settings.rerank_model, "rerank"),
         )
         for model, modality in configured[:1] if chat_only else configured:
+            if model == DEEPSEEK_FLASH and modality == "text":
+                continue
+            if modality == "embeddings" and self.settings.cloud_embedding_url:
+                continue
             if not model:
                 continue
             if not model.startswith("nvidia/") or not model.endswith(":free"):
@@ -104,12 +114,22 @@ class OpenRouterModels:
             self.embed(["LearnStep embedding dimension probe."])
 
     def embed(self, texts, *, query=False):
-        result = self.post("embeddings", {
-            "model": self.settings.embed_model,
-            "input": texts,
-            "input_type": "search_query" if query else "search_document",
-            "encoding_format": "float",
-        })
+        if self.settings.cloud_embedding_url:
+            response = httpx.post(
+                self.settings.cloud_embedding_url,
+                headers={"Authorization": f"Bearer {self.settings.cloud_embedding_key}"},
+                json={"model": self.settings.cloud_embedding_model, "input": texts, "encoding_format": "float"},
+                timeout=90,
+            )
+            self.check(response)
+            result = response.json()
+        else:
+            result = self.post("embeddings", {
+                "model": self.settings.embed_model,
+                "input": texts,
+                "input_type": "search_query" if query else "search_document",
+                "encoding_format": "float",
+            })
         items = result.get("data", [])
         if (
             len(items) != len(texts)
@@ -124,6 +144,8 @@ class OpenRouterModels:
                 or any(type(value) not in (int, float) or not math.isfinite(value) for value in vector)
             ):
                 raise ProviderError("Embedding trả về vector không hợp lệ.")
+            if self.settings.cloud_embedding_url and len(vector) != 1024:
+                raise ProviderError("BGE-M3 cloud phải trả về vector 1024 chiều.", permanent=True)
             if self.dimensions is None:
                 self.dimensions = len(vector)
             if len(vector) != self.dimensions:
@@ -156,14 +178,15 @@ class OpenRouterModels:
 
     def generate(self, messages, *, on_reset=None):
         self.pace()
+        paid = self.settings.chat_model == DEEPSEEK_FLASH
         with self.http.stream("POST", "chat/completions", json={
             "model": self.settings.chat_model,
             "messages": messages,
             "stream": True,
             "temperature": 0.2,
-            "max_tokens": 768,
+            "max_tokens": 2048 if paid else 768,
             "reasoning": {"enabled": False, "exclude": True},
-            "provider": self.routing(),
+            "provider": {"allow_fallbacks": False} if paid else self.routing(),
         }) as response:
             self.check(response)
             finished = False
@@ -190,6 +213,8 @@ class OpenRouterModels:
                             yield content
                         reason = choice.get("finish_reason")
                         if reason is not None:
+                            if reason == "length" and saw_content:
+                                raise OutputLimit()
                             if reason != "stop":
                                 raise ProviderError("Câu trả lời bị ngắt hoặc vượt ngân sách token.")
                             finished = True

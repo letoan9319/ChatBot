@@ -6,6 +6,7 @@ from qdrant_client import QdrantClient, models
 from tokenizers import Tokenizer
 
 from .config import Settings
+from .openrouter import OutputLimit
 
 
 class LocalModels:
@@ -84,7 +85,7 @@ class LocalModels:
                 yield event.get("message", {}).get("content", "")
                 if event.get("done"):
                     if event.get("done_reason") == "length":
-                        raise RuntimeError("Answer exceeded the output token budget")
+                        raise OutputLimit()
                     completed = True
             if not completed:
                 raise RuntimeError("Ollama stream ended before completion")
@@ -105,7 +106,7 @@ class VectorStore:
         self.settings = settings
         self.dimensions = dimensions
         self.collection = settings.collection
-        if settings.ai_provider == "openrouter":
+        if settings.ai_provider == "openrouter" and not settings.cloud_embedding_url:
             # Even equal-dimensional models must never share an embedding space.
             fingerprint = hashlib.sha256(settings.embedding_profile.encode()).hexdigest()[:16]
             self.collection = f"{settings.collection}_or_{fingerprint}_{dimensions}"

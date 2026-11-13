@@ -11,7 +11,7 @@ from qdrant_client import QdrantClient, models
 from study_worker.config import Settings
 from study_worker.main import IndexMismatch, Pipeline
 from study_worker.models import VectorStore, create_models
-from study_worker.openrouter import OpenRouterModels, ProviderError
+from study_worker.openrouter import OpenRouterModels, OutputLimit, ProviderError
 
 
 def settings(**kwargs):
@@ -131,7 +131,6 @@ def test_stream_only_publishes_content_and_requires_stop_plus_done():
 @pytest.mark.parametrize("events,done", [
     ([{"choices": [{"delta": {"content": "partial"}}]}], True),
     ([{"choices": [{"delta": {"content": "partial"}, "finish_reason": "stop"}]}], False),
-    ([{"choices": [{"delta": {"content": "partial"}, "finish_reason": "length"}]}], True),
     ([{"error": {"message": "private document"}}], True),
 ])
 def test_truncated_or_error_stream_is_never_complete(events, done):
@@ -139,6 +138,15 @@ def test_truncated_or_error_stream_is_never_complete(events, done):
     with pytest.raises(ProviderError) as error:
         list(value.generate([]))
     assert "private" not in str(error.value)
+
+
+def test_output_budget_retains_tokens_and_signals_truncation():
+    events = [{"choices": [{"delta": {"content": "partial [S1]"}, "finish_reason": "length"}]}]
+    value = mocked(lambda _: httpx.Response(200, text=sse(events, True)))
+    stream = value.generate([])
+    assert next(stream) == "partial [S1]"
+    with pytest.raises(OutputLimit):
+        next(stream)
 
 
 def test_quota_and_credentials_have_safe_errors_and_bounded_retry_delay():
@@ -189,6 +197,13 @@ def test_collection_namespace_includes_embedding_identity_and_dimension(monkeypa
     b = VectorStore(replace(settings(), embed_model="nvidia/nemotron-3.5-embed-8b:free"), 2048)
     c = VectorStore(settings(), 1024)
     assert len({a.collection, b.collection, c.collection, "study_bge_m3_v1"}) == 4
+
+
+def test_verified_cloud_bge_uses_existing_ollama_collection(monkeypatch):
+    monkeypatch.setattr("study_worker.models.QdrantClient", lambda **_: None)
+    value = settings(cloud_embedding_url="https://example.com/embeddings")
+    assert value.embedding_profile == "ollama:bge-m3"
+    assert VectorStore(value, 1024).collection == "study_bge_m3_v1"
 
 
 def test_old_collection_cleanup_keeps_other_tenants_vectors():

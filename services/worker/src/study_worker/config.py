@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+DEEPSEEK_FLASH = "deepseek/deepseek-v4.1-flash-1017"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -25,6 +27,9 @@ class Settings:
     api_request_interval: float = 3.2
     chat_fallback: str = "none"
     fallback_chat_model: str = "nvidia/nemotron-3.5-lightning:free"
+    cloud_embedding_url: str = ""
+    cloud_embedding_key: str = field(default="", repr=False)
+    cloud_embedding_model: str = "BAAI/bge-m3"
 
     def fallback_settings(self):
         # Only the chat model is used in fallback mode. Embedding identity is unchanged.
@@ -33,6 +38,8 @@ class Settings:
 
     @property
     def embedding_profile(self):
+        if self.cloud_embedding_url:
+            return "ollama:bge-m3"
         suffix = ":retrieval-v1" if self.ai_provider == "openrouter" else ""
         return f"{self.ai_provider}:{self.embed_model}{suffix}"
 
@@ -65,7 +72,16 @@ class Settings:
             api_request_interval=float(os.getenv("OPENROUTER_REQUEST_INTERVAL", "3.2")),
             chat_fallback=os.getenv("CHAT_FALLBACK_PROVIDER", "none"),
             fallback_chat_model=os.getenv("OPENROUTER_CHAT_MODEL", "nvidia/nemotron-3.5-lightning:free"),
+            cloud_embedding_url=os.getenv("BGE_EMBEDDINGS_URL", ""),
+            cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
+            cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
         )
+        if settings.cloud_embedding_url:
+            endpoint = urlparse(settings.cloud_embedding_url)
+            if not remote or endpoint.scheme != "https" or not endpoint.hostname or not settings.cloud_embedding_key:
+                raise ValueError("Cloud embedding requires OpenRouter and an authenticated HTTPS embedding endpoint.")
+            if os.getenv("BGE_COMPATIBILITY_VERIFIED") != "1":
+                raise ValueError("Verify BGE-M3 embedding parity before sharing the Ollama collection.")
         if not remote and urlparse(settings.ollama_url).hostname not in ("localhost", "127.0.0.1", "::1"):
             raise ValueError("Ollama must stay on localhost.")
         if not 0 <= settings.min_score <= 1:
@@ -80,10 +96,13 @@ class Settings:
             if not settings.openrouter_key:
                 raise ValueError("OPENROUTER_API_KEY is required on the worker.")
             selected_models = (
-                (settings.chat_model, settings.embed_model, settings.rerank_model) if remote
+                (settings.chat_model, settings.embed_model if not settings.cloud_embedding_url else "",
+                 settings.rerank_model) if remote
                 else (settings.fallback_chat_model,)
             )
-            for model in selected_models:
+            for index, model in enumerate(selected_models):
+                if index == 0 and model == DEEPSEEK_FLASH and os.getenv("ALLOW_PAID_DEEPSEEK") == "1":
+                    continue
                 if model and (not model.startswith("nvidia/") or not model.endswith(":free")):
                     raise ValueError("OpenRouter trial only accepts explicit nvidia/...:free model IDs.")
             if not 3.2 <= settings.api_request_interval <= 60:

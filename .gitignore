@@ -216,6 +216,7 @@ node_modules/
 !.env.example
 !.env.openrouter.example
 !.env.fallback.example
+!.env.render.example
 *.tsbuildinfo
 playwright-report/
 test-results/

@@ -40,13 +40,24 @@ async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   } catch {
     response = await fetch(`/api/${url}`, options);
   }
-  const result = await response.json();
+  let result = await response.json();
+  if (result.code === "WORKER_STARTING") {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const status = await fetch("/api/status").then(r => r.ok ? r.json() : null).catch(() => null);
+      if (!status?.online) continue;
+      response = await fetch(`/api/${url}`, options);
+      result = await response.json();
+      break;
+    }
+  }
   if (!response.ok)
     throw new Error(result.error || "Không thể kết nối. Vui lòng thử lại.");
   return result;
 }
 type WorkerStatus = {
   online: boolean;
+  cloudAvailable?: boolean;
   provider: "ollama" | "openrouter" | "ollama_with_openrouter_fallback" | null;
   activeChat: { id: string; conversation_id: string } | null;
 };
@@ -185,14 +196,14 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }, [refresh]);
 
   useEffect(() => {
-    if (!worker.online || (!pendingDocuments && !pendingChat)) return;
+    if (!pendingDocuments && !pendingChat) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") {
         void refresh({ documents: pendingDocuments, chat: pendingChat });
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [refresh, pendingDocuments, pendingChat, worker.online]);
+  }, [refresh, pendingDocuments, pendingChat]);
   useEffect(() => {
     const container = chatScroll.current;
     if (!container || !container.clientHeight || !preferences.autoScroll || !followConversation.current) return;
@@ -297,7 +308,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!worker.online || !question.trim() || sending.current || worker.activeChat) return;
+    if (!(worker.online || worker.cloudAvailable) || !question.trim() || sending.current || worker.activeChat) return;
 
     const epoch = conversationEpoch.current;
     const submittedDraft = question;
@@ -508,7 +519,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             </section>
             <section id="library-documents" className={styles.librarySection} hidden={libraryView !== "documents"} aria-label="Tài liệu">
               <DocumentRepository documents={documents} selected={selected} loading={loading} error={dataError}
-                online={worker.online} uploading={uploading} onChoose={choose} onUpload={upload}
+                online={worker.online || Boolean(worker.cloudAvailable)} uploading={uploading} onChoose={choose} onUpload={upload}
                 onAction={documentAction} onRefresh={refresh} />
             </section>
             <section id="library-history" className={styles.historyList} hidden={libraryView !== "history"} aria-label="Lịch sử hội thoại">
@@ -610,20 +621,22 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   }} />
                 <div className={styles.composerTools}>
                   <div className={styles.composerOptions}>
-                    <ChatDocumentMenu selected={selected.length} canUpload={worker.online && !uploading && documents.length < 20}
+                    <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
                       onChoose={showDocuments} onUpload={upload} />
                     <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
                       options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
                       onChange={value => setChatMode(value as ChatMode)} />
                   </div>
                   <button className={styles.sendButton}
-                    disabled={!worker.online || busy || Boolean(worker.activeChat) || !question.trim()}>
+                    disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || !question.trim()}>
                     {busy ? "Đang gửi…" : "Gửi"}
                   </button>
                 </div>
               </div>
               <div className={styles.composerFooter} id="composer-hint">
-                <span>{loading ? "Đang kết nối…" : !worker.online ? "AI tạm dừng · Bạn có thể xem lại hội thoại."
+                <span>{loading ? "Đang kết nối…" : !worker.online ? worker.cloudAvailable
+                  ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
+                  : "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
                     : chatMode === "research" ? "Đối chiếu nhiều truy vấn Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."
                       : chatMode === "search" ? "Tìm trên Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."

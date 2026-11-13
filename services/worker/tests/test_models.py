@@ -36,7 +36,8 @@ def test_interrupted_generation_is_not_silently_marked_complete():
     value.http.close()
 
 
-def test_output_limit_and_dimension_mismatch_are_failures():
+def test_output_limit_is_distinct_from_dimension_mismatch():
+    from study_worker.openrouter import OutputLimit
     def handler(request):
         if request.url.path.endswith("embed"):
             return httpx.Response(200, json={"embeddings": [[1.0, 2.0]]})
@@ -45,6 +46,6 @@ def test_output_limit_and_dimension_mismatch_are_failures():
     value = mocked(handler)
     with pytest.raises(ValueError, match="dimension"):
         value.embed(["question"])
-    with pytest.raises(RuntimeError, match="budget"):
+    with pytest.raises(OutputLimit):
         list(value.generate([{"role": "user", "content": "question"}]))
     value.http.close()

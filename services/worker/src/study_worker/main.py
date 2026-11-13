@@ -14,7 +14,7 @@ from psycopg.types.json import Jsonb
 from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
 from .models import create_models, VectorStore
-from .openrouter import ProviderError
+from .openrouter import OutputLimit, ProviderError
 from .rag import NO_EVIDENCE, build_prompt, validate_citations
 from .web_search import search_web
 
@@ -425,16 +425,23 @@ class Pipeline:
                     self.save_partial(job, answer)
                 last_flush = time.monotonic()
 
-            for token in self.models.generate(prompt, on_reset=reset_answer):
-                if self.heartbeat.lost.is_set():
-                    raise LostLease()
-                answer += token
-                if mode != "library" and time.monotonic() - last_flush >= 1:
-                    self.save_partial(job, answer)
-                    last_flush = time.monotonic()
+            truncated = False
+            try:
+                for token in self.models.generate(prompt, on_reset=reset_answer):
+                    if self.heartbeat.lost.is_set():
+                        raise LostLease()
+                    answer += token
+                    if mode != "library" and time.monotonic() - last_flush >= 1:
+                        self.save_partial(job, answer)
+                        last_flush = time.monotonic()
+            except OutputLimit:
+                truncated = True
+                LOG.info("chat_output_limit job_id=%s", job["id"])
             answer, used = validate_citations(answer, selected)
             if mode == "library" and not used:
                 answer = "Mình đã tìm được đoạn liên quan trong kho chung nhưng chưa tạo được câu trả lời có trích dẫn hợp lệ."
+            if truncated:
+                answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
         with self.conn.transaction():
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
@@ -493,10 +500,11 @@ def cleanup_abandoned(conn):
             conn.execute("select pgmq.send('study_jobs',%s)", (Jsonb({"job_id": str(job["id"])}),))
 
 
-def serve(settings):
-    stopped = threading.Event()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda *_: stopped.set())
+def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
+    if stopped is None:
+        stopped = threading.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda *_: stopped.set())
     with connect(settings) as conn:
         if not conn.execute("select pg_try_advisory_lock(%s) as acquired", (LOCK_ID,)).fetchone()["acquired"]:
             raise RuntimeError("Another worker holds the queue lock. Use a session connection, not transaction pooling.")
@@ -505,17 +513,30 @@ def serve(settings):
         conn.execute("select ai_provider,chat_fallback_enabled from public.worker_heartbeats limit 0")
         conn.execute("select generation_provider from public.messages limit 0")
         models = create_models(settings)
-        models.prepare()
-        vectors = VectorStore(settings, models.dimensions)
-        vectors.setup()
+        try:
+            models.prepare()
+            vectors = VectorStore(settings, models.dimensions)
+            try:
+                vectors.setup()
+            except Exception:
+                vectors.client.close()
+                raise
+        except Exception:
+            models.close()
+            raise
         heartbeat = Heartbeat(settings)
+        if worker_id:
+            heartbeat.worker_id = worker_id
         heartbeat.start()
         pipeline = Pipeline(settings, conn, models, vectors, heartbeat)
         maintenance_at = 0
+        idle_since = time.monotonic()
         LOG.info("worker_ready")
         try:
             while not stopped.is_set():
                 if time.monotonic() - maintenance_at > 60:
+                    if settings.ai_provider == "ollama" and maintenance_at:
+                        models.prepare()
                     try:
                         cleanup_abandoned(conn)
                         pipeline.sweep_deleted_uploads()
@@ -524,6 +545,8 @@ def serve(settings):
                     maintenance_at = time.monotonic()
                 job = claim(conn)
                 if not job:
+                    if idle_seconds is not None and time.monotonic() - idle_since >= idle_seconds:
+                        break
                     stopped.wait(2)
                     continue
                 heartbeat.set_active(job)
@@ -563,6 +586,7 @@ def serve(settings):
                     fail(conn, job, "Kết nối xử lý bị gián đoạn. Hệ thống tự thử lại tối đa 3 lần.")
                 finally:
                     heartbeat.set_active(None)
+                    idle_since = time.monotonic()
         finally:
             heartbeat.stopped.set()
             heartbeat.join(timeout=20)

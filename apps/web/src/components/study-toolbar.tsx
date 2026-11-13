@@ -92,7 +92,7 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
         <p>{loading ? "Đang kiểm tra kết nối với trợ giảng."
           : online ? "Bạn có thể tải tài liệu và đặt câu hỏi."
             : "Máy xử lý AI chưa kết nối. Bạn vẫn có thể xem lại hội thoại. Tài liệu và câu hỏi đang chờ sẽ tiếp tục khi máy hoạt động."}</p>
-        {provider === "openrouter" && <p>AI sử dụng OpenRouter/NVIDIA. Câu hỏi và các đoạn tài liệu cần xử lý được gửi đến dịch vụ này.
+        {provider === "openrouter" && <p>AI sử dụng OpenRouter. Câu hỏi và các đoạn tài liệu cần xử lý được gửi đến dịch vụ này.
           Tài liệu và lịch sử vẫn được lưu trong tài khoản của bạn. Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.</p>}
         {provider === "ollama_with_openrouter_fallback" && <p>AI ưu tiên model cục bộ. Khi model không khả dụng, câu hỏi,
           lịch sử gần đây và các đoạn nguồn sẽ được gửi qua OpenRouter/NVIDIA để trả lời.
