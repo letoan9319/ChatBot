@@ -15,7 +15,7 @@ from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, build_prompt, validate_citations
+from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -412,9 +412,9 @@ class Pipeline:
         answer, used = NO_EVIDENCE, []
         if mode in ("search", "research") and not candidates:
             answer = "Mình chưa tìm thấy nguồn Wikipedia phù hợp. Hãy thử một câu hỏi cụ thể hơn hoặc chọn thêm tài liệu."
-        if mode == "library" and not selected:
-            answer = "Mình chưa tìm thấy đoạn phù hợp trong kho tài liệu chung. Hãy thử nêu rõ chủ đề hoặc chọn tài liệu liên quan."
-        if selected:
+        allow_uncited = allows_general_knowledge(mode)
+        generated = bool(selected) or allow_uncited
+        if generated:
             answer = ""
             last_flush = time.monotonic()
 
@@ -437,9 +437,7 @@ class Pipeline:
             except OutputLimit:
                 truncated = True
                 LOG.info("chat_output_limit job_id=%s", job["id"])
-            answer, used = validate_citations(answer, selected)
-            if mode == "library" and not used:
-                answer = "Mình đã tìm được đoạn liên quan trong kho chung nhưng chưa tạo được câu trả lời có trích dẫn hợp lệ."
+            answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
             if truncated:
                 answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
         with self.conn.transaction():
@@ -460,7 +458,7 @@ class Pipeline:
                     raise Cancelled()
             self.conn.execute(
                 "update public.messages set content=%s,status='completed',generation_provider=%s where id=%s",
-                (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if selected else None,
+                (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if generated else None,
                  job["message_id"]),
             )
             if mode in ("search", "research"):

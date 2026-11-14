@@ -71,7 +71,7 @@ class LocalModels:
                 "think": False,
                 "stream": True,
                 "keep_alive": "5m",
-                "options": {"num_ctx": 4096, "num_predict": 768, "temperature": 0.2},
+                "options": {"num_ctx": 7168, "num_predict": 3584, "temperature": 0.2},
             },
         ) as response:
             response.raise_for_status()

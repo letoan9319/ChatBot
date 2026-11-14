@@ -28,6 +28,16 @@ def test_prompt_bounds_history_sources_and_repeated_chunks():
     assert messages[-1]["role"] == "user"
 
 
+def test_general_answer_can_complete_without_sources_but_cannot_invent_citations():
+    prompt, sources = build_prompt("1+1 bằng bao nhiêu?", [], [], len, "library")
+    assert "bài toán tự chứa" in prompt[0]["content"]
+    answer, used = validate_citations("1 + 1 = 2.", sources, allow_uncited=True)
+    assert answer.startswith("1 + 1 = 2.")
+    assert "Kiến thức tổng quát" in answer
+    assert used == []
+    assert validate_citations("1 + 1 = 2 [S1]", sources, allow_uncited=True) == (NO_EVIDENCE, [])
+
+
 def test_tenant_document_and_version_filters_work_together():
     store = VectorStore.__new__(VectorStore)
     store.settings = SimpleNamespace(collection="test", min_score=0)
