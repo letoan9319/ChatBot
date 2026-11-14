@@ -30,7 +30,8 @@ def test_prompt_bounds_history_sources_and_repeated_chunks():
 
 def test_general_answer_can_complete_without_sources_but_cannot_invent_citations():
     prompt, sources = build_prompt("1+1 bằng bao nhiêu?", [], [], len, "library")
-    assert "bài toán tự chứa" in prompt[0]["content"]
+    assert "hướng dẫn cách làm bài toán tự chứa" in prompt[0]["content"]
+    assert "Không tiết lộ giá trị cuối" in prompt[0]["content"]
     answer, used = validate_citations("1 + 1 = 2.", sources, allow_uncited=True)
     assert answer.startswith("1 + 1 = 2.")
     assert "Kiến thức tổng quát" in answer
