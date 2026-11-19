@@ -70,9 +70,9 @@
 .jumpButton { position: absolute; right: 20px; bottom: 13px; max-width: calc(100% - 40px); padding: 8px 13px; border: 1px solid var(--green-strong-line); border-radius: 999px; background: var(--primary-soft); color: var(--primary-edge); box-shadow: 0 3px 12px rgb(0 0 0 / 8%); font-size: 11px; font-weight: 800; }
 .composer { flex-shrink: 0; padding: 15px 22px 12px; border-top: 1px solid var(--line); background: var(--surface); }
 .composerLabel { display: block; margin-bottom: 7px; color: var(--text); font-size: 11px; font-weight: 800; }
-.composerRow { display: flex; align-items: end; gap: 10px; padding: 5px 5px 5px 13px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--surface-alt); }
+.composerRow { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--surface-alt); }
 .composerRow:focus-within { border-color: var(--focus); outline: 1px solid var(--focus); outline-offset: 1px; }
-.composerRow textarea { display: block; flex: 1; min-width: 0; min-height: 58px; max-height: 160px; padding: 7px 0; resize: vertical; border: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.7; }
+.composerRow textarea { display: block; width: 100%; min-width: 0; min-height: 58px; max-height: 160px; padding: 7px 0; resize: vertical; border: 0; background: transparent; color: var(--text); font-size: 13px; line-height: 1.7; }
 .composerRow textarea:focus { outline: none; }
 .sendButton { flex-shrink: 0; min-height: 36px; padding: 7px 13px; border: 1px solid var(--primary-edge); border-bottom-width: 3px; border-radius: 9px; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 800; }
 .composerHint { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; margin: 7px 2px 0; color: var(--muted); font-size: 9px; }
@@ -121,3 +121,33 @@
   color: var(--primary-edge);
 }
 .attachmentButton:hover:not(:disabled) { background: var(--surface-alt); }
+
+.composerBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 8px;
+}
+.composerBar .attachmentTools { min-width: 0; margin-top: 0; }
+.composerBar .sendButton { margin-inline-start: auto; }
+.clearAttachment { max-width: min(100%, 14rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reactionBar, .reactionPicker { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+.reactionChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.reactionChip svg { width: 16px; height: 16px; }
+.reactionChip[aria-pressed="true"] { border-color: var(--green-line); background: var(--primary-soft); }
+.reactionChip:hover:not(:disabled) { background: var(--surface-alt); }

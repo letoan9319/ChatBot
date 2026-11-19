@@ -165,6 +165,27 @@ describe("API authorization and asynchronous boundaries", () => {
     mocks.rpc.mockResolvedValue({ data: null, error: { message: "NOT_FOUND" } });
     expect((await GET(request(`groups/${id}/images/${id}`))).status).toBe(404);
   });
+  it("sets or clears a reaction with session identity and validates both IDs and the reaction", async () => {
+    const endpoint = `groups/${id}/messages/${id}/reaction`;
+    const summary = [{ reaction: "love", count: 2, reacted: true }];
+    mocks.rpc.mockResolvedValueOnce({ data: summary, error: null });
+    expect(await (await POST(request(endpoint, { reaction: "love" }))).json()).toEqual(summary);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_set_group_reaction", {
+      p_group: id, p_message: id, p_reaction: "love",
+    });
+    mocks.rpc.mockResolvedValueOnce({ data: [], error: null });
+    expect((await POST(request(endpoint, { reaction: null }))).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_set_group_reaction", {
+      p_group: id, p_message: id, p_reaction: null,
+    });
+    mocks.rpc.mockClear();
+    expect((await POST(request(endpoint, { reaction: "other" }))).status).toBe(400);
+    expect((await POST(request(endpoint, { reaction: "like", user_id: id }))).status).toBe(400);
+    expect((await POST(request(`groups/${id}/messages/bad/reaction`, { reaction: "like" }))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "NOT_FOUND" } });
+    expect((await POST(request(endpoint, { reaction: "like" }))).status).toBe(404);
+  });
   it("rejects malformed group metadata before database access", async () => {
     for (const input of [
       { name: "ab", subject: "calculus", key: id },

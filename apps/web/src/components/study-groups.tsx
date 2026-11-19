@@ -2,9 +2,10 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { groupReactionOptions, type GroupReaction, type GroupReactionSummary } from "@/core/group-reactions";
+import { SidebarIcon } from "./sidebar-icon";
 import { subjects } from "@/core/validation";
 import { Markdown } from "./markdown";
-import { SidebarIcon } from "./sidebar-icon";
 import { SelectField } from "./select-field";
 import styles from "./study-groups.module.css";
 
@@ -26,6 +27,7 @@ type GroupMessage = {
   username: string | null;
   content: string;
   has_image?: boolean;
+  reactions?: GroupReactionSummary[];
   created_at: string;
 };
 const groupEmojis = [0x1f600, 0x1f602, 0x1f914, 0x1f44d, 0x1f64c, 0x2764, 0x1f4da, 0x1f389];
@@ -88,6 +90,9 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
   const [draft, setDraft] = useState("");
   const [image, setImage] = useState<File | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [reactionMenu, setReactionMenu] = useState<string | null>(null);
+  const [reacting, setReacting] = useState(false);
+  const reactionPending = useRef(false);
   const [sending, setSending] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [notice, setNotice] = useState("");
@@ -269,6 +274,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     setDraft("");
     setImage(null);
     setEmojiOpen(false);
+    setReactionMenu(null);
     setHasNewMessages(false);
     setMobileRoom(true);
     nearBottom.current = true;
@@ -360,6 +366,41 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     } finally {
       mutationControllers.current.delete(controller);
       if (alive.current && !controller.signal.aborted) setMembershipBusy(null);
+    }
+  }
+
+  async function reactToMessage(message: GroupMessage, reaction: GroupReaction) {
+    if (selectedId.current !== message.group_id || reactionPending.current) return;
+    const desired = message.reactions?.some((item) => item.reaction === reaction && item.reacted) ? null : reaction;
+    reactionPending.current = true;
+    setReacting(true);
+    setActionError("");
+    const controller = new AbortController();
+    mutationControllers.current.add(controller);
+    try {
+      const reactions: GroupReactionSummary[] = await responseData(await fetch(
+        `/api/groups/${message.group_id}/messages/${message.id}/reaction`,
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reaction: desired }), signal: controller.signal },
+      ));
+      if (!alive.current || controller.signal.aborted || selectedId.current !== message.group_id) return;
+      const current = messageSnapshotRef.current;
+      if (current?.groupId === message.group_id && current.items) {
+        const next = { ...current, items: current.items.map((item) =>
+          item.id === message.id ? { ...item, reactions } : item) };
+        messageSnapshotRef.current = next;
+        setMessageSnapshot(next);
+      }
+      setReactionMenu(null);
+      setMessageRefresh((value) => value + 1);
+    } catch (error) {
+      if (alive.current && !controller.signal.aborted && selectedId.current === message.group_id) {
+        setActionError(errorText(error));
+      }
+    } finally {
+      mutationControllers.current.delete(controller);
+      reactionPending.current = false;
+      if (alive.current) setReacting(false);
     }
   }
 
@@ -493,7 +534,35 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                               alt="Ảnh đính kèm trong nhóm" loading="lazy" />
                           )}
                           {message.content && <Markdown content={message.content} />}
-                        </div></div>
+                        </div>
+                        <div className={styles.reactionBar}>
+                          {message.reactions?.map((item) => (
+                            <button type="button" className={styles.reactionChip} key={item.reaction}
+                              disabled={reacting} aria-pressed={item.reacted}
+                              aria-label={`${groupReactionOptions[item.reaction].label}: ${item.count}`}
+                              onClick={() => void reactToMessage(message, item.reaction)}>
+                              {String.fromCodePoint(groupReactionOptions[item.reaction].code)} <span>{item.count}</span>
+                            </button>
+                          ))}
+                          <button type="button" className={styles.reactionChip} aria-label="Thả cảm xúc"
+                            title="Thả cảm xúc" disabled={reacting} aria-expanded={reactionMenu === message.id}
+                            onClick={() => setReactionMenu((current) => current === message.id ? null : message.id)}>
+                            <SidebarIcon name="smile" />
+                          </button>
+                        </div>
+                        {reactionMenu === message.id && (
+                          <div className={styles.reactionPicker} role="group" aria-label="Cảm xúc cho tin nhắn"
+                            onKeyDown={(event) => { if (event.key === "Escape") setReactionMenu(null); }}>
+                            {(Object.keys(groupReactionOptions) as GroupReaction[]).map((reaction) => {
+                              const option = groupReactionOptions[reaction];
+                              return <button type="button" className={styles.reactionChip} key={reaction}
+                                title={option.label} aria-label={option.label} disabled={reacting}
+                                aria-pressed={message.reactions?.some((item) => item.reaction === reaction && item.reacted) ?? false}
+                                onClick={() => void reactToMessage(message, reaction)}>{String.fromCodePoint(option.code)}</button>;
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </li>)}
                   </ol>
                 </>}
@@ -502,50 +571,55 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
             </div>
             <form className={styles.composer} onSubmit={sendMessage}>
               <label className={styles.composerLabel} htmlFor={`${formId}-message`}>Gửi tin nhắn cho nhóm</label>
-              <div className={styles.composerRow}><textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={2}
-                placeholder="Câu hỏi hôm nay của bạn là gì?" onChange={(event) => setDraft(event.target.value)}
+              <div className={styles.composerRow}>
+                <textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={2}
+                onChange={(event) => setDraft(event.target.value)}
                 aria-describedby={`${formId}-message-hint`} disabled={sending}
                 onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-                <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>{sending ? "Đang gửi..." : "Gửi tin"}</button></div>
-              <div className={styles.attachmentTools}>
-                <button type="button" className={styles.attachmentButton} disabled={sending}
-                  title="Đính kèm ảnh" aria-label="Đính kèm ảnh"
-                  onClick={() => imagePicker.current?.click()}><SidebarIcon name="attach" /></button>
-                <input ref={imagePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={sending}
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      event.currentTarget.value = "";
-                      if (!file) return;
-                      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 524288 || file.size < 12) {
-                        setActionError("Chọn ảnh PNG, JPEG hoặc WebP tối đa 512 KB.");
-                        return;
-                      }
-                      setActionError("");
-                      setImage(file);
-                    }} />
-                <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
-                  title="Chọn emoji" aria-label="Chọn emoji"
-                  onClick={() => setEmojiOpen((open) => !open)}><SidebarIcon name="smile" /></button>
-                {image && <button type="button" disabled={sending} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
+                <div className={styles.composerBar}>
+                  <div className={styles.attachmentTools}>
+                    <button type="button" className={styles.attachmentButton} disabled={sending}
+                      title="Đính kèm ảnh tối đa 512 KB" aria-label="Đính kèm ảnh"
+                      onClick={() => imagePicker.current?.click()}><SidebarIcon name="attach" /></button>
+                    <input ref={imagePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={sending}
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          event.currentTarget.value = "";
+                          if (!file) return;
+                          if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 524288 || file.size < 12) {
+                            setActionError("Chọn ảnh PNG, JPEG hoặc WebP tối đa 512 KB.");
+                            return;
+                          }
+                          setActionError("");
+                          setImage(file);
+                        }} />
+                    <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
+                      title="Chọn emoji" aria-label="Chọn emoji"
+                      onClick={() => setEmojiOpen((open) => !open)}><SidebarIcon name="smile" /></button>
+                    {image && <button type="button" className={styles.clearAttachment} disabled={sending}
+                      title={image.name} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
+                  </div>
+                  <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>{sending ? "Đang gửi..." : "Gửi tin"}</button>
+                </div>
+                {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
+                  {groupEmojis.map((code) => {
+                    const value = String.fromCodePoint(code);
+                    return <button key={code} type="button" onClick={() => {
+                      const field = composer.current;
+                      const start = field?.selectionStart ?? draft.length;
+                      const end = field?.selectionEnd ?? start;
+                      const next = draft.slice(0, start) + value + draft.slice(end);
+                      if (next.length > 2000) return;
+                      setDraft(next);
+                      setEmojiOpen(false);
+                      requestAnimationFrame(() => {
+                        field?.focus();
+                        field?.setSelectionRange(start + value.length, start + value.length);
+                      });
+                    }}>{value}</button>;
+                  })}
+                </div>}
               </div>
-              {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
-                {groupEmojis.map((code) => {
-                  const value = String.fromCodePoint(code);
-                  return <button key={code} type="button" onClick={() => {
-                    const field = composer.current;
-                    const start = field?.selectionStart ?? draft.length;
-                    const end = field?.selectionEnd ?? start;
-                    const next = draft.slice(0, start) + value + draft.slice(end);
-                    if (next.length > 2000) return;
-                    setDraft(next);
-                    setEmojiOpen(false);
-                    requestAnimationFrame(() => {
-                      field?.focus();
-                      field?.setSelectionRange(start + value.length, start + value.length);
-                    });
-                  }}>{value}</button>;
-                })}
-              </div>}
               <div className={styles.composerHint} id={`${formId}-message-hint`}><span>{username ? `${username} · ` : ""}Ctrl + Enter để gửi</span><span>{draft.length}/2000</span></div>
             </form>
           </> : <div className={styles.membershipGate}>

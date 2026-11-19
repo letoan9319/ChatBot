@@ -1,5 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { groupReactionOptions } from "@/core/group-reactions";
 import { learningPlanSchema } from "@/core/learning-plan";
 import { sessionClient, storageAdmin } from "@/core/supabase-server";
 import { profileSchema, USERNAME_HELP } from "@/core/profile";
@@ -228,6 +229,14 @@ async function handle(request: NextRequest) {
             "Cross-Origin-Resource-Policy": "same-origin",
           },
         });
+      }
+      if (action === "messages" && parts.length === 5 && parts[4] === "reaction" && method === "POST") {
+        const value = z.object({ reaction: z.enum(Object.keys(groupReactionOptions)).nullable() }).strict().parse(await body());
+        const { data, error } = await db.rpc("app_set_group_reaction", {
+          p_group: uuid.parse(rawId), p_message: uuid.parse(parts[3]), p_reaction: value.reaction,
+        });
+        checkCommunity(error);
+        return json(data ?? []);
       }
       if (parts.length === 3 && ["join", "leave", "messages"].includes(action)) {
         const id = uuid.parse(rawId);
