@@ -142,6 +142,29 @@ describe("API authorization and asynchronous boundaries", () => {
     expect((await GET(request("groups/not-a-uuid/messages"))).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
+  it("sends image-only messages and rejects non-raster image types", async () => {
+    // Exercise a body larger than an ordinary JSON mutation.
+    const image = Buffer.alloc(24_000).toString("base64");
+    mocks.rpc.mockResolvedValue({ data: { id, has_image: true }, error: null });
+    const response = await POST(request(`groups/${id}/images`, { content: "", key: id, image, mime: "image/png" }));
+    expect(response.status).toBe(201);
+    expect(mocks.rpc).toHaveBeenCalledWith("app_post_group_image_message", {
+      p_group: id, p_content: "", p_key: id, p_image: image, p_mime: "image/png",
+    });
+    mocks.rpc.mockClear();
+    expect((await POST(request(`groups/${id}/images`, { content: "", key: id, image, mime: "image/svg+xml" }))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("reads an image through the authenticated RPC and disables shared caching", async () => {
+    mocks.rpc.mockResolvedValue({ data: { mime: "image/png", image: "AQID" }, error: null });
+    const response = await GET(request(`groups/${id}/images/${id}`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3]);
+    expect(mocks.rpc).toHaveBeenCalledWith("app_get_group_message_image", { p_group: id, p_message: id });
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "NOT_FOUND" } });
+    expect((await GET(request(`groups/${id}/images/${id}`))).status).toBe(404);
+  });
   it("rejects malformed group metadata before database access", async () => {
     for (const input of [
       { name: "ab", subject: "calculus", key: id },

@@ -96,3 +96,27 @@
 @media (max-width: 1100px) { .groups { grid-template-columns: 260px minmax(0, 1fr); gap: 10px; padding: 10px 12px 14px; } .libraryHeading { padding-inline: 13px; } .roomHeading { padding-inline: 18px; gap: 12px; } .roomIdentity h2 { font-size: 18px; } .feed { padding-inline: 18px; } .composer { padding-inline: 16px; } }
 @media (max-width: 860px) { .groups { grid-template-columns: 230px minmax(0, 1fr); } .libraryHeading { gap: 6px; } .libraryHeading h2 { font-size: 16px; } .createToggle { padding-inline: 7px; font-size: 10px; } .libraryScroll { padding-inline: 9px; } .groupCard { padding: 12px; } .groupCardTop { align-items: start; flex-direction: column; } .membershipGate, .welcome { padding: 28px 20px; } .roomIdentity p { font-size: 10px; } }
 @media (max-width: 680px) { .groups { grid-template-columns: minmax(0, 1fr); padding: 8px 10px 10px; } .groups[data-mobile-room="false"] .room { display: none; } .groups[data-mobile-room="true"] .library { display: none; } .libraryHeading { padding: 17px; } .libraryHeading h2 { font-size: 19px; } .libraryScroll { padding-inline: 14px; } .groupCardTop { align-items: center; flex-direction: row; } .groupCard { padding: 15px; } .groupCard > strong { font-size: 14px; } .groupCard > p { font-size: 12px; } .createToggle { min-height: 36px; padding-inline: 12px; font-size: 12px; } .roomHeading { flex-wrap: wrap; gap: 10px; padding: 12px 15px; } .backButton { display: block; min-height: 29px; padding: 3px 0; color: var(--primary-edge); font-size: 11px; font-weight: 800; text-align: left; } .roomHeading > .backButton { flex-basis: 100%; } .welcome > .backButton { align-self: start; margin-bottom: 20px; } .roomIdentity h2 { font-size: 18px; } .roomDescription { padding: 10px 15px; font-size: 11px; } .leaveButton { padding-inline: 9px; font-size: 10px; } .feed { padding: 16px 13px 20px; } .memberAvatar { width: 28px; height: 28px; border-radius: 9px; font-size: 10px; } .message { gap: 8px; } .bubble { padding: 9px 12px; font-size: 13px; } .messageMeta { gap: 6px; } .composer { padding: 12px 12px 9px; } .composerRow { gap: 6px; padding-left: 10px; } .composerRow textarea, .createForm input, .createForm textarea { font-size: 16px; } .sendButton { padding-inline: 10px; font-size: 11px; } .membershipGate, .welcome { justify-content: safe center; padding: 22px; } .membershipGate > p, .welcome > p { font-size: 12px; } .membershipGate h3, .welcome h2 { font-size: 24px; } .notice, .actionError { margin-inline: 12px; } }
+
+.groupImage {
+  display: block;
+  max-width: min(100%, 28rem);
+  max-height: 24rem;
+  object-fit: contain;
+  border-radius: 0.5rem;
+}
+.attachmentTools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.attachmentTools label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.attachmentTools input, .attachmentTools button {
+  max-width: 100%;
+}

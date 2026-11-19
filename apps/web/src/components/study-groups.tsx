@@ -24,8 +24,10 @@ type GroupMessage = {
   user_id: string;
   username: string | null;
   content: string;
+  has_image?: boolean;
   created_at: string;
 };
+const groupEmojis = [0x1f600, 0x1f602, 0x1f914, 0x1f44d, 0x1f64c, 0x2764, 0x1f4da, 0x1f389];
 type MessageSnapshot = { groupId: string; items: GroupMessage[] | null };
 type RetryKey = { signature: string; key: string };
 
@@ -83,6 +85,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
   const [messagesError, setMessagesError] = useState("");
   const [messageRefresh, setMessageRefresh] = useState(0);
   const [draft, setDraft] = useState("");
+  const [image, setImage] = useState<File | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [notice, setNotice] = useState("");
@@ -121,6 +125,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     setUnavailable(false);
     setActionError("");
     setDraft("");
+    setImage(null);
+    setEmojiOpen(false);
     setSubject("");
     setMobileRoom(true);
     nearBottom.current = true;
@@ -259,6 +265,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     setMessagesError("");
     setNotice("");
     setDraft("");
+    setImage(null);
+    setEmojiOpen(false);
     setHasNewMessages(false);
     setMobileRoom(true);
     nearBottom.current = true;
@@ -300,6 +308,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
       setName("");
       setDescription("");
       setDraft("");
+      setImage(null);
+      setEmojiOpen(false);
       setCreating(false);
       setMobileRoom(true);
       setUnavailable(false);
@@ -335,6 +345,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
       if (selectedId.current === group.id) {
         setNotice(join ? "Đã tham gia nhóm. Chào mừng bạn đến với cuộc trao đổi." : "Bạn đã rời nhóm học này.");
         setDraft("");
+        setImage(null);
+        setEmojiOpen(false);
         if (!join) {
           const snapshot = { groupId: group.id, items: null };
           messageSnapshotRef.current = snapshot;
@@ -355,20 +367,31 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     const groupId = selectedGroup.id;
     const originalDraft = draft;
     const content = draft.trim();
-    if (!content || content.length > 2000) return;
+    if ((!content && !image) || content.length > 2000) return;
     const controller = new AbortController();
     mutationControllers.current.add(controller);
     setSending(true);
     setActionError("");
     setNotice("");
     try {
-      await responseData(await fetch(`/api/groups/${encodeURIComponent(groupId)}/messages`, {
+      let attachment: { image: string; mime: string } | undefined;
+      if (image) {
+        const bytes = new Uint8Array(await image.arrayBuffer());
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        attachment = { image: btoa(binary), mime: image.type };
+      }
+      if (controller.signal.aborted || selectedId.current !== groupId) return;
+      const endpoint = attachment ? "images" : "messages";
+      await responseData(await fetch(`/api/groups/${encodeURIComponent(groupId)}/${endpoint}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-        body: JSON.stringify({ content, key: retryKey(messageKey, JSON.stringify([groupId, content])) }),
+        body: JSON.stringify({ content, ...attachment, key: retryKey(messageKey, JSON.stringify([groupId, content, attachment])) }),
       }));
       if (!alive.current || controller.signal.aborted) return;
       if (selectedId.current === groupId) {
         setDraft((current) => current === originalDraft ? "" : current);
+        setImage(null);
+        setEmojiOpen(false);
         nearBottom.current = true;
         setHasNewMessages(false);
         setMessageRefresh((current) => current + 1);
@@ -461,7 +484,15 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                     {messages.map((message) => <li key={message.id} data-message-id={message.id} className={styles.message}>
                       <span className={styles.memberAvatar} aria-hidden="true">{(message.username ?? "").trim().slice(0, 1).toLocaleUpperCase("vi-VN") || "B"}</span>
                       <div className={styles.messageMain}><div className={styles.messageMeta}><strong>{message.username || "Bạn học"}</strong><time dateTime={message.created_at} title={messageTime(message.created_at, true)}>{messageTime(message.created_at)}</time></div>
-                        <div className={styles.bubble}><Markdown content={message.content} /></div></div>
+                        <div className={styles.bubble}>
+                          {message.has_image && (
+                            // The session-protected endpoint streams the original attachment.
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img className={styles.groupImage} src={`/api/groups/${message.group_id}/images/${message.id}`}
+                              alt="Ảnh đính kèm trong nhóm" loading="lazy" />
+                          )}
+                          {message.content && <Markdown content={message.content} />}
+                        </div></div>
                     </li>)}
                   </ol>
                 </>}
@@ -474,7 +505,44 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                 placeholder="Câu hỏi hôm nay của bạn là gì?" onChange={(event) => setDraft(event.target.value)}
                 aria-describedby={`${formId}-message-hint`} disabled={sending}
                 onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-                <button type="submit" className={styles.sendButton} disabled={sending || !draft.trim()}>{sending ? "Đang gửi..." : "Gửi tin"}</button></div>
+                <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>{sending ? "Đang gửi..." : "Gửi tin"}</button></div>
+              <div className={styles.attachmentTools}>
+                <label>
+                  Chọn ảnh
+                  <input type="file" accept="image/png,image/jpeg,image/webp" disabled={sending}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (!file) return;
+                      if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 524288 || file.size < 12) {
+                        setActionError("Chọn ảnh PNG, JPEG hoặc WebP tối đa 512 KB.");
+                        return;
+                      }
+                      setActionError("");
+                      setImage(file);
+                    }} />
+                </label>
+                <button type="button" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>Emoji</button>
+                {image && <button type="button" disabled={sending} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
+              </div>
+              {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
+                {groupEmojis.map((code) => {
+                  const value = String.fromCodePoint(code);
+                  return <button key={code} type="button" onClick={() => {
+                    const field = composer.current;
+                    const start = field?.selectionStart ?? draft.length;
+                    const end = field?.selectionEnd ?? start;
+                    const next = draft.slice(0, start) + value + draft.slice(end);
+                    if (next.length > 2000) return;
+                    setDraft(next);
+                    setEmojiOpen(false);
+                    requestAnimationFrame(() => {
+                      field?.focus();
+                      field?.setSelectionRange(start + value.length, start + value.length);
+                    });
+                  }}>{value}</button>;
+                })}
+              </div>}
               <div className={styles.composerHint} id={`${formId}-message-hint`}><span>{username ? `${username} · ` : ""}Ctrl + Enter để gửi</span><span>{draft.length}/2000</span></div>
             </form>
           </> : <div className={styles.membershipGate}>

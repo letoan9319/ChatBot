@@ -33,6 +33,7 @@ const failures: Record<string, [number, string]> = {
   IDEMPOTENCY_CONFLICT: [409, "Mã yêu cầu đã được dùng cho nội dung khác."],
   INVALID_USERNAME: [400, USERNAME_HELP],
   USERNAME_TAKEN: [409, "Username này đã được sử dụng. Hãy chọn tên khác."],
+  INVALID_GROUP_IMAGE: [400, "Ảnh phải là PNG, JPEG hoặc WebP và không vượt quá 512 KB."],
   INVALID_GROUP: [400, "Tên hoặc nội dung nhóm học không hợp lệ."],
   GROUP_LIMIT: [409, "Bạn đã đạt giới hạn nhóm học."],
   GROUP_FULL: [409, "Nhóm học đã đủ thành viên."],
@@ -45,6 +46,12 @@ const createGroupSchema = z.object({
   subject: subjectSchema,
   description: z.string().trim().max(500).default(""),
   key: uuid,
+}).strict();
+const groupImageSchema = z.object({
+  content: z.string().trim().max(2000),
+  key: uuid,
+  image: z.string().min(16).max(699052).regex(/^[A-Za-z0-9+/]+={0,2}$/),
+  mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
 }).strict();
 const groupMessageSchema = z.object({
   content: z.string().trim().min(1).max(2000),
@@ -122,7 +129,8 @@ async function handle(request: NextRequest) {
         "Hệ thống chưa được cấu hình Supabase. Xem hướng dẫn cài đặt.",
       );
     }
-    if (request.method !== "GET") checkMutationRequest(request);
+    const imagePost = request.method === "POST" && /^\/api\/groups\/[^/]+\/images\/?$/.test(request.nextUrl.pathname);
+    if (request.method !== "GET") checkMutationRequest(request, imagePost ? 710_000 : undefined);
     const db = await sessionClient();
     const {
       data: { user },
@@ -197,6 +205,29 @@ async function handle(request: NextRequest) {
         });
         checkCommunity(error);
         return json(data, 201);
+      }
+      if (action === "images" && parts.length === 3 && method === "POST") {
+        const value = groupImageSchema.parse(await readJsonBody(request, 710_000));
+        const { data, error } = await db.rpc("app_post_group_image_message", {
+          p_group: uuid.parse(rawId), p_content: value.content, p_key: value.key,
+          p_image: value.image, p_mime: value.mime,
+        });
+        checkCommunity(error);
+        return json(data, 201);
+      }
+      if (action === "images" && parts.length === 4 && method === "GET") {
+        const { data, error } = await db.rpc("app_get_group_message_image", {
+          p_group: uuid.parse(rawId), p_message: uuid.parse(parts[3]),
+        });
+        checkCommunity(error);
+        return new Response(new Uint8Array(Buffer.from(data.image, "base64")), {
+          headers: {
+            "Content-Type": data.mime,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+          },
+        });
       }
       if (parts.length === 3 && ["join", "leave", "messages"].includes(action)) {
         const id = uuid.parse(rawId);

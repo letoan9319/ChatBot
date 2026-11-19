@@ -3,8 +3,7 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
-  // Proxy clones request bodies. File contents go directly to signed storage;
-  // this app only accepts small JSON mutations.
+  // Proxy clones request bodies. Group image requests bypass it and enforce their own limit.
   experimental: { proxyClientMaxBodySize: "16kb" },
   async headers() {
     return [

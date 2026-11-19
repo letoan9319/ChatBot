@@ -8,7 +8,7 @@ export class RequestError extends Error {
 
 // Cookies authenticate these requests. JSON plus origin/fetch-metadata checks
 // rejects browser form submissions and requests from another origin.
-export function checkMutationRequest(request: Request) {
+export function checkMutationRequest(request: Request, maxBytes = MAX_JSON_BYTES) {
   const url = new URL(request.url);
   let origin = url.origin;
   // Next may normalize the internal URL to localhost. The HTTP Host remains
@@ -44,11 +44,11 @@ export function checkMutationRequest(request: Request) {
   const length = request.headers.get("content-length");
   if (length !== null) {
     if (!/^\d+$/.test(length)) throw new RequestError(400, "Dung lượng yêu cầu không hợp lệ.");
-    if (Number(length) > MAX_JSON_BYTES) throw new RequestError(413, "Yêu cầu quá lớn.");
+    if (Number(length) > maxBytes) throw new RequestError(413, "Yêu cầu quá lớn.");
   }
 }
 
-export async function readJsonBody(request: Request): Promise<unknown> {
+export async function readJsonBody(request: Request, maxBytes = MAX_JSON_BYTES): Promise<unknown> {
   const reader = request.body?.getReader();
   if (!reader) throw new RequestError(400, "JSON không hợp lệ.");
   const chunks: Uint8Array[] = [];
@@ -58,7 +58,7 @@ export async function readJsonBody(request: Request): Promise<unknown> {
       const { value, done } = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > MAX_JSON_BYTES) {
+      if (length > maxBytes) {
         // Do not await cancellation: a server stream may be teed by Proxy.
         void reader.cancel().catch(() => undefined);
         throw new RequestError(413, "Yêu cầu quá lớn.");
