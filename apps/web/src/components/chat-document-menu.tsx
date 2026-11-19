@@ -33,7 +33,8 @@ export function ChatDocumentMenu({ selected, canUpload, onChoose, onUpload }: {
     </summary>
     <div className={`${styles.actionPanel} ${styles.documentMenuPanel}`}>
       <button type="button" className={styles.menuAction} disabled={!canUpload}
-        onClick={() => fileInput.current?.click()}><SidebarIcon name="attach" /> Tải PDF hoặc DOCX lên</button>
+        aria-label="Đính kèm PDF hoặc DOCX" title="Đính kèm PDF hoặc DOCX"
+        onClick={() => fileInput.current?.click()}><SidebarIcon name="attach" /></button>
       <label className={styles.menuField} htmlFor="chat-upload-subject">
         <span>Môn học</span>
         <select id="chat-upload-subject" value={subject} disabled={!canUpload} onChange={event => setSubject(event.target.value)}>

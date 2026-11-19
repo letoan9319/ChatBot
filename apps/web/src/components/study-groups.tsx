@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { subjects } from "@/core/validation";
 import { Markdown } from "./markdown";
+import { SidebarIcon } from "./sidebar-icon";
 import { SelectField } from "./select-field";
 import styles from "./study-groups.module.css";
 
@@ -99,6 +100,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
   const messageSnapshotRef = useRef<MessageSnapshot | null>(null);
   const feed = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const imagePicker = useRef<HTMLInputElement>(null);
   const nearBottom = useRef(true);
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const formId = useId();
@@ -456,7 +458,6 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
               <span className={styles.groupCardBottom}>{group.member_count} thành viên<span>{selectedGroup?.id === group.id ? "Đang xem" : "Xem nhóm"}</span></span>
             </button></li>)}
           </ul>}
-          <p className={styles.communityNote}>Một câu hỏi hay có thể giúp cả nhóm tiến bộ. Hãy giữ cuộc trao đổi cởi mở và tôn trọng nhau.</p>
         </div>
       </aside>
       <section className={styles.room} aria-labelledby={roomTitleId}>
@@ -479,7 +480,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                 {messages === null && !messagesError && <p role="status" className={styles.loadingMessages}>Đang tải cuộc trao đổi...</p>}
                 {messages?.length === 0 && <div className={styles.conversationEmpty}><span aria-hidden="true" className={styles.emptyMonogram}>NH</span><h3>Cuộc trao đổi bắt đầu từ bạn</h3><p>Chia sẻ một câu hỏi, một cách giải hay hoặc mục tiêu ôn tập hôm nay với cả nhóm.</p></div>}
                 {messages && messages.length > 0 && <>
-                  <p className={styles.historyNote}>{messages.length >= 50 ? "50 tin nhắn gần nhất trong nhóm" : "Cùng chia sẻ để hiểu bài sâu hơn"}</p>
+                  {messages.length >= 50 && <p className={styles.historyNote}>50 tin nhắn gần nhất trong nhóm</p>}
                   <ol className={styles.messageList}>
                     {messages.map((message) => <li key={message.id} data-message-id={message.id} className={styles.message}>
                       <span className={styles.memberAvatar} aria-hidden="true">{(message.username ?? "").trim().slice(0, 1).toLocaleUpperCase("vi-VN") || "B"}</span>
@@ -507,9 +508,10 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                 onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
                 <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>{sending ? "Đang gửi..." : "Gửi tin"}</button></div>
               <div className={styles.attachmentTools}>
-                <label>
-                  Chọn ảnh
-                  <input type="file" accept="image/png,image/jpeg,image/webp" disabled={sending}
+                <button type="button" className={styles.attachmentButton} disabled={sending}
+                  title="Đính kèm ảnh" aria-label="Đính kèm ảnh"
+                  onClick={() => imagePicker.current?.click()}><SidebarIcon name="attach" /></button>
+                <input ref={imagePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={sending}
                     onChange={(event) => {
                       const file = event.currentTarget.files?.[0];
                       event.currentTarget.value = "";
@@ -521,8 +523,9 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                       setActionError("");
                       setImage(file);
                     }} />
-                </label>
-                <button type="button" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}>Emoji</button>
+                <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
+                  title="Chọn emoji" aria-label="Chọn emoji"
+                  onClick={() => setEmojiOpen((open) => !open)}><SidebarIcon name="smile" /></button>
                 {image && <button type="button" disabled={sending} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
               </div>
               {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">

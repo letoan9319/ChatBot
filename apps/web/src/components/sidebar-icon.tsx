@@ -1,6 +1,6 @@
 export type SidebarDestination = "overview" | "study" | "plans" | "documents" | "history" | "groups" | "settings" | "new" | "search";
 
-export function SidebarIcon({ name, className }: { name: SidebarDestination | "attach" | "signout"; className?: string }) {
+export function SidebarIcon({ name, className }: { name: SidebarDestination | "attach" | "smile" | "signout"; className?: string }) {
   return (
     <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
@@ -19,6 +19,10 @@ export function SidebarIcon({ name, className }: { name: SidebarDestination | "a
       </>}
       {name === "new" && <path d="M12 5v14M5 12h14" />}
       {name === "attach" && <path d="m9 14 6.6-6.6a2 2 0 0 1 2.8 2.8l-8 8a4 4 0 0 1-5.7-5.7l8.2-8.2a5 5 0 0 1 7.1 7.1l-8.2 8.2" />}
+      {name === "smile" && <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M8 14a4.5 4.5 0 0 0 8 0M9 9.5h.01m5.99 0h.01" />
+      </>}
       {name === "signout" && <path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5m4-12 4 4-4 4m-5-4h9" />}
       {name === "search" && <>
         <circle cx="10.5" cy="10.5" r="5.5" /><path d="m15 15 4 4" />
