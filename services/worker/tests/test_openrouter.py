@@ -261,7 +261,7 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
     def generate(prompt, *, on_reset=None):
         assert "Authorized source" in prompt[0]["content"]
         assert "foreign secret" not in str(prompt)
-        return iter(["Answer [S1]"])
+        yield "Answer [S1]"
 
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.conn = Conn()

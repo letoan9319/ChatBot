@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
@@ -27,6 +27,7 @@ import { StudyGroups } from "./study-groups";
 import { useStudyPreferences } from "./use-study-preferences";
 import { shouldSendQuestion } from "@/core/study-preferences";
 import styles from "./study-workspace.module.css";
+import "@fontsource-variable/google-sans-flex";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {
@@ -59,7 +60,7 @@ type WorkerStatus = {
   online: boolean;
   cloudAvailable?: boolean;
   provider: "ollama" | "openrouter" | "ollama_with_openrouter_fallback" | null;
-  activeChat: { id: string; conversation_id: string } | null;
+  activeChat: { id: string; conversation_id: string; temporary?: boolean } | null;
 };
 const location = (source: Source) =>
   source.page
@@ -83,6 +84,12 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   currentKnowledge.current = knowledge;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId);
+  const [temporary, setTemporary] = useState(false);
+  const [docked, setDocked] = useState(Boolean(initialConversationId));
+  const [stopping, setStopping] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const composer = useRef<HTMLFormElement>(null);
+  const composerTop = useRef<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [worker, setWorker] = useState<WorkerStatus>({
@@ -155,7 +162,10 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       if (convs.status === "fulfilled" && convs.value) setConversations(convs.value);
       if (health.status === "fulfilled") setWorker(health.value);
       else setWorker({ online: false, provider: null, activeChat: null });
-      if (history.status === "fulfilled" && history.value) setMessages(history.value);
+      if (history.status === "fulfilled" && history.value) {
+        setMessages(history.value);
+        if (history.value.length) setDocked(true);
+      }
       if (streakResult.status === "fulfilled" && streakResult.value) {
         setStreak(streakResult.value);
         setStreakError("");
@@ -177,6 +187,29 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }, [conversationId]);
   const latestRefresh = useRef(refresh);
   latestRefresh.current = refresh;
+
+  useLayoutEffect(() => {
+    const form = composer.current;
+    const previousTop = composerTop.current;
+    composerTop.current = null;
+    if (!form || previousTop === null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const distance = previousTop - form.getBoundingClientRect().top;
+    if (distance) form.animate(
+      [{ transform: `translateY(${distance}px)` }, { transform: "translateY(0)" }],
+      { duration: 250, easing: "cubic-bezier(.2,.75,.25,1)" },
+    );
+  }, [docked]);
+
+  useEffect(() => {
+    if (!temporary || !conversationId) return;
+    const discardOnClose = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        void fetch(`/api/conversations/${conversationId}`, { method: "DELETE", keepalive: true }).catch(() => {});
+      }
+    };
+    window.addEventListener("pagehide", discardOnClose);
+    return () => window.removeEventListener("pagehide", discardOnClose);
+  }, [temporary, conversationId]);
 
   const pendingDocuments = uploading || documents.some(doc => ["queued", "processing", "deleting"].includes(doc.status));
   const pendingChat = busy || Boolean(worker.activeChat) ||
@@ -320,7 +353,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     try {
       let id = currentConversation.current;
       if (!id) {
-        const conversation = await api<{ id: string }>("conversations", "POST", { key: crypto.randomUUID() });
+        const conversation = await api<{ id: string }>("conversations", "POST", { key: crypto.randomUUID(), temporary });
         id = conversation.id;
         if (isCurrent()) {
           currentConversation.current = id;
@@ -331,11 +364,21 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
         ? requestIdentity.current.key : crypto.randomUUID();
       if (isCurrent()) requestIdentity.current = { fingerprint, key };
-      await api(`conversations/${id}/messages`, "POST", {
+      if (!isCurrent()) {
+        if (temporary) await api(`conversations/${id}`, "DELETE");
+        return;
+      }
+      const job = await api<{ id: string; status: string }>(`conversations/${id}/messages`, "POST", {
         question: submittedDraft.trim(), documentIds, key, mode: chatMode,
       });
       if (isCurrent()) {
+        ++refreshRequest.current;
         followConversation.current = true;
+        if (!docked) composerTop.current = composer.current?.getBoundingClientRect().top ?? null;
+        setDocked(true);
+        if (["queued", "running"].includes(job.status)) {
+          setWorker(current => ({ ...current, activeChat: { id: job.id, conversation_id: id, temporary } }));
+        }
         setQuestion(current => current === submittedDraft ? "" : current);
         requestIdentity.current = null;
       }
@@ -347,6 +390,40 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       setBusy(false);
     }
   }
+  async function stopChat(jobId: string) {
+    if (stopping) return;
+    setStopping(true);
+    setNotice("");
+    try {
+      ++refreshRequest.current;
+      await api(`jobs/${jobId}/stop`, "POST");
+      await latestRefresh.current();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setStopping(false);
+    }
+  }
+
+  async function deleteHistory(conversation?: Conversation) {
+    if (deleting) return;
+    const scope = conversation ? `cuộc trò chuyện “${conversation.title}”` : "toàn bộ lịch sử trợ giảng";
+    if (!window.confirm(`Xóa ${scope}? Bạn sẽ không thể khôi phục nội dung đã xóa.`)) return;
+    setDeleting(true);
+    try {
+      ++refreshRequest.current;
+      await api(conversation ? `conversations/${conversation.id}` : "conversations", "DELETE");
+      const selectedId = currentConversation.current;
+      if (selectedId && !temporary && (!conversation || selectedId === conversation.id)) openConversation(null);
+      setConversations(items => conversation ? items.filter(item => item.id !== conversation.id) : []);
+      void latestRefresh.current();
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function openSource(item: Source) {
     const requestId = ++sourceRequest.current;
     setSourceBusy(true);
@@ -362,7 +439,13 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       if (requestId === sourceRequest.current) setSourceBusy(false);
     }
   }
-  function openConversation(id: string | null) {
+  function openConversation(id: string | null, nextTemporary = false) {
+    const previousId = currentConversation.current;
+    if (temporary && previousId && previousId !== id) {
+      void api(`conversations/${previousId}`, "DELETE").then(() => latestRefresh.current()).catch(() => {});
+    }
+    setTemporary(nextTemporary);
+    setDocked(Boolean(id));
     ++conversationEpoch.current;
     ++refreshRequest.current;
     setView("study");
@@ -523,25 +606,34 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 onAction={documentAction} onRefresh={refresh} />
             </section>
             <section id="library-history" className={styles.historyList} hidden={libraryView !== "history"} aria-label="Lịch sử hội thoại">
+              {conversations.length > 0 && <button type="button" className={styles.quietButton}
+                disabled={deleting} onClick={() => void deleteHistory()}>Xóa toàn bộ lịch sử</button>}
               {loading ? <p className={styles.emptyText}>Đang tải lịch sử…</p>
                 : conversations.length === 0 ? <div className={styles.emptyLibrary}><h3>Chưa có hội thoại</h3><p>Các phiên học của bạn sẽ được lưu tại đây.</p></div>
                   : conversations.map((conversation) => (
-                    <button key={conversation.id} className={styles.historyItem} aria-current={conversation.id === conversationId ? "true" : undefined}
-                      onClick={() => openConversation(conversation.id)}>
-                      <strong>{conversation.title}</strong>
-                      <small>{new Date(conversation.created_at).toLocaleDateString("vi-VN")}</small>
-                    </button>
+                    <div key={conversation.id} className={styles.historyRow}>
+                      <button className={styles.historyItem} aria-current={conversation.id === conversationId ? "true" : undefined}
+                        onClick={() => openConversation(conversation.id)}>
+                        <strong>{conversation.title}</strong>
+                        <small>{new Date(conversation.created_at).toLocaleDateString("vi-VN")}</small>
+                      </button>
+                      <button type="button" className={styles.quietButton} disabled={deleting}
+                        aria-label={`Xóa cuộc trò chuyện ${conversation.title}`}
+                        onClick={() => void deleteHistory(conversation)}>Xóa</button>
+                    </div>
                   ))}
             </section>
           </aside>
-          <section id="panel-chat" className={styles.chatPanel} aria-label="Hội thoại học tập">
+          <section id="panel-chat" data-docked={docked} className={styles.chatPanel} aria-label="Hội thoại học tập">
             <div className={styles.chatHeading}>
               <div className={styles.sessionTitle}>
-                <h2>{conversations.find((item) => item.id === conversationId)?.title || "Phiên học mới"}</h2>
-                <button onClick={showDocuments}>{selected.length ? `${selected.length} tài liệu đã chọn` : "Chọn nguồn cụ thể"}</button>
+                <h2>{temporary ? "Chat tạm thời" : conversations.find((item) => item.id === conversationId)?.title || "Phiên học mới"}</h2>
+                {temporary && <p>Cuộc trò chuyện này sẽ mất khi bạn tải lại hoặc đóng tab.</p>}
               </div>
               <div className={styles.chatHeadingActions}>
               <button className={`${styles.quietButton} ${styles.mobileNewChat}`} type="button" aria-label="Phiên học mới" onClick={() => openConversation(null)}>Mới</button>
+              {!conversationId && <button className={styles.quietButton} type="button" aria-pressed={temporary}
+                onClick={() => openConversation(null, !temporary)}>Chat tạm thời</button>}
               <button id="show-sources" className={styles.quietButton} aria-controls="panel-sources" aria-expanded={sourcesOpen}
                 onClick={() => {
                   if (sourcesOpen) closeSources();
@@ -551,8 +643,9 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             </div>
             {worker.activeChat && worker.activeChat.conversation_id !== conversationId && (
               <div className={styles.activeJob} role="status">
-                <span>Một câu hỏi đang được xử lý ở phiên khác.</span>
-                <button onClick={() => openConversation(worker.activeChat!.conversation_id)}>Mở phiên đó</button>
+                <span>{worker.activeChat.temporary ? "Một câu hỏi đang được xử lý trong chat tạm." : "Một câu hỏi đang được xử lý ở phiên khác."}</span>
+                {!worker.activeChat.temporary && <button onClick={() => openConversation(worker.activeChat!.conversation_id)}>Mở phiên đó</button>}
+                <button disabled={stopping} onClick={() => void stopChat(worker.activeChat!.id)}>Dừng</button>
               </div>
             )}
             <div className={styles.chatScroll} ref={chatScroll} data-empty={messages.length === 0}
@@ -561,26 +654,10 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 const container = event.currentTarget;
                 followConversation.current = container.scrollHeight - container.clientHeight - container.scrollTop < 72;
               }}>
-              {messages.length === 0 ? (
-                <div className={styles.welcome}>
-                  <p className={styles.greeting}>Chào {username}</p>
-                  <h2>Bạn muốn hiểu rõ điều gì?</h2>
-                  <p>{chatMode === "research" ? "Đặt câu hỏi để tổng hợp và đối chiếu nhiều nguồn."
-                    : chatMode === "search" ? "Đặt câu hỏi để tìm thêm nguồn trên Wikipedia."
-                      : "Đặt câu hỏi để tra cứu kho tài liệu chung, hoặc dùng dấu cộng để chọn nguồn cụ thể."}</p>
-                  <div className={styles.examples}>
-                    {[
-                      ["Hiểu khái niệm", "Giải thích khái niệm chính trong tài liệu"],
-                      ["Ôn công thức", "Tóm tắt các công thức quan trọng"],
-                      ["Gỡ một ví dụ", "Giải thích từng bước một ví dụ trong tài liệu"],
-                    ].map(([label, text]) => (
-                      <button key={label} onClick={() => { setQuestion(text); questionInput.current?.focus(); }}>
-                        <strong>{label}</strong><span>{text}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : messages.map((message) => (
+              {!docked && <div className={styles.welcome}>
+                <h2>Bạn muốn học gì hôm nay?</h2>
+              </div>}
+              {messages.map((message) => (
                 <article className={styles.message} data-role={message.role} key={message.id}>
                   <div className={styles.messageLabel}>
                     <strong>{message.role === "user" ? "Bạn" : "LearnStep"}</strong>
@@ -589,10 +666,11 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
                   {message.content ? <Markdown content={message.content} />
-                    : <p className={styles.emptyText}>{message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
+                    : ["queued", "generating"].includes(message.status) && <p className={styles.emptyText}>
+                      {message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
                     <div className={styles.citations}>{message.message_sources.map((item) => (
-                      <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
+                      <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
                     ))}</div>
                   )}
                   {message.status === "completed" && Boolean(message.web_sources?.length) && (
@@ -608,7 +686,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 </article>
               ))}
             </div>
-            <form className={styles.composer} onSubmit={send}>
+            <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
               <div className={styles.composerBox}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
@@ -628,10 +706,13 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
                       onChange={value => setChatMode(value as ChatMode)} />
                   </div>
-                  <button className={styles.sendButton}
-                    disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || !question.trim()}>
-                    {busy ? "Đang gửi…" : "Gửi"}
-                  </button>
+                  {worker.activeChat && worker.activeChat.conversation_id === conversationId
+                    ? <button type="button" className={styles.sendButton} disabled={stopping}
+                        onClick={() => void stopChat(worker.activeChat!.id)}>{stopping ? "Đang dừng…" : "Dừng"}</button>
+                    : <button type="submit" className={styles.sendButton}
+                        disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || !question.trim()}>
+                        {busy ? "Đang gửi…" : "Gửi"}
+                      </button>}
                 </div>
               </div>
               <div className={styles.composerFooter} id="composer-hint">
@@ -645,6 +726,19 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 <span>{question.length}/2000</span>
               </div>
             </form>
+            {!docked && <div className={styles.examples} aria-label="Gợi ý câu hỏi">
+              {[
+                ["Giải thích một khái niệm", "Giải thích giúp mình khái niệm "],
+                ["Giúp mình ôn công thức", "Giúp mình ôn các công thức về "],
+                ["Hướng dẫn mình giải bài tập", "Hướng dẫn từng bước để mình tự giải bài tập sau: "],
+              ].map(([label, text]) => (
+                <button type="button" key={label} onClick={() => {
+                  setQuestion(text);
+                  questionInput.current?.focus();
+                  questionInput.current?.setSelectionRange(text.length, text.length);
+                }}>{label}</button>
+              ))}
+            </div>}
           </section>
           <aside id="panel-sources" className={styles.sourcePanel} aria-label="Nguồn tham khảo"
             onKeyDown={(event) => { if (event.key === "Escape") closeSources(); }}>

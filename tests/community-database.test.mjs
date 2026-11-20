@@ -36,9 +36,11 @@ before(async () => {
     "20261112205940_chat_search_modes.sql",
     "202611130001_chat_shared_library.sql",
     "202611140001_deploy_generation_provider.sql",
+    "20261120150841_chat_lifecycle.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
-    await db.exec(sql.replace("create extension if not exists pgmq;", ""));
+    await db.exec(sql.replace("create extension if not exists pgmq;", "")
+      .split("create extension if not exists pg_cron;")[0]);
   }
 });
 after(async () => { await db?.close(); });
@@ -484,4 +486,40 @@ test("learning plans isolate owners and reject ownership changes", async () => {
     assert.equal((await db.query("update learning_plans set revision=2 where id=$1 returning id", [id])).rows.length, 0);
     await assert.rejects(db.query("insert into learning_plans(id,user_id,mode,content) values($1,$2,'guided','{}')", [randomUUID(),owner]), /row-level security/);
   });
+});
+
+test("chat lifecycle protects ownership, retains partial answers, and expires temporary chat", async () => {
+  const owner = await learner();
+  const outsider = await learner();
+  const permanent = await rpc(owner, "app_create_conversation", [randomUUID()]);
+  const temporary = await rpc(owner, "app_create_temporary_conversation", [randomUUID()]);
+  const queued = await rpc(owner, "app_send_message", [permanent, "Câu đầu", [], randomUUID(), "library"]);
+  await assert.rejects(rpc(outsider, "app_stop_chat", [queued.id]), /NOT_FOUND/);
+  assert.equal(await rpc(owner, "app_stop_chat", [queued.id]), "stopped");
+  assert.equal(await rpc(owner, "app_stop_chat", [queued.id]), "stopped");
+
+  const running = await rpc(owner, "app_send_message", [temporary, "Câu tạm", [], randomUUID(), "library"]);
+  assert.equal(running.payload.temporary, true);
+  await db.query("update jobs set status='running',lease_token=$2 where id=$1", [running.id, randomUUID()]);
+  await db.query("update messages set status='generating',content='Một phần' where id=$1", [running.message_id]);
+  assert.equal(await rpc(owner, "app_stop_chat", [running.id]), "stopped");
+  assert.deepEqual((await db.query("select content,status from messages where id=$1", [running.message_id])).rows,
+    [{ content: "Một phần", status: "stopped" }]);
+  assert.equal((await db.query("select lease_token from jobs where id=$1", [running.id])).rows[0].lease_token, null);
+
+  const completed = await rpc(owner, "app_send_message", [temporary, "Câu sau", [], randomUUID(), "library"]);
+  await db.query("update jobs set status='completed' where id=$1", [completed.id]);
+  assert.equal(await rpc(owner, "app_stop_chat", [completed.id]), "completed");
+  assert.equal((await db.query("select id from notifications where user_id=$1", [owner])).rows.length, 0);
+  assert.equal(await rpc(outsider, "app_delete_chat", [permanent]), 0);
+  assert.equal(await rpc(owner, "app_delete_chat", [null]), 1);
+  assert.equal((await db.query("select id from conversations where user_id=$1", [owner])).rows[0].id, temporary);
+
+  await db.query("update conversations set temporary_until=now()-interval '1 minute' where id=$1", [temporary]);
+  await assert.rejects(rpc(owner, "app_send_message", [temporary, "Quá hạn", [], randomUUID(), "library"]), /NOT_FOUND/);
+  await db.exec("select app_private.purge_expired_chats()");
+  for (const table of ["conversations", "messages", "jobs"]) {
+    assert.equal((await db.query(`select id from ${table} where user_id=$1`, [owner])).rows.length, 0);
+  }
+  assert.equal((await db.query("select job_id from app_private.chat_request_log where user_id=$1", [owner])).rows.length, 3);
 });

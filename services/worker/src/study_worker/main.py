@@ -3,6 +3,7 @@ import logging
 import signal
 import threading
 import time
+from contextlib import closing
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -39,8 +40,14 @@ def connect(settings):
     return psycopg.connect(settings.database_url, autocommit=True, row_factory=dict_row, connect_timeout=15)
 
 
+class ChatStopped(Exception):
+    pass
+
+
 def guard(conn, job):
-    row = conn.execute("select lease_token,status from public.jobs where id=%s for update", (job["id"],)).fetchone()
+    row = conn.execute("select lease_token,status,error from public.jobs where id=%s for update", (job["id"],)).fetchone()
+    if job.get("kind") == "chat" and (not row or row.get("error") == "USER_STOPPED"):
+        raise ChatStopped()
     if not row or row["lease_token"] != job["lease_token"] or row["status"] != "running":
         raise LostLease()
 
@@ -141,7 +148,10 @@ def finish(conn, job):
 def fail(conn, job, message, permanent=False, retry_seconds=10):
     terminal = permanent or job["attempts"] >= 3
     with conn.transaction():
-        guard(conn, job)
+        try:
+            guard(conn, job)
+        except ChatStopped:
+            return
         conn.execute(
             "update public.jobs set status=%s,error=%s,finished_at=%s,lease_token=null where id=%s",
             ("failed" if terminal else "queued", message, datetime.now(timezone.utc) if terminal else None, job["id"]),
@@ -346,6 +356,7 @@ class Pipeline:
     def chat(self, job):
         payload = job["payload"]
         mode = payload.get("mode", "documents")
+        guard(self.conn, job)
         self.chat_documents(job)
         document_ids = payload["document_ids"]
         versions = payload["versions"]
@@ -362,7 +373,8 @@ class Pipeline:
             owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
         history = self.conn.execute(
             """select role,content from public.messages
-            where conversation_id=%s and user_id=%s and status='completed' and sequence <
+            where conversation_id=%s and user_id=%s
+            and (status='completed' or (status='stopped' and content<>'')) and sequence <
             (select sequence from public.messages where id=%s) order by sequence desc limit 6""",
             (payload["conversation_id"], job["user_id"], payload["user_message_id"]),
         ).fetchall()[::-1]
@@ -396,6 +408,7 @@ class Pipeline:
             ).fetchone()
             if row:
                 candidates.append(row)
+        guard(self.conn, job)
         self.chat_documents(job)
         if candidates:
             candidates = self.models.rerank(query, candidates)
@@ -407,6 +420,7 @@ class Pipeline:
                     raise
                 web = []
             candidates = candidates[:2] + web[:3] + candidates[2:] + web[3:]
+        guard(self.conn, job)
         self.chat_documents(job)
         prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count, mode)
         answer, used = NO_EVIDENCE, []
@@ -421,19 +435,20 @@ class Pipeline:
             def reset_answer():
                 nonlocal answer, last_flush
                 answer = ""
-                if mode != "library":
-                    self.save_partial(job, answer)
+                self.save_partial(job, answer)
                 last_flush = time.monotonic()
 
             truncated = False
             try:
-                for token in self.models.generate(prompt, on_reset=reset_answer):
-                    if self.heartbeat.lost.is_set():
-                        raise LostLease()
-                    answer += token
-                    if mode != "library" and time.monotonic() - last_flush >= 1:
-                        self.save_partial(job, answer)
-                        last_flush = time.monotonic()
+                with closing(self.models.generate(prompt, on_reset=reset_answer)) as tokens:
+                    for token in tokens:
+                        if self.heartbeat.lost.is_set():
+                            guard(self.conn, job)
+                            raise LostLease()
+                        answer += token
+                        if time.monotonic() - last_flush >= 1:
+                            self.save_partial(job, answer)
+                            last_flush = time.monotonic()
             except OutputLimit:
                 truncated = True
                 LOG.info("chat_output_limit job_id=%s", job["id"])
@@ -573,6 +588,9 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
                 except ProviderError as exc:
                     LOG.warning("provider_failed job_id=%s permanent=%s", str(job["id"]), exc.permanent)
                     fail(conn, job, str(exc), permanent=exc.permanent, retry_seconds=exc.retry_after)
+                except ChatStopped:
+                    conn.execute("select pgmq.archive('study_jobs',%s)", (job["queue_id"],))
+                    LOG.info("chat_stopped job_id=%s", job["id"])
                 except LostLease:
                     # Stop instead of letting a stale attempt publish results.
                     LOG.warning("lease_lost")

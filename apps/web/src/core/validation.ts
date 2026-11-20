@@ -42,6 +42,7 @@ export const statuses: Record<string, string> = {
   deleted: "Đã xóa",
   generating: "Đang trả lời",
   completed: "Hoàn tất",
+  stopped: "Đã dừng",
   interrupted: "Bị gián đoạn",
   running: "Đang chạy",
 };

@@ -303,7 +303,7 @@ async function handle(request: NextRequest) {
         ...(cloudWorker() ? { cloudAvailable: true } : {}),
         provider: ["openrouter", "ollama", "ollama_with_openrouter_fallback"].includes(provider) ? provider : null,
         activeChat: active
-          ? { id: active.id, conversation_id: active.payload.conversation_id }
+          ? { id: active.id, conversation_id: active.payload.conversation_id, ...(active.payload.temporary ? { temporary: true } : {}) }
           : null,
       });
     }
@@ -426,19 +426,27 @@ async function handle(request: NextRequest) {
       if (method === "GET" && parts.length === 1) {
         const { data, error } = await db
           .from("conversations")
-          .select("*")
+          .select("id,title,created_at")
+          .is("temporary_until", null)
           .order("created_at", { ascending: false })
           .limit(100);
         check(error);
         return json(data);
       }
       if (method === "POST" && parts.length === 1) {
-        const { key } = keySchema.parse(await body());
-        const { data, error } = await db.rpc("app_create_conversation", {
+        const { key, temporary } = keySchema.extend({ temporary: z.boolean().optional() }).parse(await body());
+        const { data, error } = await db.rpc(temporary ? "app_create_temporary_conversation" : "app_create_conversation", {
           p_key: key,
         });
         check(error);
         return json({ id: data }, 201);
+      }
+      if (method === "DELETE" && parts.length <= 2) {
+        const { data, error } = await db.rpc("app_delete_chat", {
+          p_conversation: rawId ? uuid.parse(rawId) : null,
+        });
+        check(error);
+        return json({ deleted: data });
       }
       if (action === "messages" && parts.length === 3) {
         const id = uuid.parse(rawId);
@@ -447,6 +455,7 @@ async function handle(request: NextRequest) {
             .from("conversations")
             .select("id")
             .eq("id", id)
+            .or(`temporary_until.is.null,temporary_until.gt.${new Date().toISOString()}`)
             .maybeSingle();
           check(convError);
           if (!conversation)
@@ -474,6 +483,11 @@ async function handle(request: NextRequest) {
           return json(data, 202);
         }
       }
+    }
+    if (resource === "jobs" && action === "stop" && method === "POST" && parts.length === 3) {
+      const { data, error } = await db.rpc("app_stop_chat", { p_job: uuid.parse(rawId) });
+      check(error);
+      return json({ status: data });
     }
     if (resource === "jobs" && method === "GET" && parts.length === 2) {
       const { data, error } = await db

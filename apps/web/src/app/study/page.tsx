@@ -1,3 +1,4 @@
+import type { Viewport } from "next";
 import { redirect } from "next/navigation";
 import { sessionClient } from "@/core/supabase-server";
 import { StudyWorkspace } from "@/components/study-workspace";
@@ -5,6 +6,8 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-provider";
 import { uuid } from "@/core/validation";
+
+export const viewport: Viewport = { interactiveWidget: "resizes-content" };
 
 export const dynamic = "force-dynamic";
 export default async function StudyPage({ searchParams }: { searchParams: Promise<{ conversation?: string; library?: string }> }) {

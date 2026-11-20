@@ -446,3 +446,63 @@
   .libraryNav { margin-block: 8px; }
   .selectionHeading { margin-top: 10px; }
 }
+
+.chatPanel {
+  min-width: 0;
+  font-family: "Google Sans Flex Variable", var(--font-sans), sans-serif;
+}
+.chatPanel[data-docked="false"] {
+  overflow-y: auto;
+}
+.chatPanel[data-docked="false"] .chatScroll {
+  flex: none;
+  padding: 20px 16px 8px;
+  margin-top: auto;
+  overflow: visible;
+}
+.chatPanel[data-docked="false"] .composer {
+  padding-bottom: 6px;
+}
+.chatPanel[data-docked="false"] .examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  width: min(820px, calc(100% - 32px));
+  margin: 4px auto auto;
+  padding-bottom: 20px;
+}
+.chatPanel[data-docked="false"] .examples button {
+  flex: 0 1 auto;
+  padding: 9px 13px;
+  border-radius: 16px;
+  line-height: 1.4;
+}
+.chatPanel .welcome h2 {
+  font-size: clamp(25px, 4vw, 40px);
+  font-weight: 550;
+  letter-spacing: -.035em;
+}
+.chatPanel .sessionTitle p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: .8rem;
+}
+.chatHeadingActions button[aria-pressed="true"] {
+  background: var(--primary-soft);
+  border-color: var(--green-line);
+}
+.historyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 820px;
+}
+.historyRow .historyItem {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 560px) {
+  .chatHeadingActions { flex-wrap: wrap; justify-content: flex-end; }
+  .chatPanel[data-docked="false"] .examples button { max-width: 100%; }
+}
