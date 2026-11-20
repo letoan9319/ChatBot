@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import type { StudyDocument } from "@/core/types";
+import { catalogEntries, catalogSearch, documentReaderHref, partLabel } from "@/core/document-catalog";
 import { statuses, subjects } from "@/core/validation";
 import { SelectField } from "./select-field";
 import styles from "./document-repository.module.css";
@@ -10,8 +11,6 @@ import styles from "./document-repository.module.css";
 type DocumentAction = "retry" | "delete" | "complete";
 const documentStates = ["ready", "queued", "processing", "failed", "uploading", "deleting"];
 const dateFormat = new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeZone: "Asia/Ho_Chi_Minh" });
-const normalize = (value: string) => value.toLocaleLowerCase("vi-VN").normalize("NFD")
-  .replace(/\p{M}/gu, "").replace(/đ/g, "d");
 const subjectName = (value: string) => subjects[value as keyof typeof subjects] ?? value;
 const fileSize = (bytes: number) => bytes < 1024 * 1024
   ? `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -38,15 +37,22 @@ export function DocumentRepository({ documents, selected, loading, error, online
   const [uploadSubject, setUploadSubject] = useState("calculus");
   const [actionId, setActionId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const ready = documents.filter((doc) => doc.status === "ready").length;
   const processing = documents.filter((doc) => ["uploading", "queued", "processing"].includes(doc.status)).length;
-  const term = normalize(query.trim());
-  const filtered = documents.filter((doc) => (subject === "all" || doc.subject === subject)
-    && (status === "all" || doc.status === status)
-    && normalize(`${doc.name} ${subjectName(doc.subject)}`).includes(term)).sort((a, b) => {
+  const entries = catalogEntries(documents, mode === "knowledge");
+  const ready = entries.filter((entry) => entry.documents.every((doc) => doc.status === "ready")).length;
+  const search = catalogSearch(query, mode === "knowledge");
+  const filtered = entries.flatMap((entry) => {
+    const matches = entry.documents.filter((doc) => (subject === "all" || doc.subject === subject)
+      && (status === "all" || doc.status === status)
+      && search.matches(doc, entry.name, subjectName(doc.subject), entry.parts.find((part) => part.document.id === doc.id)));
+    return matches.length ? [{ ...entry, matches }] : [];
+  }).sort((a, b) => {
     if (sort === "name") return a.name.localeCompare(b.name, "vi-VN", { numeric: true });
-    const diff = Date.parse(b.created_at) - Date.parse(a.created_at);
-    return (sort === "oldest" ? -diff : diff) || a.id.localeCompare(b.id);
+    const date = (entry: typeof a) => {
+      const dates = entry.matches.map((doc) => Date.parse(doc.created_at));
+      return sort === "oldest" ? Math.min(...dates) : Math.max(...dates);
+    };
+    return (sort === "oldest" ? date(a) - date(b) : date(b) - date(a)) || a.name.localeCompare(b.name, "vi-VN");
   });
   const filteredActive = Boolean(query || subject !== "all" || status !== "all");
   const uploadDisabled = !online || uploading || documents.length >= 20;
@@ -91,12 +97,12 @@ export function DocumentRepository({ documents, selected, loading, error, online
           </div>
           <small>{documents.length >= 20 ? "Đã đạt giới hạn 20 tài liệu. Xóa bớt để tải thêm."
             : !online ? "AI đang tạm dừng. Bạn vẫn có thể mở tài liệu sẵn sàng."
-              : "PDF, DOCX · Tối đa 20 MB mỗi tệp"}</small>
+              : "PDF, DOCX · Tối đa 3 MB mỗi tệp"}</small>
         </div>}
       </div>
       <div className={styles.filters}>
         <label className={styles.search}><span className="sr-only">Tìm trong kho tài liệu</span>
-          <input type="search" value={query} placeholder="Tìm tên tài liệu hoặc môn học…" onChange={(event) => setQuery(event.target.value)} />
+          <input type="search" value={query} placeholder={mode === "knowledge" ? "Tên, môn học hoặc khoảng trang…" : "Tìm tên tài liệu hoặc môn học…"} onChange={(event) => setQuery(event.target.value)} />
         </label>
         <SelectField label="Lọc môn học" value={subject} onChange={setSubject} compact
           options={[{ value: "all", label: "Tất cả môn học" }, ...Object.entries(subjects).map(([value, label]) => ({ value, label }))]} />
@@ -108,7 +114,7 @@ export function DocumentRepository({ documents, selected, loading, error, online
       {error && <div className={styles.error} role="alert"><span>Chưa thể cập nhật kho tài liệu. {documents.length > 0 ? "Đang hiển thị dữ liệu lần tải trước." : error}</span>
         <button onClick={() => void onRefresh()} disabled={loading}>Thử lại</button></div>}
       <div className={styles.results}>
-        <p role="status">{loading ? "Đang tải tài liệu…" : `${filtered.length}/${documents.length} tài liệu`}
+        <p role="status">{loading ? "Đang tải tài liệu…" : `${filtered.length}/${entries.length} tài liệu`}
           <span>Đã chọn {selected.length}/5 để hỏi đáp</span></p>
         {filteredActive && <button onClick={resetFilters}>Xóa bộ lọc</button>}
       </div>
@@ -122,7 +128,34 @@ export function DocumentRepository({ documents, selected, loading, error, online
                 : mode === "knowledge" ? "Các nguồn RAG đã được quản trị viên xử lý và công bố sẽ xuất hiện tại đây. Tài liệu cá nhân nằm ở tab Tài liệu của tôi."
                   : "Chọn môn học rồi tải PDF hoặc DOCX lên. Tài liệu đã xử lý sẽ xuất hiện trong kho để đọc lại và hỏi đáp."}</p>
               {documents.length > 0 && <button onClick={resetFilters}>Xem tất cả tài liệu</button>}
-            </div> : filtered.map((doc) => {
+            </div> : filtered.map((entry) => {
+              if (entry.parts.length) {
+                const matchedParts = entry.parts.filter((part) => entry.matches.some((doc) => doc.id === part.document.id));
+                const first = matchedParts[0];
+                const active = entry.parts.some((part) => selected.includes(part.document.id));
+                const href = documentReaderHref(first.document.id, search.page);
+                return <article className={styles.card} key={entry.parts[0].document.id} data-selected={active}>
+                  <span className={styles.subject}>{subjectName(first.document.subject)}</span>
+                  <h3><Link href={href}>{entry.name}</Link></h3>
+                  <p className={styles.metadata}>{entry.parts.length} phần · {partLabel(first)}{search.page ? " · đến trang " + search.page : ""}</p>
+                  <div className={styles.cardBottom}>
+                    <Link className={styles.openFile} href={href}>Đọc tài liệu</Link>
+                    <details className={styles.partPicker}>
+                      <summary>Chọn phần để hỏi đáp</summary>
+                      {matchedParts.map((part) => {
+                        const doc = part.document;
+                        const checked = selected.includes(doc.id);
+                        return <label className={styles.choose} key={doc.id}>
+                          <input type="checkbox" checked={checked} disabled={doc.status !== "ready" || (!checked && selected.length >= 5)}
+                            onChange={() => onChoose(doc.id)} />
+                          <span>{partLabel(part)}</span>
+                        </label>;
+                      })}
+                    </details>
+                  </div>
+                </article>;
+              }
+              const doc = entry.matches[0];
               const chosen = selected.includes(doc.id);
               const date = new Date(doc.created_at);
               return <article className={styles.card} key={doc.id} data-selected={chosen}>

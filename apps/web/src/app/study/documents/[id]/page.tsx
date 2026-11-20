@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DocumentPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ chunk?: string; conversation?: string }>;
+  searchParams: Promise<{ chunk?: string; conversation?: string; page?: string }>;
 }) {
   const { id } = await params;
   if (!uuid.safeParse(id).success) notFound();
@@ -19,5 +19,7 @@ export default async function DocumentPage({ params, searchParams }: {
   const chunk = query.chunk ? uuid.safeParse(query.chunk) : null;
   const conversation = query.conversation ? uuid.safeParse(query.conversation) : null;
   if (chunk && !chunk.success) notFound();
-  return <DocumentReader id={id} chunk={chunk?.data} conversation={conversation?.data} />;
+  const requestedPage = Number(query.page);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : undefined;
+  return <DocumentReader key={id + ":" + (page ?? "")} id={id} page={page} chunk={chunk?.data} conversation={conversation?.data} />;
 }

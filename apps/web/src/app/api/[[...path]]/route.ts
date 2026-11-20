@@ -18,6 +18,7 @@ export const maxDuration = 90;
 
 const failures: Record<string, [number, string]> = {
   UNAUTHORIZED: [401, "Vui lòng đăng nhập."],
+  OCR_UNAVAILABLE: [404, "Tài liệu chưa có kết quả OCR để xem."],
   NOT_FOUND: [404, "Không tìm thấy dữ liệu."],
   WORKER_OFFLINE: [503, "AI đang offline. Vui lòng chờ máy xử lý kết nối lại."],
   DOCUMENT_LIMIT: [409, "Bạn đã đạt giới hạn 20 tài liệu."],
@@ -308,8 +309,14 @@ async function handle(request: NextRequest) {
       });
     }
     if (resource === "documents") {
-      if (method === "GET" && rawId && parts.length <= 3 && (!action || action === "file")) {
+      if (method === "GET" && rawId && parts.length <= 3 && (!action || action === "file" || action === "ocr")) {
         const id = uuid.parse(rawId);
+        if (action === "ocr") {
+          const { data, error } = await db.rpc("app_get_document_ocr", { p_id: id });
+          checkRepository(error);
+          if (!data) throw new ApiError(404, "Không tìm thấy kết quả OCR của tài liệu.");
+          return json(data);
+        }
         if (action === "file") {
           const { data: doc, error } = await db.rpc("app_document_file", { p_id: id });
           checkRepository(error);

@@ -75,3 +75,5 @@
   .grid { flex: none; overflow: visible; }
   .intro { padding-bottom: 12px; }
 }
+
+.partPicker > summary { padding-block: 8px; cursor: pointer; font-size: 13px; }

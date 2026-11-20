@@ -17,6 +17,7 @@ import { Markdown } from "./markdown";
 import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
+import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
 import { SidebarIcon } from "./sidebar-icon";
 import { ChatDocumentMenu } from "./chat-document-menu";
@@ -584,7 +585,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           <aside id="panel-documents" className={styles.library} aria-label="Thư viện học tập">
             <div className={styles.libraryHeading}>
               <h2>{libraryView === "history" ? "Các phiên đã lưu" : "Tất cả tài liệu"}</h2>
-              <span className={styles.counter}>{libraryView === "documents" ? `${documents.length}/20 tệp cá nhân` : libraryView === "knowledge" ? `${knowledge.length} tài liệu chung` : `${conversations.length} phiên`}</span>
+              <span className={styles.counter}>{libraryView === "documents" ? `${documents.length}/20 tệp cá nhân` : libraryView === "knowledge" ? `${catalogEntries(knowledge, true).length} tài liệu chung` : `${conversations.length} phiên`}</span>
               <button className={styles.quietButton} onClick={() => setLibraryView(libraryView === "history" ? "knowledge" : "history")}>
                 {libraryView === "history" ? "Kho tài liệu" : "Lịch sử"}</button>
               {view === "library" && <button className={styles.quietButton} onClick={goToStudy}>Vào học{selected.length > 0 ? ` · ${selected.length} tài liệu` : ""}</button>}
