@@ -404,6 +404,16 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     }
   }
 
+  function attachImage(file: File) {
+    if (sending) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 524288 || file.size < 12) {
+      setActionError("Chọn ảnh PNG, JPEG hoặc WebP tối đa 512 KB.");
+      return;
+    }
+    setActionError("");
+    setImage(file);
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedGroup?.joined || sending) return;
@@ -575,6 +585,12 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                 <textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={2}
                 onChange={(event) => setDraft(event.target.value)}
                 aria-describedby={`${formId}-message-hint`} disabled={sending}
+                onPaste={(event) => {
+                  const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+                  if (!file) return;
+                  event.preventDefault();
+                  attachImage(file);
+                }}
                 onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
                 <div className={styles.composerBar}>
                   <div className={styles.attachmentTools}>
@@ -585,13 +601,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                         onChange={(event) => {
                           const file = event.currentTarget.files?.[0];
                           event.currentTarget.value = "";
-                          if (!file) return;
-                          if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 524288 || file.size < 12) {
-                            setActionError("Chọn ảnh PNG, JPEG hoặc WebP tối đa 512 KB.");
-                            return;
-                          }
-                          setActionError("");
-                          setImage(file);
+                          if (file) attachImage(file);
                         }} />
                     <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
                       title="Chọn emoji" aria-label="Chọn emoji"
@@ -620,7 +630,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                   })}
                 </div>}
               </div>
-              <div className={styles.composerHint} id={`${formId}-message-hint`}><span>{username ? `${username} · ` : ""}Ctrl + Enter để gửi</span><span>{draft.length}/2000</span></div>
+              <div className={styles.composerHint} id={`${formId}-message-hint`}><span>{username ? `${username} · ` : ""}Dán ảnh vào ô chat · Ctrl + Enter để gửi</span><span>{draft.length}/2000</span></div>
             </form>
           </> : <div className={styles.membershipGate}>
             <span className={styles.emptyMonogram} aria-hidden="true">NH</span><span className={styles.eyebrow}>GẶP NHỮNG NGƯỜI CÙNG HỌC</span>
