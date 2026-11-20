@@ -20,6 +20,7 @@ import { Brand } from "./brand";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
 import { SidebarIcon } from "./sidebar-icon";
+import { chatImageToPdf, validateChatImage } from "@/core/chat-image";
 import { ChatDocumentMenu } from "./chat-document-menu";
 import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
@@ -61,6 +62,7 @@ type WorkerStatus = {
   online: boolean;
   cloudAvailable?: boolean;
   provider: "ollama" | "openrouter" | "ollama_with_openrouter_fallback" | null;
+  ocrAvailable?: boolean;
   activeChat: { id: string; conversation_id: string; temporary?: boolean } | null;
 };
 const location = (source: Source) =>
@@ -99,6 +101,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     activeChat: null,
   });
   const [question, setQuestion] = useState("");
+  const [questionImage, setQuestionImage] = useState<{ file: File; key: string; pdf?: File; documentId?: string } | null>(null);
+  const [readingImage, setReadingImage] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>("documents");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -271,49 +275,75 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       return [...previous, id];
     });
   }
+  async function uploadPrivateDocument(file: File, subject: string, key = crypto.randomUUID()) {
+    const result = await api<{
+      document: StudyDocument;
+      upload: { path: string; token: string } | null;
+    }>("documents/upload-intent", "POST", {
+      name: file.name,
+      size: file.size,
+      subject,
+      key,
+    });
+    if (result.upload) {
+      const contentType = /\.pdf$/i.test(file.name)
+        ? "application/pdf"
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const { error } = await browserClient()
+        .storage.from("documents")
+        .uploadToSignedUrl(result.upload.path, result.upload.token, file, {
+          contentType,
+        });
+      // A lost upload response may still have committed the object. The API verifies it.
+      try {
+        await api(`documents/${result.document.id}/complete`, "POST", {
+          key: crypto.randomUUID(),
+        });
+      } catch (completeError) {
+        if (error)
+          throw new Error(
+            "Tải file thất bại. Xóa bản tải dở trong danh sách rồi thử lại.",
+          );
+        throw completeError;
+      }
+    }
+    return result.document.id;
+  }
+
+  async function prepareQuestionImage(image: NonNullable<typeof questionImage>, isCurrent: () => boolean) {
+    if (!image.documentId) {
+      if (!worker.ocrAvailable) throw new Error("Worker OCR đang tạm dừng. Hãy thử lại khi máy đọc ảnh hoạt động.");
+      if (documents.length >= 20) throw new Error("Kho cá nhân đã đủ 20 tệp. Hãy xóa bớt tài liệu trước khi gửi ảnh.");
+      image.pdf ??= await chatImageToPdf(image.file);
+      if (!isCurrent()) return;
+      image.documentId = await uploadPrivateDocument(image.pdf, "calculus", image.key);
+    }
+    const id = image.documentId;
+    const deadline = Date.now() + 120_000;
+    while (isCurrent() && Date.now() < deadline) {
+      const doc = await api<StudyDocument>(`documents/${id}`);
+      if (doc.status === "ready") return id;
+      if (doc.status === "failed" || doc.status === "deleting") {
+        throw new Error(doc.error || "Worker không đọc được ảnh. Hãy kiểm tra cấu hình OCR hoặc thử ảnh rõ hơn.");
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+    }
+    if (isCurrent()) throw new Error("Ảnh vẫn đang được xử lý. Hãy bấm Gửi lại để tiếp tục chờ.");
+  }
+
   async function upload(file: File, subject: string) {
     if (
       file.size === 0 ||
       file.size > MAX_FILE_SIZE ||
       !/\.(pdf|docx)$/i.test(file.name)
     ) {
-      setNotice("Chọn PDF hoặc DOCX, dung lượng tối đa 20 MB.");
+      setNotice("Chọn PDF hoặc DOCX, dung lượng tối đa 3 MB.");
       return;
     }
     setUploading(true);
     setNotice("");
     try {
-      const result = await api<{
-        document: StudyDocument;
-        upload: { path: string; token: string } | null;
-      }>("documents/upload-intent", "POST", {
-        name: file.name,
-        size: file.size,
-        subject,
-        key: crypto.randomUUID(),
-      });
-      if (result.upload) {
-        const contentType = /\.pdf$/i.test(file.name)
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        const { error } = await browserClient()
-          .storage.from("documents")
-          .uploadToSignedUrl(result.upload.path, result.upload.token, file, {
-            contentType,
-          });
-        // A lost upload response may still have committed the object. The API verifies it.
-        try {
-          await api(`documents/${result.document.id}/complete`, "POST", {
-            key: crypto.randomUUID(),
-          });
-        } catch (completeError) {
-          if (error)
-            throw new Error(
-              "Tải file thất bại. Xóa bản tải dở trong danh sách rồi thử lại.",
-            );
-          throw completeError;
-        }
-      }
+      await uploadPrivateDocument(file, subject);
       setNotice(
         "Đã nhận tài liệu. Bạn có thể theo dõi tiến trình trong thư viện.",
       );
@@ -342,16 +372,29 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!(worker.online || worker.cloudAvailable) || !question.trim() || sending.current || worker.activeChat) return;
+    if (!(worker.online || worker.cloudAvailable) || (!question.trim() && !questionImage) || sending.current || worker.activeChat) return;
 
     const epoch = conversationEpoch.current;
     const submittedDraft = question;
-    const documentIds = selected;
+    const submittedImage = questionImage;
+    if (submittedImage && selected.length >= 5) {
+      setNotice("Hãy bỏ chọn một tài liệu để dành chỗ cho ảnh.");
+      return;
+    }
+    let documentIds = selected;
     const isCurrent = () => conversationEpoch.current === epoch;
     sending.current = true;
     setBusy(true);
     setNotice("");
     try {
+      if (submittedImage) {
+        setReadingImage(true);
+        const imageId = await prepareQuestionImage(submittedImage, isCurrent);
+        if (!isCurrent() || !imageId) return;
+        documentIds = [...selected.filter((id) => id !== imageId), imageId];
+        setReadingImage(false);
+      }
+      const text = submittedDraft.trim() || "Đọc đề trong ảnh và hướng dẫn mình cách làm từng bước.";
       let id = currentConversation.current;
       if (!id) {
         const conversation = await api<{ id: string }>("conversations", "POST", { key: crypto.randomUUID(), temporary });
@@ -361,7 +404,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           setConversationId(id);
         }
       }
-      const fingerprint = JSON.stringify([id, submittedDraft.trim(), documentIds, chatMode]);
+      const fingerprint = JSON.stringify([id, text, documentIds, chatMode]);
       const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
         ? requestIdentity.current.key : crypto.randomUUID();
       if (isCurrent()) requestIdentity.current = { fingerprint, key };
@@ -370,7 +413,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
         return;
       }
       const job = await api<{ id: string; status: string }>(`conversations/${id}/messages`, "POST", {
-        question: submittedDraft.trim(), documentIds, key, mode: chatMode,
+        question: text, documentIds, key, mode: chatMode,
       });
       if (isCurrent()) {
         ++refreshRequest.current;
@@ -381,6 +424,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           setWorker(current => ({ ...current, activeChat: { id: job.id, conversation_id: id, temporary } }));
         }
         setQuestion(current => current === submittedDraft ? "" : current);
+        if (submittedImage) setQuestionImage(null);
         requestIdentity.current = null;
       }
       void latestRefresh.current();
@@ -388,6 +432,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       if (isCurrent()) setNotice((error as Error).message);
     } finally {
       sending.current = false;
+      setReadingImage(false);
       setBusy(false);
     }
   }
@@ -461,6 +506,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     setSourcesOpen(false);
     setTab("chat");
     setQuestion("");
+    setQuestionImage(null);
     requestIdentity.current = null;
   }
   const allSources = messages
@@ -692,13 +738,33 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
               <div className={styles.composerBox}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
                   placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
-                  maxLength={2000} rows={1} aria-describedby="composer-hint" onKeyDown={(event) => {
+                  maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
+                    const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+                    if (!file) return;
+                    event.preventDefault();
+                    if (sending.current) return;
+                    if (temporary) {
+                      setNotice("Ảnh được lưu vào kho cá nhân. Hãy mở cuộc trò chuyện thường để gửi ảnh.");
+                      return;
+                    }
+                    try {
+                      validateChatImage(file);
+                      setQuestionImage({ file, key: crypto.randomUUID() });
+                      setNotice("");
+                    } catch (error) {
+                      setNotice((error as Error).message);
+                    }
+                  }} onKeyDown={(event) => {
                     if (shouldSendQuestion({ key: event.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey,
                       metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing }, preferences.sendWithEnter)) {
                       event.preventDefault();
                       event.currentTarget.form?.requestSubmit();
                     }
                   }} />
+                {questionImage && <div className={styles.questionAttachment}>
+                  <span>{questionImage.file.name || "Ảnh từ clipboard"} · Lưu vào kho cá nhân khi gửi</span>
+                  <button type="button" disabled={busy} onClick={() => setQuestionImage(null)}>Bỏ ảnh</button>
+                </div>}
                 <div className={styles.composerTools}>
                   <div className={styles.composerOptions}>
                     <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
@@ -711,8 +777,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                     ? <button type="button" className={styles.sendButton} disabled={stopping}
                         onClick={() => void stopChat(worker.activeChat!.id)}>{stopping ? "Đang dừng…" : "Dừng"}</button>
                     : <button type="submit" className={styles.sendButton}
-                        disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || !question.trim()}>
-                        {busy ? "Đang gửi…" : "Gửi"}
+                        disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}>
+                        {readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
                       </button>}
                 </div>
               </div>

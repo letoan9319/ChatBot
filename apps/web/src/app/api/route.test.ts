@@ -274,19 +274,19 @@ describe("API authorization and asynchronous boundaries", () => {
   });
   it("reports the active provider without exposing AI credentials", async () => {
     mocks.rpc.mockImplementation(async (name: string) => ({
-      data: name === "app_worker_online" ? true : "openrouter", error: null,
+      data: name === "app_ai_provider" ? "openrouter" : true, error: null,
     }));
     mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ in: () => ({
       limit: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
     }) }) }) });
     const response = await GET(request("status"));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ online: true, provider: "openrouter", activeChat: null });
+    expect(await response.json()).toEqual({ online: true, ocrAvailable: true, provider: "openrouter", activeChat: null });
     mocks.rpc.mockImplementation(async (name: string) => ({
-      data: name === "app_worker_online" ? true : "ollama_with_openrouter_fallback", error: null,
+      data: name === "app_ai_provider" ? "ollama_with_openrouter_fallback" : name === "app_worker_online", error: null,
     }));
     const fallback = await GET(request("status"));
-    expect((await fallback.json()).provider).toBe("ollama_with_openrouter_fallback");
+    expect(await fallback.json()).toMatchObject({ provider: "ollama_with_openrouter_fallback", ocrAvailable: false });
     mocks.rpc.mockResolvedValueOnce({ data: false, error: null });
     mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: "PGRST202", message: "SQL details" } });
     const missing = await GET(request("status"));

@@ -291,6 +291,7 @@ async function handle(request: NextRequest) {
         throw new ApiError(503, "Cấu hình AI chưa được cập nhật. Vui lòng áp dụng migration embedding_profiles.");
       }
       check(providerError);
+      const { data: ocrAvailable } = await db.rpc("app_ocr_available");
       const { data: active, error: activeError } = await db
         .from("jobs")
         .select("id,payload")
@@ -301,6 +302,7 @@ async function handle(request: NextRequest) {
       check(activeError);
       return json({
         online: Boolean(data),
+        ocrAvailable: ocrAvailable === true,
         ...(cloudWorker() ? { cloudAvailable: true } : {}),
         provider: ["openrouter", "ollama", "ollama_with_openrouter_fallback"].includes(provider) ? provider : null,
         activeChat: active
@@ -355,6 +357,12 @@ async function handle(request: NextRequest) {
         parts.length === 2
       ) {
         const value = uploadSchema.parse(await body());
+        if (value.name.startsWith("Ảnh câu hỏi - ")) {
+          if (value.size > 3 * 1024 * 1024) throw new ApiError(400, "Ảnh câu hỏi vượt quá 3 MB.");
+          const { data: online, error: ocrError } = await db.rpc("app_ocr_available");
+          check(ocrError);
+          if (!online) throw new ApiError(503, "Worker OCR đang tạm dừng. Hãy thử lại khi máy đọc ảnh hoạt động.");
+        }
         requireStorageConfiguration();
         const { data: doc, error } = await db.rpc("app_upload_intent", {
           p_name: value.name,

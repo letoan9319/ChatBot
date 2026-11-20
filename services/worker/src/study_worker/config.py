@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, replace
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -31,6 +32,14 @@ class Settings:
     cloud_embedding_key: str = field(default="", repr=False)
     cloud_embedding_model: str = "BAAI/bge-m3"
     deploy_api_key: str = field(default="", repr=False)
+
+    mineru_python: str = ""
+    mineru_model: str = ""
+
+    @property
+    def mineru_available(self):
+        return (bool(self.mineru_python and self.mineru_model) and Path(self.mineru_python).is_file()
+                and (Path(self.mineru_model) / "config.json").is_file())
 
     def fallback_settings(self):
         # Only the chat model is used in fallback mode. Embedding identity is unchanged.
@@ -83,6 +92,8 @@ class Settings:
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
             deploy_api_key=deploy_api_key,
+            mineru_python=os.getenv("MINERU_PYTHON", ""),
+            mineru_model=os.getenv("MINERU_MODEL_PATH", ""),
         )
         if settings.cloud_embedding_url:
             endpoint = urlparse(settings.cloud_embedding_url)

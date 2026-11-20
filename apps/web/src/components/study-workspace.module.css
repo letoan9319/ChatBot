@@ -506,3 +506,7 @@
   .chatHeadingActions { flex-wrap: wrap; justify-content: flex-end; }
   .chatPanel[data-docked="false"] .examples button { max-width: 100%; }
 }
+
+.questionAttachment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 12px; font-size: 13px; overflow-wrap: anywhere; }
+
+.questionAttachment button { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }

@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
+from .question_image import extract_question_image, is_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
 from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, validate_citations
@@ -107,7 +108,7 @@ class Heartbeat(threading.Thread):
             conn.close()
 
 
-def claim(conn):
+def claim(conn, *, mineru_available=False):
     with conn.transaction():
         message = conn.execute("select * from pgmq.read('study_jobs',%s,1)", (LEASE_SECONDS,)).fetchone()
         if not message:
@@ -118,6 +119,12 @@ def claim(conn):
         if not job or job["status"] in ("completed", "failed"):
             conn.execute("select pgmq.archive('study_jobs',%s)", (message["msg_id"],))
             return None
+        if not mineru_available and job["kind"] == "ingest":
+            doc = conn.execute("select name,file_type from public.documents where id=%s", (job["document_id"],)).fetchone()
+            if doc and is_question_image(doc):
+                # Let the OCR worker take this job when it next holds the queue lock.
+                conn.execute("select pgmq.set_vt('study_jobs',%s,15)", (message["msg_id"],))
+                return None
         exhausted = job["attempts"] >= 3
         token = uuid4()
         job = conn.execute(
@@ -223,9 +230,15 @@ class Pipeline:
                     raise InvalidDocument("File vượt quá 20 MB.")
         if len(data) != doc["size_bytes"]:
             raise InvalidDocument("Dung lượng file không khớp với thông tin đã đăng ký.")
-        chunks = chunk_sections(
-            extract(bytes(data), doc["file_type"]), self.models.tokenizer, str(doc["id"]), doc["index_version"]
-        )
+        if is_question_image(doc):
+            local = getattr(self.models, "primary", self.models)
+            if self.settings.ai_provider == "ollama":
+                local.unload(self.settings.chat_model)
+                local.unload(self.settings.embed_model)
+            sections = extract_question_image(bytes(data), self.settings, lambda: self.document(job))
+        else:
+            sections = extract(bytes(data), doc["file_type"])
+        chunks = chunk_sections(sections, self.models.tokenizer, str(doc["id"]), doc["index_version"])
         if not chunks:
             raise InvalidDocument("Không tìm thấy đoạn văn bản có thể sử dụng.")
         # Remove the old namespace before recording a new one, including failed attempts.
@@ -322,7 +335,7 @@ class Pipeline:
             raise Cancelled()
         owners = job["payload"].get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in ids}
         query = (
-            "select id,user_id,status,index_version,embedding_profile,vector_collection from public.documents d "
+            "select id,user_id,name,file_type,status,index_version,embedding_profile,vector_collection from public.documents d "
             "where (user_id=%s or exists(select 1 from public.knowledge_documents k where k.document_id=d.id)) "
             "and id=any(%s::uuid[]) order by id" + (" for share" if lock else "")
         )
@@ -344,6 +357,9 @@ class Pipeline:
         if self.heartbeat.lost.is_set():
             raise LostLease()
 
+        return [str(row["id"]) for row in rows
+                if str(row["user_id"]) == str(job["user_id"]) and is_question_image(row)]
+
     def save_partial(self, job, content):
         with self.conn.transaction():
             guard(self.conn, job)
@@ -357,7 +373,7 @@ class Pipeline:
         payload = job["payload"]
         mode = payload.get("mode", "documents")
         guard(self.conn, job)
-        self.chat_documents(job)
+        image_documents = self.chat_documents(job)
         document_ids = payload["document_ids"]
         versions = payload["versions"]
         owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in document_ids}
@@ -412,6 +428,21 @@ class Pipeline:
         self.chat_documents(job)
         if candidates:
             candidates = self.models.rerank(query, candidates)
+        if image_documents:
+            image_chunks = self.conn.execute(
+                """select c.*, d.name as document_name from public.documents d
+                cross join lateral (
+                    select * from public.document_chunks
+                    where document_id=d.id and user_id=d.user_id and index_version=d.index_version
+                    order by ordinal limit 2
+                ) c
+                where d.id=any(%s::uuid[]) and d.user_id=%s and d.status='ready'
+                order by d.id,c.ordinal limit 5""",
+                (image_documents, job["user_id"]),
+            ).fetchall()
+            image_chunks = [row for row in image_chunks if row["index_version"] == versions.get(str(row["document_id"]))]
+            image_ids = {row["id"] for row in image_chunks}
+            candidates = image_chunks + [item for item in candidates if item["id"] not in image_ids]
         if mode in ("search", "research"):
             try:
                 web = search_web(payload["question"], mode)
@@ -537,7 +568,10 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
         except Exception:
             models.close()
             raise
+        mineru_available = settings.mineru_available and worker_id is None
         heartbeat = Heartbeat(settings)
+        if mineru_available:
+            heartbeat.worker_id = "learnstep-mineru"
         if worker_id:
             heartbeat.worker_id = worker_id
         heartbeat.start()
@@ -556,7 +590,7 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
                     except Exception as exc:
                         LOG.warning("maintenance_failed error_type=%s", type(exc).__name__)
                     maintenance_at = time.monotonic()
-                job = claim(conn)
+                job = claim(conn, mineru_available=mineru_available)
                 if not job:
                     if idle_seconds is not None and time.monotonic() - idle_since >= idle_seconds:
                         break
