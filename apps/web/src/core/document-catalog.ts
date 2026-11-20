@@ -50,13 +50,16 @@ const normalizeSearch = (text: string) => text.normalize("NFD").toLowerCase()
 export function catalogSearch(query: string, matchPages = true) {
   const plain = query.normalize("NFD").toLowerCase().replace(/\p{M}/gu, "");
   const page = /\btrang\s+(\d+)(?:\s*[-–]\s*(\d+))?\b/u.exec(matchPages ? plain : "");
-  const terms = normalizeSearch(plain.replace(page?.[0] ?? "", "")).split(" ").filter(Boolean);
+  const keywords = normalizeSearch(plain.replace(page?.[0] ?? "", ""));
+  const numberedWords = [...keywords.matchAll(/(?:^| )([a-z]+ \d+)(?= |$)/g)].map((match) => match[1]);
+  const terms = keywords.split(" ").filter(Boolean);
   const firstPage = Number(page?.[1]);
   const lastPage = Number(page?.[2] ?? page?.[1]);
   return {
     page: page && !page[2] ? firstPage : undefined,
     matches(document: StudyDocument, title: string, subject: string, part?: DocumentPart): boolean {
       const haystack = normalizeSearch([document.name, title, subject, document.description ?? ""].join(" "));
+      if (!numberedWords.every((phrase) => (" " + haystack + " ").includes(" " + phrase + " "))) return false;
       if (!terms.every((term) => /^\d+$/.test(term) ? haystack.split(" ").includes(term) : haystack.includes(term))) {
         return false;
       }

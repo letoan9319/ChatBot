@@ -25,6 +25,15 @@ describe("document catalog", () => {
     expect(catalogEntries(docs, true).map((entry) => entry.name)).toEqual(docs.map((doc) => doc.name));
   });
 
+  it("keeps the volume number next to its name when searching", () => {
+    const docs = [pdf("a", "Tap1 (trang 338-360).pdf"), pdf("b", "Giải tích 1 Giáo trình và 300 bài tập có lời giải (trang 309-351).pdf")];
+    const entries = catalogEntries(docs, true);
+    const search = catalogSearch("tap1 trang 340");
+    expect(entries.filter((entry) => search.matches(
+      entry.documents[0], entry.name, "Vật lý", entry.parts[0]
+    )).map((entry) => entry.name)).toEqual(["Tap1"]);
+  });
+
   it("finds a volume and containing fragment by unaccented terms and original page", () => {
     const docs = [pdf("a", "Tap1 (trang 316-337).pdf"), pdf("b", "Tap1 (trang 338-360).pdf")];
     const [entry] = catalogEntries(docs, true);
