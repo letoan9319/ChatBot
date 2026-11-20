@@ -39,6 +39,20 @@ def test_general_answer_can_complete_without_sources_but_cannot_invent_citations
     assert validate_citations("1 + 1 = 2 [S1]", sources, allow_uncited=True) == (NO_EVIDENCE, [])
 
 
+def test_question_image_is_in_the_current_turn_and_keeps_a_source_link():
+    formula = r"a_n = \sin^2 \pi(\sqrt{n^2+n}-n)"
+    image = {"content": formula, "question_image": True}
+    prompt, sources = build_prompt("Tính giới hạn câu này cho tôi", [], [image], len)
+    assert formula in prompt[-1]["content"]
+    assert formula not in prompt[0]["content"]
+    assert "[S1]" in prompt[-1]["content"]
+    answer, used = validate_citations("Hãy nhân liên hợp.", sources, allow_uncited=True)
+    assert "Ảnh đính kèm dùng cho câu hỏi [S1]" in answer
+    assert "Kiến thức tổng quát" not in answer
+    assert used == sources
+    assert validate_citations("Nguồn sai [S9]", sources, allow_uncited=True) == (NO_EVIDENCE, [])
+
+
 def test_tenant_document_and_version_filters_work_together():
     store = VectorStore.__new__(VectorStore)
     store.settings = SimpleNamespace(collection="test", min_score=0)

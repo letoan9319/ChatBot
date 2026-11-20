@@ -440,7 +440,10 @@ class Pipeline:
                 order by d.id,c.ordinal limit 5""",
                 (image_documents, job["user_id"]),
             ).fetchall()
-            image_chunks = [row for row in image_chunks if row["index_version"] == versions.get(str(row["document_id"]))]
+            image_chunks = [
+                {**row, "question_image": True} for row in image_chunks
+                if row["index_version"] == versions.get(str(row["document_id"]))
+            ]
             image_ids = {row["id"] for row in image_chunks}
             candidates = image_chunks + [item for item in candidates if item["id"] not in image_ids]
         if mode in ("search", "research"):
@@ -459,6 +462,9 @@ class Pipeline:
             answer = "Mình chưa tìm thấy nguồn Wikipedia phù hợp. Hãy thử một câu hỏi cụ thể hơn hoặc chọn thêm tài liệu."
         allow_uncited = allows_general_knowledge(mode)
         generated = bool(selected) or allow_uncited
+        if image_documents and not any(item.get("question_image") for item in selected):
+            answer = "Mình chưa nhận được nội dung đọc được từ ảnh đính kèm. Hãy dán lại ảnh rõ hơn."
+            generated = False
         if generated:
             answer = ""
             last_flush = time.monotonic()

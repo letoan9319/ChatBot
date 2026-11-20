@@ -2,8 +2,9 @@
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import { normalizeChatMath } from "./chat-math";
 
-export function Markdown({ content }: { content: string }) {
+export function Markdown({ content, assistant = false }: { content: string; assistant?: boolean }) {
   // Raw HTML is never parsed; KaTeX cannot trust URLs or HTML commands.
   return (
     <div className="markdown">
@@ -27,7 +28,7 @@ export function Markdown({ content }: { content: string }) {
           ),
         }}
       >
-        {content}
+        {assistant ? normalizeChatMath(content) : content}
       </ReactMarkdown>
     </div>
   );

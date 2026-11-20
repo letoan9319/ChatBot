@@ -712,7 +712,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
-                  {message.content ? <Markdown content={message.content} />
+                  {message.content ? <Markdown content={message.content} assistant={message.role === "assistant"} />
                     : ["queued", "generating"].includes(message.status) && <p className={styles.emptyText}>
                       {message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
