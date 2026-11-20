@@ -11,10 +11,15 @@ from mineru_vl_utils import MinerUClient
 from mineru_vl_utils.post_process import json2md
 
 pdf_path, output_path, model_path = sys.argv[1:]
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    model_path, dtype=torch.float16, device_map={"": 0}, local_files_only=True
+model_dir = Path(model_path).resolve(strict=True)
+if not (model_dir / "model.safetensors").is_file():
+    raise FileNotFoundError("MinerU requires local safetensors weights.")
+# This reads a provisioned directory. Hub downloads and remote model code are disabled.
+model = Qwen2VLForConditionalGeneration.from_pretrained(  # nosec B615
+    model_dir, dtype=torch.float16, device_map={"": 0},
+    local_files_only=True, trust_remote_code=False, use_safetensors=True,
 )
-processor = AutoProcessor.from_pretrained(model_path, local_files_only=True)
+processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False)  # nosec B615
 
 batch_size = min(2, max(1, int(os.getenv("MINERU_BATCH_SIZE", "2"))))
 client = MinerUClient(

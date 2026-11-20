@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-import subprocess  # nosec B404 - runs the bundled MinerU helper
+import subprocess  # nosec B404
 import tempfile
 import time
 
