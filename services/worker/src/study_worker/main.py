@@ -17,7 +17,7 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, validate_citations
+from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, first_image_hint, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -483,12 +483,14 @@ class Pipeline:
                             guard(self.conn, job)
                             raise LostLease()
                         answer += token
-                        if time.monotonic() - last_flush >= 1:
+                        if not image_documents and time.monotonic() - last_flush >= 1:
                             self.save_partial(job, answer)
                             last_flush = time.monotonic()
             except OutputLimit:
                 truncated = True
                 LOG.info("chat_output_limit job_id=%s", job["id"])
+            if image_documents:
+                answer = first_image_hint(answer)
             answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
             if truncated:
                 answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"

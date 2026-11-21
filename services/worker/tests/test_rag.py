@@ -4,7 +4,7 @@ import pytest
 from qdrant_client import QdrantClient
 
 from study_worker.models import VectorStore
-from study_worker.rag import NO_EVIDENCE, build_prompt, validate_citations
+from study_worker.rag import NO_EVIDENCE, build_prompt, first_image_hint, validate_citations
 
 
 def test_citations_require_actual_retrieved_labels():
@@ -51,6 +51,14 @@ def test_question_image_is_in_the_current_turn_and_keeps_a_source_link():
     assert "Kiến thức tổng quát" not in answer
     assert used == sources
     assert validate_citations("Nguồn sai [S9]", sources, allow_uncited=True) == (NO_EVIDENCE, [])
+
+
+def test_image_hint_discards_later_steps_even_if_model_emits_a_list():
+    draft = (
+        "Đề trong ảnh [S1].\n\n**Gợi ý bước tiếp theo:**\n\n"
+        "1. Hãy nhân liên hợp. Sau đó thử đoán giới hạn.\n2. Phần trong ngoặc tiến về 0.\n\nKết quả cuối."
+    )
+    assert first_image_hint(draft) == "Đề trong ảnh [S1].\n\n**Gợi ý:** Hãy nhân liên hợp."
 
 
 def test_tenant_document_and_version_filters_work_together():
