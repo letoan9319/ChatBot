@@ -18,7 +18,30 @@ function isBareTex(expression: string): boolean {
     && !/\b[a-zA-Z]{3,}\b/.test(withoutText.replace(/\\[a-zA-Z]+/g, ""));
 }
 
+const explicitMath = /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]|(?<![\\$])(?<dollars>[$]{1,2})(?![$])[^$]+?\k<dollars>(?![$])/;
+const mathCommand = /\\(?:frac|dfrac|tfrac|sqrt|lim|sum|prod|int|sin|cos|tan|log|ln|exp|infty|pi|theta|alpha|beta|gamma|Delta|partial|nabla|to|rightarrow|cdot|times|left|right|begin|end|binom|vec|overline|mathbf)\b/;
+
+function isStandaloneMath(text: string): boolean {
+  if (!text || explicitMath.test(text) || /[`$<>]/.test(text)) return false;
+  const body = text
+    .replace(/\\(?:text|operatorname|mathrm|mathsf|mathbb|mathbf|begin|end)\{[^{}]*\}/g, "")
+    .replace(/\\[a-zA-Z]+\*?/g, "");
+  return (mathCommand.test(text) || /[a-zA-Z0-9})][_^][{a-zA-Z0-9-]/.test(text))
+    && /^[a-zA-Z0-9\s{}[\]().,_^+*/=|&!'":;~%#\\-]*$/.test(body)
+    && !/\b[a-zA-Z]{3,}\b/.test(body);
+}
+
+const displayMath = (text: string) => "$$\n" + text.trim() + "\n$$";
+
+export function pastedChatMath(latex: string, plainText: string): string | null {
+  const text = (latex.trim() ? latex : plainText).replace(/\r\n?/g, "\n");
+  if (explicitMath.test(text)) return text;
+  if (latex.trim() || isStandaloneMath(text.trim())) return "\n\n" + displayMath(text) + "\n\n";
+  return null;
+}
+
 export function normalizeChatMath(content: string): string {
+  if (isStandaloneMath(content.trim())) return displayMath(content);
   return content.replace(
     mathOrCode,
     (match: string, ...captures: unknown[]) => {

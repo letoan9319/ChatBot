@@ -4,7 +4,7 @@ import pytest
 from qdrant_client import QdrantClient
 
 from study_worker.models import VectorStore
-from study_worker.rag import NO_EVIDENCE, build_prompt, first_image_hint, validate_citations
+from study_worker.rag import NO_EVIDENCE, build_prompt, first_image_hint, follow_up_history, follow_up_query, validate_citations
 
 
 def test_citations_require_actual_retrieved_labels():
@@ -19,13 +19,54 @@ def test_prompt_bounds_history_sources_and_repeated_chunks():
         {"content": f"source {i} " * 100} for i in range(8)
     ]
     messages, selected = build_prompt(
-        "Question", [{"role": "user", "content": "old " * 1000}], candidates, lambda text: len(text.split())
+        "Giải thích kỹ hơn", [{"role": "user", "content": "old " * 1200}], candidates, lambda text: len(text.split())
     )
     assert len(selected) <= 5
     assert len({item["content"] for item in selected}) == len(selected)
     assert sum(len(message["content"].split()) for message in messages) <= 2900
     assert not any(message["content"].startswith("old ") for message in messages)
     assert messages[-1]["role"] == "user"
+
+
+def test_follow_up_preserves_original_question_and_requested_step_after_long_answer():
+    formula = r"$\frac{d}{dx}(xy^3)=y^3+3xy^2y'$"
+    history = [
+        {"role": "user", "content": "Tính giới hạn dãy số."},
+        {"role": "assistant", "content": "Một gợi ý về giới hạn."},
+        {"role": "user", "content": r"Tìm đạo hàm ẩn $x^3-3(x^2+1)y+xy^3=1$."},
+        {"role": "assistant", "content": (
+            f"1. Đạo hàm vế phải.\n2. Với xy³, {formula}. [S3]\n3. " + "dài " * 1400
+            + "\n\n**Bước tiếp theo:** Gom các hạng tử chứa y'."
+        )},
+    ]
+    question = "Bạn có thể giải thích kỹ hơn bước 2?"
+    context = follow_up_history(question, history)
+    messages, _ = build_prompt(question, context, [], lambda text: len(text.split()), "library")
+    assert messages[1] == history[2]
+    assert formula in messages[2]["content"]
+    assert "Gom các hạng tử" in messages[2]["content"]
+    assert "[S3]" not in messages[2]["content"]
+    assert "phép biến đổi cụ thể" in messages[-1]["content"]
+    query = follow_up_query(question, context, lambda text: len(text.split()))
+    assert query.startswith(history[2]["content"] + "\n" + question)
+    assert formula in query
+    assert "Tính giới hạn dãy số" not in query
+    assert not follow_up_history("Giải hệ phương trình x+y=2, x-y=0", history)
+
+
+def test_follow_up_can_use_question_image_without_resetting_to_opening_hint():
+    history = [
+        {"role": "user", "content": "Tính giới hạn trong ảnh."},
+        {"role": "assistant", "content": "Hãy thử nhân liên hợp."},
+    ]
+    question = "Vì sao lại nhân liên hợp?"
+    formula = r"$\sqrt{n^2+n}-n$"
+    image = {"content": formula, "question_image": True}
+    prompt, sources = build_prompt(question, follow_up_history(question, history), [image], len)
+    assert sources[0]["label"] == "S1"
+    assert formula in prompt[-1]["content"]
+    assert "ảnh của lượt trước" in prompt[-1]["content"]
+    assert "thao tác đầu tiên" not in prompt[-1]["content"]
 
 
 def test_general_answer_can_complete_without_sources_but_cannot_invent_citations():

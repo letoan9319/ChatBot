@@ -17,7 +17,7 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, first_image_hint, validate_citations
+from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, first_image_hint, follow_up_history, follow_up_query, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -369,6 +369,21 @@ class Pipeline:
                 (content, job["message_id"], job["user_id"]),
             )
 
+    def follow_up_images(self, job, user_message_id, lock=False):
+        rows = self.conn.execute(
+            """select d.id,d.index_version from public.jobs j
+            join public.messages a on a.id=j.message_id and a.user_id=j.user_id
+            join public.documents d on d.user_id=j.user_id
+              and (j.payload->'document_ids') ? d.id::text
+            where j.user_id=%s and j.kind='chat' and a.conversation_id=%s
+              and j.payload->>'user_message_id'=%s
+              and d.status='ready' and d.file_type='pdf' and d.name like 'Ảnh câu hỏi - %%'
+              and j.payload->'versions'->>d.id::text=d.index_version::text
+            order by d.id""" + (" for share of d" if lock else ""),
+            (job["user_id"], job["payload"]["conversation_id"], str(user_message_id)),
+        ).fetchall()
+        return {str(row["id"]): row["index_version"] for row in rows}
+
     def chat(self, job):
         payload = job["payload"]
         mode = payload.get("mode", "documents")
@@ -388,14 +403,19 @@ class Pipeline:
             versions = {str(row["id"]): row["index_version"] for row in catalog}
             owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
         history = self.conn.execute(
-            """select role,content from public.messages
+            """select role,content,id from public.messages
             where conversation_id=%s and user_id=%s
             and (status='completed' or (status='stopped' and content<>'')) and sequence <
-            (select sequence from public.messages where id=%s) order by sequence desc limit 6""",
-            (payload["conversation_id"], job["user_id"], payload["user_message_id"]),
+            (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
+            order by sequence desc limit 24""",
+            (payload["conversation_id"], job["user_id"], payload["user_message_id"],
+             payload["conversation_id"], job["user_id"]),
         ).fetchall()[::-1]
-        previous_question = next((item["content"] for item in reversed(history) if item["role"] == "user"), "")
-        query = (previous_question[:500] + "\n" + payload["question"]).strip()
+        question = payload["question"]
+        history = follow_up_history(question, history) if not image_documents else []
+        anchor = history[0] if history and history[0]["role"] == "user" else None
+        prior_images = self.follow_up_images(job, anchor["id"]) if anchor else {}
+        query = follow_up_query(question, history, self.models.count)
         hits = []
         if document_ids:
             vector = self.models.embed([query], query=True)[0]
@@ -428,7 +448,10 @@ class Pipeline:
         self.chat_documents(job)
         if candidates:
             candidates = self.models.rerank(query, candidates)
-        if image_documents:
+        image_versions = prior_images or {
+            doc_id: payload["versions"][doc_id] for doc_id in image_documents or ()
+        }
+        if image_versions:
             image_chunks = self.conn.execute(
                 """select c.*, d.name as document_name from public.documents d
                 cross join lateral (
@@ -438,11 +461,11 @@ class Pipeline:
                 ) c
                 where d.id=any(%s::uuid[]) and d.user_id=%s and d.status='ready'
                 order by d.id,c.ordinal limit 5""",
-                (image_documents, job["user_id"]),
+                (list(image_versions), job["user_id"]),
             ).fetchall()
             image_chunks = [
                 {**row, "question_image": True} for row in image_chunks
-                if row["index_version"] == versions.get(str(row["document_id"]))
+                if row["index_version"] == image_versions.get(str(row["document_id"]))
             ]
             image_ids = {row["id"] for row in image_chunks}
             candidates = image_chunks + [item for item in candidates if item["id"] not in image_ids]
@@ -462,7 +485,7 @@ class Pipeline:
             answer = "Mình chưa tìm thấy nguồn Wikipedia phù hợp. Hãy thử một câu hỏi cụ thể hơn hoặc chọn thêm tài liệu."
         allow_uncited = allows_general_knowledge(mode)
         generated = bool(selected) or allow_uncited
-        if image_documents and not any(item.get("question_image") for item in selected):
+        if image_versions and not any(item.get("question_image") for item in selected):
             answer = "Mình chưa nhận được nội dung đọc được từ ảnh đính kèm. Hãy dán lại ảnh rõ hơn."
             generated = False
         if generated:
@@ -497,8 +520,11 @@ class Pipeline:
         with self.conn.transaction():
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
+            if prior_images and any(item.get("question_image") for item in selected):
+                if self.follow_up_images(job, anchor["id"], lock=True) != prior_images:
+                    raise Cancelled()
             if mode == "library" and selected:
-                source_ids = {str(item["document_id"]) for item in selected}
+                source_ids = {str(item["document_id"]) for item in selected if not item.get("question_image")}
                 current = self.conn.execute(
                     """select d.id,d.index_version from public.documents d
                     join public.knowledge_documents k on k.document_id=d.id

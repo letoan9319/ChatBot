@@ -14,6 +14,7 @@ import type {
   StudyStreak,
 } from "@/core/types";
 import { Markdown } from "./markdown";
+import { pastedChatMath } from "./chat-math";
 import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
@@ -712,7 +713,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
-                  {message.content ? <Markdown content={message.content} assistant={message.role === "assistant"} />
+                  {message.content ? <Markdown content={message.content} chatMath />
                     : ["queued", "generating"].includes(message.status) && <p className={styles.emptyText}>
                       {message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
@@ -739,6 +740,19 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
                   placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
+                    const field = event.currentTarget;
+                    const math = pastedChatMath(event.clipboardData.getData("text/latex"), event.clipboardData.getData("text/plain"));
+                    if (math !== null) {
+                      event.preventDefault();
+                      const { selectionStart, selectionEnd, maxLength, value } = field;
+                      if (value.length - (selectionEnd - selectionStart) + math.length > maxLength) {
+                        setNotice("Công thức và câu hỏi vượt quá 2.000 ký tự. Hãy rút ngắn rồi dán lại.");
+                        return;
+                      }
+                      field.setRangeText(math, selectionStart, selectionEnd, "end");
+                      setQuestion(field.value);
+                      return;
+                    }
                     const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
                     if (!file) return;
                     event.preventDefault();
