@@ -44,8 +44,15 @@ COMPLEX_QUESTION = re.compile(
 )
 
 
+def image_transcription(question):
+    transcription = re.match(r"^(?:hãy )?(?:đọc|chép|phiên âm|trích xuất)\b", question.strip(), re.IGNORECASE)
+    asks_for_solution = re.search(r"\b(?:hướng dẫn|giải|tính|chứng minh)\b", question, re.IGNORECASE)
+    return bool(transcription) and not asks_for_solution
+
+
 def should_reason(question, mode, *, has_image=False):
-    return mode == "research" or has_image or bool(COMPLEX_QUESTION.search(question))
+    return (mode == "research" or bool(COMPLEX_QUESTION.search(question))
+            or (has_image and not image_transcription(question)))
 
 
 def follow_up_history(question, history):
@@ -126,16 +133,23 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         )
     input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else 2900
     max_sources = 10 if mode == "research" else 5
-    system += (
-        "Trả lời bằng tiếng Việt, vào thẳng trọng tâm. Với câu đơn giản, trả lời ngắn. "
-        "Nếu người học yêu cầu biểu đồ hoặc sơ đồ, có thể xuất một khối mã learnstep-visual chứa JSON. "
-        'Biểu đồ thanh: {"type":"bar","title":"...","items":[{"label":"...","value":12}]}. '
-        'Sơ đồ quy trình: {"type":"flow","title":"...","steps":["Bước A","Bước B"]}. '
-        "Tối đa 8 mục, dùng số liệu được cung cấp hoặc ghi rõ số liệu minh họa trong phần văn bản. "
-        "Trích dẫn nguồn đặt bên ngoài khối JSON.\n"
-    )
+    if re.search(r"biểu đồ|sơ đồ|lưu đồ|diagram|flowchart|bar chart|learnstep-visual", question, re.I):
+        system += (
+            "Nếu người học yêu cầu biểu đồ hoặc sơ đồ, xuất một khối mã learnstep-visual chứa JSON. "
+            'Biểu đồ thanh: {"type":"bar","title":"...","items":[{"label":"...","value":12}]}. '
+            'Sơ đồ quy trình: {"type":"flow","title":"...","steps":["Bước A","Bước B"]}. '
+            "Tối đa 8 mục, dùng số liệu được cung cấp hoặc ghi rõ số liệu minh họa trong phần văn bản. "
+            "Trích dẫn nguồn đặt bên ngoài khối JSON.\n"
+        )
+    transcription = image_transcription(question)
     follow_up = bool(history)
-    if follow_up:
+    if transcription:
+        tutoring_question = (
+            "Chép trực tiếp và chính xác chữ, số hoặc công thức người dùng hỏi trong ảnh. "
+            "Trả lời ngắn bằng tiếng Việt. Hãy nói rõ nếu dữ kiện không đọc được.\n\n"
+            f"{question}"
+        )
+    elif follow_up:
         if mode != "research":
             system += "Trả lời câu hỏi tiếp nối trong vài đoạn và kết thúc bằng tối đa một bước thực hành.\n"
         tutoring_question = (
@@ -179,6 +193,8 @@ def build_prompt(question, history, candidates, count, mode="documents"):
                 f'[{item["label"]}]\n{item["content"]}' for item in images
             )
             image_guidance = (
+                "Chép đúng dữ kiện nhìn thấy và dẫn nhãn nguồn. "
+                if transcription else
                 "Dùng đề trong ảnh của lượt trước để giải thích bước người học đang hỏi. "
                 "Dẫn nhãn nguồn hiện tại khi dùng dữ kiện từ ảnh."
                 if follow_up else
@@ -222,6 +238,26 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         *recent,
         {"role": "user", "content": user},
     ], chosen
+
+
+def close_visual_block(answer):
+    fence = chr(96) * 3
+    start = re.search(r"(?m)^" + fence + r"learnstep-visual[ \t]*\r?\n", answer)
+    if not start:
+        return answer
+    payload = answer[start.end():]
+    padding = len(payload) - len(payload.lstrip())
+    try:
+        value, end = json.JSONDecoder().raw_decode(payload.lstrip())
+    except (ValueError, RecursionError):
+        return answer
+    if not isinstance(value, dict) or value.get("type") not in ("bar", "flow") or end > 4000:
+        return answer
+    boundary = start.end() + padding + end
+    tail = answer[boundary:].lstrip()
+    if tail.startswith(fence):
+        return answer
+    return answer[:boundary] + "\n" + fence + ("\n\n" + tail if tail else "")
 
 
 def first_image_hint(answer):

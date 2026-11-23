@@ -163,5 +163,17 @@ def test_thinking_is_selective_for_simple_questions_and_complex_requests():
     assert not should_reason("Chào bạn", "library")
     assert not should_reason("Định luật Newton là gì?", "search")
     assert should_reason("Chứng minh công thức", "library")
-    assert should_reason("Đọc câu hỏi", "documents", has_image=True)
+    assert not should_reason("Đọc đúng mã số trong ảnh", "documents", has_image=True)
+    assert should_reason("Đọc đề trong ảnh và hướng dẫn cách làm", "documents", has_image=True)
     assert should_reason("So sánh thống kê", "research")
+
+
+def test_valid_visual_json_can_be_closed_without_swallowing_following_text():
+    from study_worker.rag import close_visual_block
+
+    fence = chr(96) * 3
+    visual = fence + 'learnstep-visual\n{"type":"bar","title":"Kết quả","items":[{"label":"A","value":1}]}'
+    expected = visual + "\n" + fence + "\n\nDiễn giải"
+    assert close_visual_block(visual + "\n\nDiễn giải") == expected
+    assert close_visual_block(expected) == expected
+    assert close_visual_block(fence + "learnstep-visual\n{incomplete") == fence + "learnstep-visual\n{incomplete"
