@@ -1,3 +1,4 @@
+from base64 import b64encode
 import json
 from pathlib import Path
 import subprocess  # nosec B404
@@ -50,3 +51,22 @@ def extract_question_image(data, settings, check):
     if not text:
         raise InvalidDocument("Không nhận dạng được nội dung ảnh. Hãy thử ảnh rõ hơn.")
     return [Section(text, page=1)]
+
+
+def ollama_question_image(data):
+    """Render the authorized single-page question PDF for local vision."""
+    if not data.startswith(b"%PDF-") or len(data) > 3 * 1024 * 1024:
+        raise InvalidDocument("Ảnh câu hỏi không hợp lệ.")
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as pdf:
+            if pdf.needs_pass or len(pdf) != 1:
+                raise InvalidDocument("Ảnh câu hỏi phải có đúng một trang.")
+            page = pdf[0]
+            side = max(page.rect.width, page.rect.height)
+            if not 0 < side <= 1800:
+                raise InvalidDocument("Kích thước ảnh câu hỏi không hợp lệ.")
+            scale = 1024 / side
+            pixels = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False, colorspace=pymupdf.csRGB)
+            return b64encode(pixels.tobytes("jpeg", jpg_quality=90)).decode("ascii")
+    except (ValueError, RuntimeError) as exc:
+        raise InvalidDocument("Không thể đọc ảnh câu hỏi.") from exc

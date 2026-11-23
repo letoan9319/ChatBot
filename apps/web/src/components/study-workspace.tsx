@@ -720,7 +720,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   </div>
                   {message.role === "assistant" && (message.thinking_started_at || (!message.content && message.status === "generating")) &&
                     <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)} duration={message.thinking_ms} />}
-                  {message.content ? <Markdown content={message.content} chatMath />
+                  {message.content ? <Markdown content={message.content} chatMath visuals={message.role === "assistant" && message.status === "completed"} />
                     : message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
                     <div className={styles.citations}>{message.message_sources.map((item) => (

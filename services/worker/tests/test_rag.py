@@ -155,3 +155,13 @@ def test_old_worker_cannot_publish_after_lease_changes():
 
     with pytest.raises(LostLease):
         guard(Conn(), {"id": "job", "lease_token": "old-lease"})
+
+
+def test_thinking_is_selective_for_simple_questions_and_complex_requests():
+    from study_worker.rag import should_reason
+
+    assert not should_reason("Chào bạn", "library")
+    assert not should_reason("Định luật Newton là gì?", "search")
+    assert should_reason("Chứng minh công thức", "library")
+    assert should_reason("Đọc câu hỏi", "documents", has_image=True)
+    assert should_reason("So sánh thống kê", "research")

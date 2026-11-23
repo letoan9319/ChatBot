@@ -21,7 +21,7 @@ class Settings:
     qdrant_key: str = field(repr=False)
     collection: str = "study_bge_m3_v1"
     ollama_url: str = "http://127.0.0.1:11434"
-    chat_model: str = "qwen3:4b-instruct"
+    chat_model: str = "qwen3.5:4b-q4_K_M"
     embed_model: str = "bge-m3"
     tokenizer_model: str = "Qwen/Qwen3-4B"
     tokenizer_path: str = ""
@@ -38,7 +38,7 @@ class Settings:
     deploy_api_key: str = field(default="", repr=False)
 
     searxng_url: str = ""
-    thinking_model: str = ""
+    thinking_model: str = "qwen3.5:4b-q4_K_M"
     mineru_python: str = ""
     mineru_model: str = ""
 
@@ -66,7 +66,7 @@ class Settings:
         if provider not in ("ollama", "openrouter"):
             raise ValueError("AI_PROVIDER must be ollama or openrouter.")
         remote = provider == "openrouter"
-        chat_model = os.getenv("CHAT_MODEL", DEEPSEEK_FLASH if remote else "qwen3:4b-instruct").strip()
+        chat_model = os.getenv("CHAT_MODEL", DEEPSEEK_FLASH if remote else "qwen3.5:4b-q4_K_M").strip()
         deploy_api_key = os.getenv("DEPLOY_API_KEY", "").strip()
         if remote and chat_model == "deepseek/deepseek-v4.1-flash-1017":
             if not deploy_api_key:
@@ -98,7 +98,7 @@ class Settings:
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
             deploy_api_key=deploy_api_key,
-            thinking_model=os.getenv("OLLAMA_THINKING_MODEL", "").strip(),
+            thinking_model=os.getenv("OLLAMA_THINKING_MODEL", chat_model if not remote and chat_model.startswith("qwen3.5:") else "").strip(),
             searxng_url=os.getenv("SEARXNG_URL", "" if remote else "http://127.0.0.1:8888").strip().rstrip("/"),
             mineru_python=os.getenv("MINERU_PYTHON", ""),
             mineru_model=os.getenv("MINERU_MODEL_PATH", ""),

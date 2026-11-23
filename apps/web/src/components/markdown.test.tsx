@@ -78,3 +78,26 @@ describe("pasted LaTeX", () => {
     expect(pastedChatMath("", "C:\\docs\\reference")).toBeNull();
   });
 });
+
+describe("chat visuals", () => {
+  const fence = String.fromCharCode(96).repeat(3);
+  const block = (data: unknown) => fence + "learnstep-visual\n" + JSON.stringify(data) + "\n" + fence;
+
+  it("renders valid charts and keeps labels as text", () => {
+    const content = block({ type: "bar", title: "Kết quả", items: [{ label: "<img src=x>", value: -3 }] });
+    const html = renderToStaticMarkup(<Markdown content={content} visuals />);
+    expect(html).toContain("<figure");
+    expect(html).toContain("&lt;img src=x&gt;");
+    expect(html).not.toContain("<img");
+    expect(renderToStaticMarkup(<Markdown content={content} />)).toContain("<pre>");
+  });
+
+  it("renders ordered flows and falls back to code for unsupported data", () => {
+    expect(renderToStaticMarkup(<Markdown visuals content={block({
+      type: "flow", title: "Cách làm", steps: ["Đọc đề", "Chọn quy tắc"],
+    })} />)).toContain("<ol");
+    expect(renderToStaticMarkup(<Markdown visuals content={block({
+      type: "flow", title: "Cách làm", steps: ["Đọc đề", null],
+    })} />)).toContain("<pre>");
+  });
+});

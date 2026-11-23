@@ -87,3 +87,21 @@ def test_thinking_that_exhausts_its_budget_falls_back_to_standard_model():
     value.settings.thinking_model = "thinking-model"
     assert "".join(value.generate([], on_thinking=lambda _: None)) == "retry hint"
     value.http.close()
+
+
+def test_qwen_vision_attaches_image_only_to_the_local_request():
+    def handler(request):
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        payload = json.loads(request.content)
+        assert payload["think"] is False
+        assert payload["messages"] == [{"role": "user", "content": "Describe", "images": ["image-data"]}]
+        return httpx.Response(200, content=b'{"message":{"content":"description"},"done":true,"done_reason":"stop"}\n')
+
+    value = mocked(handler)
+    value.settings.chat_model = "qwen3.5:4b-q4_K_M"
+    messages = [{"role": "user", "content": "Describe"}]
+    assert value.supports_question_vision
+    assert list(value.generate(messages, question_images=["image-data"])) == ["description"]
+    assert "images" not in messages[0]
+    value.http.close()

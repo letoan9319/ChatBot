@@ -14,10 +14,10 @@ from psycopg.types.json import Jsonb
 
 from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
-from .question_image import extract_question_image, is_question_image
+from .question_image import extract_question_image, is_question_image, ollama_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, first_image_hint, follow_up_history, follow_up_query, validate_citations
+from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -403,6 +403,33 @@ class Pipeline:
         ).fetchall()
         return {str(row["id"]): row["index_version"] for row in rows}
 
+    def question_vision(self, job, image_versions):
+        rows = self.conn.execute(
+            """select id,index_version,storage_path from public.documents where id=any(%s::uuid[]) and user_id=%s
+               and status='ready' and file_type='pdf' and name like 'Ảnh câu hỏi - %%' order by id""",
+            (list(image_versions), job["user_id"]),
+        ).fetchall()
+        images = []
+        for doc in rows[:1]:
+            if image_versions.get(str(doc["id"])) != doc["index_version"]:
+                continue
+            guard(self.conn, job)
+            try:
+                data = bytearray()
+                with self.storage.stream(
+                    "GET", f"/storage/v1/object/authenticated/documents/{doc['storage_path']}"
+                ) as response:
+                    response.raise_for_status()
+                    for block in response.iter_bytes(65536):
+                        data.extend(block)
+                        if len(data) > 3 * 1024 * 1024:
+                            raise InvalidDocument("Ảnh câu hỏi quá lớn.")
+                images.append(ollama_question_image(bytes(data)))
+            except (httpx.HTTPError, InvalidDocument):
+                LOG.info("question_vision_used_ocr_fallback job_id=%s", job["id"])
+        guard(self.conn, job)
+        return images
+
     def chat(self, job):
         payload = job["payload"]
         mode = payload.get("mode", "documents")
@@ -515,8 +542,13 @@ class Pipeline:
                 last_flush = time.monotonic()
 
             options = {"research": True} if mode == "research" else {}
-            if getattr(self.models, "supports_thinking_progress", False):
+            if (getattr(self.models, "supports_thinking_progress", False)
+                    and should_reason(query, mode, has_image=bool(image_versions))):
                 options["on_thinking"] = lambda elapsed: self.save_thinking(job, elapsed)
+            if image_versions and getattr(self.models, "supports_question_vision", False):
+                images = self.question_vision(job, image_versions)
+                if images:
+                    options["question_images"] = images
             for attempt in range(2 if external_search else 1):
                 truncated = False
                 if attempt:

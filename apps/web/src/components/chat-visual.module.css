@@ -1,0 +1,13 @@
+.visual { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-alt); }
+.visual figcaption { margin-bottom: 10px; font-weight: 750; overflow-wrap: anywhere; }
+.visual .flow, .visual .chart { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.visual .flow { gap: 20px; justify-items: stretch; max-width: 420px; }
+.visual .flow li { position: relative; margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); overflow-wrap: anywhere; }
+.visual .flow li + li::before { content: ""; position: absolute; left: 50%; bottom: calc(100% + 1px); height: 16px; border-left: 2px solid var(--primary-edge); }
+.visual .flow li + li::after { content: ""; position: absolute; left: calc(50% - 3px); bottom: calc(100% + 2px); width: 8px; height: 8px; border-right: 2px solid var(--primary-edge); border-bottom: 2px solid var(--primary-edge); transform: rotate(45deg); }
+.visual .chart li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 1.5fr) auto; gap: 8px; align-items: center; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.axis { position: relative; height: 12px; border-radius: 3px; background: var(--surface); }
+.bar { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--primary-edge); }
+.chart[data-divided="true"] .axis::before { content: ""; position: absolute; inset: -2px auto -2px 50%; border-left: 1px solid var(--control-line); }
+.chart[data-divided="true"] .bar { left: 50%; }
+.chart[data-divided="true"] .bar[data-negative="true"] { left: auto; right: 50%; background: var(--secondary-edge); }

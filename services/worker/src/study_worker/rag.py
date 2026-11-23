@@ -36,6 +36,18 @@ FOLLOW_UP = re.compile(
 )
 
 
+COMPLEX_QUESTION = re.compile(
+    r"\b(?:chứng minh|suy ra|tối ưu|đạo hàm ẩn|tích phân bội|tích phân suy rộng|"
+    r"hệ phương trình vi phân|giải thích từng bước|phân tích chi tiết|so sánh.*đối chiếu|"
+    r"prove|derive|optimi[sz]e|implicit differentiation)\b",
+    re.IGNORECASE,
+)
+
+
+def should_reason(question, mode, *, has_image=False):
+    return mode == "research" or has_image or bool(COMPLEX_QUESTION.search(question))
+
+
 def follow_up_history(question, history):
     """Keep turns back to the most recent standalone question."""
     if not FOLLOW_UP.search(question.strip()):
@@ -114,6 +126,14 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         )
     input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else 2900
     max_sources = 10 if mode == "research" else 5
+    system += (
+        "Trả lời bằng tiếng Việt, vào thẳng trọng tâm. Với câu đơn giản, trả lời ngắn. "
+        "Nếu người học yêu cầu biểu đồ hoặc sơ đồ, có thể xuất một khối mã learnstep-visual chứa JSON. "
+        'Biểu đồ thanh: {"type":"bar","title":"...","items":[{"label":"...","value":12}]}. '
+        'Sơ đồ quy trình: {"type":"flow","title":"...","steps":["Bước A","Bước B"]}. '
+        "Tối đa 8 mục, dùng số liệu được cung cấp hoặc ghi rõ số liệu minh họa trong phần văn bản. "
+        "Trích dẫn nguồn đặt bên ngoài khối JSON.\n"
+    )
     follow_up = bool(history)
     if follow_up:
         if mode != "research":

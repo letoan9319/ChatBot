@@ -12,6 +12,10 @@ from .openrouter import OutputLimit
 
 class LocalModels:
     supports_thinking_progress = True
+
+    @property
+    def supports_question_vision(self):
+        return self.settings.chat_model.startswith("qwen3.5:")
     dimensions = 1024
 
     def __init__(self, settings: Settings):
@@ -64,7 +68,7 @@ class LocalModels:
             raise ValueError("Expected BGE-M3 dense embeddings of dimension 1024")
         return vectors
 
-    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None):
+    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None, question_images=()):
         self.unload(self.settings.embed_model)
         thinking_model = self.settings.thinking_model if on_thinking is not None else ""
         if thinking_model:
@@ -72,7 +76,7 @@ class LocalModels:
                 self.unload(self.settings.chat_model)
             emitted_answer = False
             try:
-                for content in self._stream_chat(messages, thinking_model, research, on_thinking):
+                for content in self._stream_chat(messages, thinking_model, research, on_thinking, question_images):
                     emitted_answer = emitted_answer or bool(content)
                     yield content
                 if emitted_answer:
@@ -85,9 +89,11 @@ class LocalModels:
                     raise
             if thinking_model != self.settings.chat_model:
                 self.unload(thinking_model)
-        yield from self._stream_chat(messages, self.settings.chat_model, research, None)
+        yield from self._stream_chat(messages, self.settings.chat_model, research, None, question_images)
 
-    def _stream_chat(self, messages, model, research, on_thinking):
+    def _stream_chat(self, messages, model, research, on_thinking, question_images):
+        if question_images and model.startswith("qwen3.5:"):
+            messages = [*messages[:-1], {**messages[-1], "images": list(question_images)}]
         with self.http.stream(
             "POST",
             "/api/chat",
