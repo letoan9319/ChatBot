@@ -369,7 +369,7 @@ class Pipeline:
                 (content, job["message_id"], job["user_id"]),
             )
 
-    def follow_up_images(self, job, user_message_id, lock=False):
+    def follow_up_images(self, job, user_message_id):
         rows = self.conn.execute(
             """select d.id,d.index_version from public.jobs j
             join public.messages a on a.id=j.message_id and a.user_id=j.user_id
@@ -379,7 +379,7 @@ class Pipeline:
               and j.payload->>'user_message_id'=%s
               and d.status='ready' and d.file_type='pdf' and d.name like 'Ảnh câu hỏi - %%'
               and j.payload->'versions'->>d.id::text=d.index_version::text
-            order by d.id""" + (" for share of d" if lock else ""),
+            order by d.id for share of d""",
             (job["user_id"], job["payload"]["conversation_id"], str(user_message_id)),
         ).fetchall()
         return {str(row["id"]): row["index_version"] for row in rows}
@@ -521,7 +521,7 @@ class Pipeline:
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
             if prior_images and any(item.get("question_image") for item in selected):
-                if self.follow_up_images(job, anchor["id"], lock=True) != prior_images:
+                if self.follow_up_images(job, anchor["id"]) != prior_images:
                     raise Cancelled()
             if mode == "library" and selected:
                 source_ids = {str(item["document_id"]) for item in selected if not item.get("question_image")}
