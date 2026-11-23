@@ -42,6 +42,8 @@ export type Message = {
   content: string;
   status: string;
   sequence: number;
+  thinking_started_at?: string | null;
+  thinking_ms?: number | null;
   generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
   web_sources?: { label: string; title: string; url: string; kind?: "web" | "article" | "wikipedia" | null }[];

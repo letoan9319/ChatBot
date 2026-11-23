@@ -1,0 +1,181 @@
+@property --learnstep-composer-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.box {
+  --prompt-ease: cubic-bezier(.2,.8,.2,1);
+  --prompt-spring: cubic-bezier(.34,1.45,.64,1);
+  --prompt-shadow: color-mix(in srgb, var(--text) 18%, transparent);
+  --prompt-shadow-strong: color-mix(in srgb, var(--text) 28%, transparent);
+  position: relative;
+  width: 100%;
+  max-width: 820px;
+  margin-inline: auto;
+  padding: 15px 12px 11px 18px;
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 18px 38px -22px var(--prompt-shadow-strong),
+    0 2px 6px -3px var(--prompt-shadow);
+  transition: box-shadow .25s var(--prompt-ease);
+}
+
+.box:focus-within {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 35%, var(--line-strong)),
+    0 18px 38px -22px var(--prompt-shadow-strong), 0 2px 6px -3px var(--prompt-shadow);
+}
+
+.glow {
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: conic-gradient(from var(--learnstep-composer-angle), transparent 0 58%,
+    var(--focus) 76%, var(--secondary-edge) 88%, transparent 100%);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .45s var(--prompt-ease);
+  animation: prompt-orbit 2.4s linear infinite paused;
+}
+
+.box[data-generating="true"] .glow { opacity: 1; animation-play-state: running; }
+
+@keyframes prompt-orbit {
+  to { --learnstep-composer-angle: 360deg; }
+}
+
+.box textarea {
+  display: block;
+  field-sizing: content;
+  width: 100%;
+  min-height: 24px;
+  max-height: 120px;
+  margin: 0;
+  padding: 0 6px 0 0;
+  border: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -.01em;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  transition: height .34s cubic-bezier(.3,1.25,.5,1);
+}
+
+.box textarea::placeholder { color: var(--muted); opacity: 1; }
+.box textarea:focus-visible { outline: none; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 13px 0 0 -6px;
+}
+
+.box .bar > details > summary,
+.box .bar > div[data-compact] > button[data-select-trigger],
+.send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 38px;
+  border: 0;
+  transition: background-color .2s var(--prompt-ease), color .2s var(--prompt-ease),
+    box-shadow .2s, transform .45s var(--prompt-spring);
+}
+
+.box .bar > details > summary {
+  min-width: 38px;
+  padding-inline: 9px;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.box .bar > details > summary svg { width: 16px; height: 16px; }
+.box .bar > div[data-compact] { width: auto; min-width: 0; }
+
+.box .bar > div[data-compact] > button[data-select-trigger] {
+  gap: 3px;
+  padding: 0 8px 0 11px;
+  border-radius: 17px;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.box .bar > div[data-compact] > button[data-select-trigger]:disabled { opacity: .65; }
+
+.box .bar > details > summary:hover,
+.box .bar > details[open] > summary,
+.box .bar > div[data-compact] > button[data-select-trigger]:not(:disabled):hover,
+.box .bar > div[data-compact] > button[data-select-trigger][aria-expanded="true"] {
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.send {
+  position: relative;
+  width: 38px;
+  margin-inline-start: auto;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--surface);
+}
+
+.box .send:disabled { background: var(--disabled-bg); color: var(--disabled-text); opacity: 1; }
+.send:not(:disabled):active { transform: scale(.88); }
+
+.send svg, .stop {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transition: transform .5s cubic-bezier(.34,1.6,.5,1), opacity .22s var(--prompt-ease);
+}
+
+.send svg {
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stop {
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0;
+  transform: scale(.2) rotate(-90deg);
+}
+
+.box[data-generating="true"] .send svg { opacity: 0; transform: translateY(-7px) scale(.3); }
+.box[data-generating="true"] .stop { opacity: 1; transform: none; }
+
+.box .bar :is(summary, button):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box, .box textarea, .box .glow, .box .bar *, .box .bar > details > summary,
+  .box .bar > div[data-compact] > button[data-select-trigger] {
+    animation: none;
+    transition: none;
+  }
+}

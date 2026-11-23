@@ -135,8 +135,9 @@ def claim(conn, *, mineru_available=False):
         if job["message_id"] and not exhausted:
             conn.execute("delete from public.message_sources where message_id=%s", (job["message_id"],))
             conn.execute(
-                "update public.messages set content='',status='generating',generation_provider=null where id=%s",
-                (job["message_id"],),
+                """update public.messages set content='',status='generating',generation_provider=null,
+                   thinking_started_at=null,thinking_ms=null where id=%s and user_id=%s""",
+                (job["message_id"], job["user_id"]),
             )
         job["queue_id"] = message["msg_id"]
         job["exhausted"] = exhausted
@@ -369,6 +370,24 @@ class Pipeline:
                 (content, job["message_id"], job["user_id"]),
             )
 
+    def save_thinking(self, job, elapsed):
+        with self.conn.transaction():
+            guard(self.conn, job)
+            self.chat_documents(job, lock=True)
+            if elapsed is None:
+                self.conn.execute(
+                    """update public.messages set thinking_started_at=clock_timestamp(),thinking_ms=null
+                       where id=%s and user_id=%s and role='assistant' and status='generating'""",
+                    (job["message_id"], job["user_id"]),
+                )
+            else:
+                self.conn.execute(
+                    """update public.messages set thinking_ms=%s
+                       where id=%s and user_id=%s and role='assistant' and status='generating'
+                       and thinking_started_at is not null""",
+                    (max(0, elapsed), job["message_id"], job["user_id"]),
+                )
+
     def follow_up_images(self, job, user_message_id):
         rows = self.conn.execute(
             """select d.id,d.index_version from public.jobs j
@@ -472,7 +491,7 @@ class Pipeline:
         external_search = mode in ("search", "research")
         notices = []
         if external_search:
-            web, notices = search_web(payload["question"], mode, self.settings.brave_search_key)
+            web, notices = search_web(payload["question"], mode, self.settings.searxng_url)
             candidates = candidates[:2] + web[:4] + candidates[2:] + web[4:]
         guard(self.conn, job)
         self.chat_documents(job)
@@ -496,6 +515,8 @@ class Pipeline:
                 last_flush = time.monotonic()
 
             options = {"research": True} if mode == "research" else {}
+            if getattr(self.models, "supports_thinking_progress", False):
+                options["on_thinking"] = lambda elapsed: self.save_thinking(job, elapsed)
             for attempt in range(2 if external_search else 1):
                 truncated = False
                 if attempt:
@@ -511,8 +532,11 @@ class Pipeline:
                                 guard(self.conn, job)
                                 raise LostLease()
                             answer += token
-                            if not image_documents and time.monotonic() - last_flush >= 1:
-                                self.save_partial(job, answer)
+                            if time.monotonic() - last_flush >= 1:
+                                if token and not image_documents:
+                                    self.save_partial(job, answer)
+                                else:
+                                    guard(self.conn, job)
                                 last_flush = time.monotonic()
                 except OutputLimit:
                     truncated = True
@@ -606,7 +630,7 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
         conn.execute("select embedding_profile,vector_collection from public.documents limit 0")
         conn.execute("select document_id from public.knowledge_documents limit 0")
         conn.execute("select ai_provider,chat_fallback_enabled from public.worker_heartbeats limit 0")
-        conn.execute("select generation_provider from public.messages limit 0")
+        conn.execute("select generation_provider,thinking_started_at,thinking_ms from public.messages limit 0")
         models = create_models(settings)
         try:
             models.prepare()

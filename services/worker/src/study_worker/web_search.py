@@ -28,27 +28,25 @@ def _source(url, title, content, kind):
     return {"url": url, "title": title[:180], "content": content[:2200], "kind": kind}
 
 
-def _brave(http, terms, key, research):
-    result = http.get(
-        "https://api.search.brave.com/res/v1/web/search",
-        headers={"X-Subscription-Token": key},
-        params={"q": terms, "count": 10 if research else 8,
-                "result_filter": "web", "extra_snippets": str(research).lower()},
-    )
+def _searxng(http, base_url, terms, research):
+    result = http.get(base_url + "/search", params={
+        "q": terms, "format": "json", "categories": "general", "safesearch": 1,
+    })
     result.raise_for_status()
     sources = []
     domains = {}
-    for item in result.json().get("web", {}).get("results", []):
-        snippets = [item.get("description")]
-        if research:
-            snippets.extend(item.get("extra_snippets") or [])
-        content = " ".join(dict.fromkeys(filter(None, map(_plain, snippets))))
-        source = _source(item.get("url"), _plain(item.get("title")), content, "web")
-        if source:
-            domain = urlsplit(source["url"]).hostname.removeprefix("www.")
-            if domains.get(domain, 0) < 2:
-                domains[domain] = domains.get(domain, 0) + 1
-                sources.append(source)
+    limit = 10 if research else 8
+    for item in result.json().get("results", []):
+        source = _source(item.get("url"), _plain(item.get("title")), _plain(item.get("content")), "web")
+        if not source:
+            continue
+        domain = urlsplit(source["url"]).hostname.removeprefix("www.")
+        if domains.get(domain, 0) >= 2:
+            continue
+        domains[domain] = domains.get(domain, 0) + 1
+        sources.append(source)
+        if len(sources) == limit:
+            break
     return sources
 
 
@@ -101,7 +99,7 @@ def _query_terms(text):
     return " ".join(re.findall(r"[^\W_]+", text, re.UNICODE)[:32])[:350]
 
 
-def search_web(question, mode, brave_key=""):
+def search_web(question, mode, searxng_url=""):
     # Keep an explicit topic before ":" separate from instructions about the report.
     topic, separator, _ = question.partition(":")
     focused = _query_terms(topic) if separator and mode == "research" else ""
@@ -113,9 +111,9 @@ def search_web(question, mode, brave_key=""):
     with httpx.Client(timeout=8, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}) as http:
         with ThreadPoolExecutor(max_workers=2) as pool:
             academic = pool.submit(_crossref, http, terms) if research else None
-            if brave_key:
+            if searxng_url:
                 try:
-                    web = _brave(http, terms, brave_key, research)
+                    web = _searxng(http, searxng_url, terms, research)
                 except (httpx.HTTPError, ValueError):
                     notices.append("Tìm kiếm web đang gián đoạn.")
             else:

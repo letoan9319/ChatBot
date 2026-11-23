@@ -11,6 +11,8 @@ LOG = logging.getLogger("study_worker")
 
 
 class ChatFallbackModels:
+    supports_thinking_progress = True
+
     def __init__(self, settings):
         self.settings = settings
         self.primary = LocalModels(settings)
@@ -33,7 +35,7 @@ class ChatFallbackModels:
     def rerank(self, query, candidates):
         return candidates
 
-    def generate(self, messages, *, on_reset=None, research=False):
+    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None):
         self.last_generation_provider = "ollama"
         # Callers that cannot reset their output (evaluation/benchmark) receive
         # local content only after the whole primary attempt succeeds.
@@ -41,7 +43,8 @@ class ChatFallbackModels:
         buffered = []
         saw_content = False
         try:
-            for token in self.primary.generate(messages, **options):
+            local_options = {**options, "on_thinking": on_thinking} if on_thinking is not None else options
+            for token in self.primary.generate(messages, **local_options):
                 if token:
                     saw_content = True
                 if on_reset is not None:

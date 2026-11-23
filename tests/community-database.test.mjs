@@ -37,6 +37,7 @@ before(async () => {
     "202611130001_chat_shared_library.sql",
     "202611140001_deploy_generation_provider.sql",
     "20261120150841_chat_lifecycle.sql",
+    "202611240001_chat_thinking_progress.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -501,7 +502,14 @@ test("chat lifecycle protects ownership, retains partial answers, and expires te
   const running = await rpc(owner, "app_send_message", [temporary, "Câu tạm", [], randomUUID(), "library"]);
   assert.equal(running.payload.temporary, true);
   await db.query("update jobs set status='running',lease_token=$2 where id=$1", [running.id, randomUUID()]);
-  await db.query("update messages set status='generating',content='Một phần' where id=$1", [running.message_id]);
+  await db.query("update messages set status='generating',content='Một phần',thinking_started_at=now(),thinking_ms=4100 where id=$1",
+    [running.message_id]);
+  const readThinking = () => db.query("select thinking_ms from messages where id=$1", [running.message_id]);
+  assert.deepEqual((await asUser(owner, readThinking)).rows, [{ thinking_ms: 4100 }]);
+  assert.deepEqual((await asUser(outsider, readThinking)).rows, []);
+  await asUser(owner, () => assert.rejects(
+    db.query("update messages set thinking_ms=0 where id=$1", [running.message_id]), /permission denied/,
+  ));
   assert.equal(await rpc(owner, "app_stop_chat", [running.id]), "stopped");
   assert.deepEqual((await db.query("select content,status from messages where id=$1", [running.message_id])).rows,
     [{ content: "Một phần", status: "stopped" }]);

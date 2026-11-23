@@ -18,6 +18,8 @@ import { pastedChatMath } from "./chat-math";
 import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
+import { ChatPromptBox } from "./chat-prompt-box";
+import { ThinkingProgress } from "./thinking-progress";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
 import { SidebarIcon } from "./sidebar-icon";
@@ -218,6 +220,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   }, [temporary, conversationId]);
 
   const pendingDocuments = uploading || documents.some(doc => ["queued", "processing", "deleting"].includes(doc.status));
+  const activeChatHere = worker.activeChat?.conversation_id === conversationId ? worker.activeChat : null;
   const pendingChat = busy || Boolean(worker.activeChat) ||
     messages.some(message => ["queued", "generating"].includes(message.status));
 
@@ -715,9 +718,10 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
+                  {message.role === "assistant" && (message.thinking_started_at || (!message.content && message.status === "generating")) &&
+                    <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)} duration={message.thinking_ms} />}
                   {message.content ? <Markdown content={message.content} chatMath />
-                    : ["queued", "generating"].includes(message.status) && <p className={styles.emptyText}>
-                      {message.status === "queued" ? "Câu hỏi đã vào hàng đợi…" : "Đang tìm và đọc các đoạn liên quan…"}</p>}
+                    : message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
                     <div className={styles.citations}>{message.message_sources.map((item) => (
                       <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
@@ -738,7 +742,18 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             </div>
             <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
-              <div className={styles.composerBox}>
+              <ChatPromptBox inactive={activeChatHere ? stopping
+                : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
+                label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
+                  : readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
+                onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
+                tools={<>
+                  <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
+                    onChoose={showDocuments} onUpload={upload} />
+                  <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
+                    options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
+                    onChange={value => setChatMode(value as ChatMode)} />
+                </>}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
                   placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
@@ -781,23 +796,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   <span>{questionImage.file.name || "Ảnh từ clipboard"} · Lưu vào kho cá nhân khi gửi</span>
                   <button type="button" disabled={busy} onClick={() => setQuestionImage(null)}>Bỏ ảnh</button>
                 </div>}
-                <div className={styles.composerTools}>
-                  <div className={styles.composerOptions}>
-                    <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
-                      onChoose={showDocuments} onUpload={upload} />
-                    <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
-                      options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
-                      onChange={value => setChatMode(value as ChatMode)} />
-                  </div>
-                  {worker.activeChat && worker.activeChat.conversation_id === conversationId
-                    ? <button type="button" className={styles.sendButton} disabled={stopping}
-                        onClick={() => void stopChat(worker.activeChat!.id)}>{stopping ? "Đang dừng…" : "Dừng"}</button>
-                    : <button type="submit" className={styles.sendButton}
-                        disabled={!(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}>
-                        {readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
-                      </button>}
-                </div>
-              </div>
+              </ChatPromptBox>
               <div className={styles.composerFooter} id="composer-hint">
                 <span>{loading ? "Đang kết nối…" : !worker.online ? worker.cloudAvailable
                   ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."

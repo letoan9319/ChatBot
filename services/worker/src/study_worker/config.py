@@ -37,7 +37,8 @@ class Settings:
     cloud_embedding_model: str = "BAAI/bge-m3"
     deploy_api_key: str = field(default="", repr=False)
 
-    brave_search_key: str = field(default="", repr=False)
+    searxng_url: str = ""
+    thinking_model: str = "qwen3:4b"
     mineru_python: str = ""
     mineru_model: str = ""
 
@@ -97,10 +98,18 @@ class Settings:
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
             deploy_api_key=deploy_api_key,
-            brave_search_key=os.getenv("BRAVE_SEARCH_API_KEY", "").strip(),
+            thinking_model=os.getenv("OLLAMA_THINKING_MODEL", "qwen3:4b").strip(),
+            searxng_url=os.getenv("SEARXNG_URL", "" if remote else "http://127.0.0.1:8888").strip().rstrip("/"),
             mineru_python=os.getenv("MINERU_PYTHON", ""),
             mineru_model=os.getenv("MINERU_MODEL_PATH", ""),
         )
+        if settings.searxng_url:
+            search_url = urlparse(settings.searxng_url)
+            local_search = search_url.hostname in ("localhost", "127.0.0.1", "::1")
+            if (not search_url.hostname or search_url.username or search_url.password
+                    or search_url.query or search_url.fragment
+                    or (search_url.scheme != "https" and not (local_search and search_url.scheme == "http"))):
+                raise ValueError("SEARXNG_URL must use HTTPS or point to a loopback HTTP service.")
         if settings.cloud_embedding_url:
             endpoint = urlparse(settings.cloud_embedding_url)
             if not remote or endpoint.scheme != "https" or not endpoint.hostname or not settings.cloud_embedding_key:

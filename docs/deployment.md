@@ -98,8 +98,20 @@ Worker tự tạo collection và chỉ mục Qdrant theo cấu hình. Lần đ�
 
 ## Tìm kiếm web và nghiên cứu
 
-Đặt biến môi trường `BRAVE_SEARCH_API_KEY` trên worker thực sự xử lý câu hỏi. Lấy khóa từ [Brave Search API](https://api-dashboard.search.brave.com/documentation/quickstart). Cấu hình từng worker có thể nhận chat, gồm worker chạy bằng Ollama và Render nếu dùng dự phòng. Khởi động lại worker sau khi đặt khóa.
+LearnStep dùng SearXNG tự host để tìm các trang web. Dịch vụ chạy trên Docker và chỉ nghe ở loopback. Chạy từ gốc checkout đã có cấu hình mới.
 
-Tìm kiếm dùng đoạn trích từ nhiều trang web. Nếu Brave chưa cấu hình hoặc không trả được nguồn, worker thử Wikipedia và hiển thị phạm vi nguồn dự phòng. Nghiên cứu tra thêm bài tạp chí có tóm tắt qua [Crossref](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) và gắn liên kết DOI. Chế độ này tổng hợp từ đoạn trích web và tóm tắt bài báo. Từ khóa chỉ lấy từ câu hỏi hiện tại. Nếu tra cứu một loại nguồn bị lỗi, câu trả lời ghi rõ phần thiếu.
+~~~powershell
+$env:SEARXNG_SECRET = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+docker compose -p learnstep-search -f services/search/compose.yaml up -d --no-recreate
+~~~
+
+Biến SEARXNG_SECRET là chuỗi ngẫu nhiên cho container, được tạo tại máy. Worker Ollama mặc định gọi http://127.0.0.1:8888. Có thể đặt SEARXNG_URL trong file môi trường của worker rồi khởi động lại. Nếu worker Render cần tìm web đa trang, đặt SEARXNG_URL trỏ tới một máy chủ SearXNG riêng có HTTPS và bảo vệ truy cập ở tầng hạ tầng. Render thiếu cấu hình hoặc khi nguồn web gián đoạn sẽ dùng Wikipedia dự phòng và báo trong câu trả lời.
+
+Nghiên cứu tra thêm bài tạp chí có tóm tắt qua [Crossref](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) và gắn liên kết DOI. Cả hai chế độ chỉ gửi từ khóa từ câu hỏi hiện tại ra ngoài. [Tài liệu SearXNG](https://docs.searxng.org/dev/search_api.html)
 
 Nghiên cứu dành tối đa khoảng 6.200 token đầu vào và 5.000 token sinh câu trả lời. Ollama dành context 12.288 token cho chế độ này. Giới hạn thực tế phụ thuộc model, VRAM và nhà cung cấp.
+
+
+## Luồng suy luận Ollama
+
+Worker dùng model qwen3:4b cho luồng suy luận. Cài model bằng `ollama pull qwen3:4b`. Có thể đổi bằng OLLAMA_THINKING_MODEL hoặc để biến này rỗng để dùng model chat thông thường. Áp dụng migration 202611240001_chat_thinking_progress.sql trước khi khởi động worker mới. Tin nhắn chỉ lưu thời điểm bắt đầu và thời lượng suy luận. UI hiển thị các bước xử lý và giữ nội dung trả lời trong luồng riêng.

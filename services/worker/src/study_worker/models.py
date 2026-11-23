@@ -1,4 +1,5 @@
 import json
+import time
 import hashlib
 
 import httpx
@@ -10,6 +11,7 @@ from .openrouter import OutputLimit
 
 
 class LocalModels:
+    supports_thinking_progress = True
     dimensions = 1024
 
     def __init__(self, settings: Settings):
@@ -50,6 +52,8 @@ class LocalModels:
 
     def embed(self, texts: list[str], *, query=False):
         self.unload(self.settings.chat_model)
+        if self.settings.thinking_model and self.settings.thinking_model != self.settings.chat_model:
+            self.unload(self.settings.thinking_model)
         response = self.http.post(
             "/api/embed",
             json={"model": self.settings.embed_model, "input": texts, "truncate": False, "keep_alive": "5m"},
@@ -60,37 +64,78 @@ class LocalModels:
             raise ValueError("Expected BGE-M3 dense embeddings of dimension 1024")
         return vectors
 
-    def generate(self, messages, *, on_reset=None, research=False):
+    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None):
         self.unload(self.settings.embed_model)
+        thinking_model = self.settings.thinking_model if on_thinking is not None else ""
+        if thinking_model:
+            if thinking_model != self.settings.chat_model:
+                self.unload(self.settings.chat_model)
+            emitted_answer = False
+            try:
+                for content in self._stream_chat(messages, thinking_model, research, on_thinking):
+                    emitted_answer = emitted_answer or bool(content)
+                    yield content
+                if emitted_answer:
+                    return
+            except OutputLimit:
+                if emitted_answer:
+                    raise
+            except httpx.HTTPStatusError as error:
+                if emitted_answer or error.response.status_code not in (400, 404):
+                    raise
+            if thinking_model != self.settings.chat_model:
+                self.unload(thinking_model)
+        yield from self._stream_chat(messages, self.settings.chat_model, research, None)
+
+    def _stream_chat(self, messages, model, research, on_thinking):
         with self.http.stream(
             "POST",
             "/api/chat",
             json={
-                "model": self.settings.chat_model,
+                "model": model,
                 "messages": messages,
-                "think": False,
+                "think": on_thinking is not None,
                 "stream": True,
                 "keep_alive": "5m",
                 "options": {
-                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research else 7168,
-                    "num_predict": RESEARCH_OUTPUT_TOKENS if research else 3584,
+                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research or on_thinking else 7168,
+                    "num_predict": RESEARCH_OUTPUT_TOKENS if research or on_thinking else 3584,
                     "temperature": 0.2,
                 },
             },
         ) as response:
             response.raise_for_status()
             completed = False
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                event = json.loads(line)
-                if event.get("error"):
-                    raise RuntimeError("Ollama generation failed")
-                yield event.get("message", {}).get("content", "")
-                if event.get("done"):
-                    if event.get("done_reason") == "length":
-                        raise OutputLimit()
-                    completed = True
+            started = None
+            answered = False
+            try:
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    event = json.loads(line)
+                    if event.get("error"):
+                        raise RuntimeError("Ollama generation failed")
+                    message = event.get("message", {})
+                    if on_thinking is not None and message.get("thinking") and not answered and started is None:
+                        started = time.monotonic()
+                        on_thinking(None)
+                    content = message.get("content", "")
+                    if content:
+                        if started is not None:
+                            elapsed = round((time.monotonic() - started) * 1000)
+                            started = None
+                            on_thinking(elapsed)
+                        answered = True
+                        yield content
+                    elif started is not None:
+                        yield ""
+                    if event.get("done"):
+                        if event.get("done_reason") == "length":
+                            raise OutputLimit()
+                        completed = True
+            finally:
+                if started is not None:
+                    on_thinking(round((time.monotonic() - started) * 1000))
             if not completed:
                 raise RuntimeError("Ollama stream ended before completion")
 

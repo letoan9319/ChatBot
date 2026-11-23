@@ -10,12 +10,12 @@ def test_research_combines_web_snippets_and_article_abstracts(monkeypatch):
 
     def respond(request):
         requests.append(request)
-        if request.url.host == "api.search.brave.com":
-            return httpx.Response(200, json={"web": {"results": [
+        if request.url.host == "127.0.0.1":
+            return httpx.Response(200, json={"results": [
                 {"url": "https://university.edu/page", "title": "University overview",
-                 "description": "<b>" + snippet + "</b>", "extra_snippets": [snippet, "More details."]},
-                {"url": "javascript:alert(1)", "title": "Unsafe link", "description": snippet},
-            ]}})
+                 "content": "<b>" + snippet + "</b> More details."},
+                {"url": "javascript:alert(1)", "title": "Unsafe link", "content": snippet},
+            ]})
         assert request.url.host == "api.crossref.org"
         return httpx.Response(200, json={"message": {"items": [{
             "DOI": "10.1234/example(1)", "title": ["Article title"],
@@ -24,14 +24,14 @@ def test_research_combines_web_snippets_and_article_abstracts(monkeypatch):
 
     client = httpx.Client(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
-    sources, notices = web_search.search_web("Newton's laws", "research", "test-key")
+    sources, notices = web_search.search_web("Newton's laws", "research", "http://127.0.0.1:8888")
     assert not notices
     assert [source["kind"] for source in sources] == ["web", "article"]
     assert sources[0]["content"].count(snippet) == 1
     assert sources[1]["url"] == "https://doi.org/10.1234/example%281%29"
     by_host = {request.url.host: request for request in requests}
-    assert by_host["api.search.brave.com"].headers["X-Subscription-Token"] == "test-key"
-    assert "X-Subscription-Token" not in by_host["api.crossref.org"].headers
+    assert by_host["127.0.0.1"].url.path == "/search"
+    assert by_host["127.0.0.1"].url.params["format"] == "json"
     assert by_host["api.crossref.org"].url.params["query.bibliographic"] == "Newton s laws"
     prompt, selected = build_prompt("Newton", [], sources, lambda value: len(value.split()), "research")
     assert "tổng hợp chi tiết" in prompt[0]["content"]
@@ -39,7 +39,7 @@ def test_research_combines_web_snippets_and_article_abstracts(monkeypatch):
     assert validate_citations("Bằng chứng [S2].", selected)[1] == [selected[1]]
 
 
-def test_basic_search_without_key_uses_disclosed_wikipedia_fallback(monkeypatch):
+def test_basic_search_without_endpoint_uses_disclosed_wikipedia_fallback(monkeypatch):
     def respond(request):
         assert request.url.host == "vi.wikipedia.org"
         return httpx.Response(200, json={"query": {"pages": [{
