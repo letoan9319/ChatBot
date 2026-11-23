@@ -67,7 +67,7 @@ Nếu container Qdrant đã tồn tại và đang dừng, dùng `docker start le
 Mở Ollama trên `127.0.0.1:11434`. Tạo file cấu hình worker từ mẫu nếu chưa có, rồi điền thông tin Supabase và Qdrant của môi trường đang chạy.
 
 ```powershell
-ollama pull qwen3:4b
+ollama pull qwen3:4b-instruct
 ollama pull bge-m3
 Set-Location services/worker
 Copy-Item .env.example .env
@@ -114,4 +114,4 @@ Nghiên cứu dành tối đa khoảng 6.200 token đầu vào và 5.000 token s
 
 ## Luồng suy luận Ollama
 
-Worker dùng model qwen3:4b cho luồng suy luận. Cài model bằng `ollama pull qwen3:4b`. Có thể đổi bằng OLLAMA_THINKING_MODEL hoặc để biến này rỗng để dùng model chat thông thường. Áp dụng migration 202611240001_chat_thinking_progress.sql trước khi khởi động worker mới. Tin nhắn chỉ lưu thời điểm bắt đầu và thời lượng suy luận. UI hiển thị các bước xử lý và giữ nội dung trả lời trong luồng riêng.
+Worker dùng qwen3:4b-instruct để trả lời trực tiếp. Có thể bật suy luận riêng bằng cách cài một model tương thích và đặt OLLAMA_THINKING_MODEL. Áp dụng migration 202611240001_chat_thinking_progress.sql trước khi khởi động worker mới. Khi model phát luồng suy luận, tin nhắn lưu thời điểm bắt đầu và thời lượng để hiển thị tiến trình.
