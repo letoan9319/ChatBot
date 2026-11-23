@@ -6,6 +6,7 @@ import type { StudyDocument } from "@/core/types";
 import { catalogEntries, catalogSearch, documentReaderHref, partLabel } from "@/core/document-catalog";
 import { statuses, subjects } from "@/core/validation";
 import { SelectField } from "./select-field";
+import { DocumentListRow } from "./document-list-row";
 import styles from "./document-repository.module.css";
 
 type DocumentAction = "retry" | "delete" | "complete";
@@ -73,15 +74,12 @@ export function DocumentRepository({ documents, selected, loading, error, online
     <div className={styles.repository}>
       <div className={styles.intro}>
         <div className={styles.summary}>
-          <p>{mode === "knowledge" ? "Nguồn kiến thức chung được dùng cho RAG. Chọn tài liệu để bắt đầu hỏi đáp." : "Các tài liệu bạn đã tải lên, được lưu riêng theo tài khoản."}</p>
           <div aria-live="polite">
             <span><strong>{loading ? "…" : ready}</strong> sẵn sàng</span>
             {mode === "personal" && <span><strong>{loading ? "…" : processing}</strong> đang xử lý</span>}
-            <span>{mode === "knowledge" ? "Nguồn RAG của hệ thống" : "Riêng tư theo tài khoản"}</span>
           </div>
         </div>
         {mode === "personal" && <div className={styles.upload}>
-          <span className={styles.uploadLabel}>Thêm tài liệu</span>
           <div className={styles.uploadControls}>
             <SelectField label="Môn học của tài liệu tải lên" value={uploadSubject} onChange={setUploadSubject}
               disabled={uploading} compact options={Object.entries(subjects).map(([value, label]) => ({ value, label }))} />
@@ -118,30 +116,26 @@ export function DocumentRepository({ documents, selected, loading, error, online
           <span>Đã chọn {selected.length}/5 để hỏi đáp</span></p>
         {filteredActive && <button onClick={resetFilters}>Xóa bộ lọc</button>}
       </div>
-      <div className={styles.grid} aria-busy={loading}>
+      <div className={styles.listViewport} aria-busy={loading}>
         {loading ? <div className={styles.empty}><p>Đang tải kho tài liệu của bạn…</p></div>
           : error && documents.length === 0 ? <div className={styles.empty}><h3>Kho tài liệu chưa tải được</h3><p>Thử tải lại để xem tài liệu hiện có.</p></div>
             : filtered.length === 0 ? <div className={styles.empty}>
-              <span className={styles.emptyLabel}>{documents.length ? "KHÔNG CÓ KẾT QUẢ" : "KHO TÀI LIỆU"}</span>
               <h3>{documents.length ? "Chưa tìm thấy tài liệu phù hợp" : mode === "knowledge" ? "Chưa có tài liệu chung" : "Giáo trình của bạn sẽ ở đây"}</h3>
               <p>{documents.length ? "Thử một tên khác hoặc bỏ bớt bộ lọc."
                 : mode === "knowledge" ? "Các nguồn RAG đã được quản trị viên xử lý và công bố sẽ xuất hiện tại đây. Tài liệu cá nhân nằm ở tab Tài liệu của tôi."
                   : "Chọn môn học rồi tải PDF hoặc DOCX lên. Tài liệu đã xử lý sẽ xuất hiện trong kho để đọc lại và hỏi đáp."}</p>
               {documents.length > 0 && <button onClick={resetFilters}>Xem tất cả tài liệu</button>}
-            </div> : filtered.map((entry) => {
+            </div> : <ul className={styles.list} aria-label="Danh sách tài liệu">{filtered.map((entry) => {
               if (entry.parts.length) {
                 const matchedParts = entry.parts.filter((part) => entry.matches.some((doc) => doc.id === part.document.id));
                 const first = matchedParts[0];
                 const active = entry.parts.some((part) => selected.includes(part.document.id));
                 const href = documentReaderHref(first.document.id, search.page);
-                return <article className={styles.card} key={entry.parts[0].document.id} data-selected={active}>
-                  <span className={styles.subject}>{subjectName(first.document.subject)}</span>
-                  <h3><Link href={href}>{entry.name}</Link></h3>
-                  <p className={styles.metadata}>{entry.parts.length} phần · {partLabel(first)}{search.page ? " · đến trang " + search.page : ""}</p>
-                  <div className={styles.cardBottom}>
-                    <Link className={styles.openFile} href={href}>Đọc tài liệu</Link>
-                    <details className={styles.partPicker}>
-                      <summary>Chọn phần để hỏi đáp</summary>
+                return <DocumentListRow key={entry.parts[0].document.id} type={first.document.file_type} selected={active}
+                  actions={<Link className={styles.openFile} href={href}>Đọc tài liệu</Link>}
+                  details={<details className={styles.partPicker}>
+                    <summary>Chọn phần để hỏi đáp<span className="sr-only">: {entry.name}</span></summary>
+                    <div className={styles.parts}>
                       {matchedParts.map((part) => {
                         const doc = part.document;
                         const checked = selected.includes(doc.id);
@@ -151,43 +145,42 @@ export function DocumentRepository({ documents, selected, loading, error, online
                           <span>{partLabel(part)}</span>
                         </label>;
                       })}
-                    </details>
-                  </div>
-                </article>;
+                    </div>
+                  </details>}>
+                  <h3 title={entry.name}><Link href={href}>{entry.name}</Link></h3>
+                  <p className={styles.metadata}>{subjectName(first.document.subject)} · {entry.parts.length} phần · {partLabel(first)}
+                    {search.page ? " · đến trang " + search.page : ""}</p>
+                </DocumentListRow>;
               }
               const doc = entry.matches[0];
               const chosen = selected.includes(doc.id);
               const date = new Date(doc.created_at);
-              return <article className={styles.card} key={doc.id} data-selected={chosen}>
-                <div className={styles.cardTop}>
-                  <span className={styles.fileType} data-type={doc.file_type}>{doc.file_type.toUpperCase()}</span>
-                  <span className={`pill ${doc.status}`}>{statuses[doc.status] ?? doc.status}</span>
-                </div>
-                <span className={styles.subject}>{subjectName(doc.subject)}</span>
-                <h3 title={doc.name}><Link href={`/study/documents/${doc.id}`}>{doc.name}</Link></h3>
-                {doc.description && <p className={styles.description}>{doc.description}</p>}
-                <p className={styles.metadata}>{fileSize(doc.size_bytes)}<span aria-hidden="true"> · </span>
-                  <time dateTime={doc.created_at}>{Number.isNaN(date.getTime()) ? "Chưa xác định ngày" : dateFormat.format(date)}</time></p>
-                {doc.error && <p className={styles.cardError}>{doc.error}</p>}
-                <div className={styles.cardBottom}>
+              return <DocumentListRow key={doc.id} type={doc.file_type} selected={chosen}
+                actions={<>
                   <label className={styles.choose}>
                     <input type="checkbox" checked={chosen} aria-label={`Chọn ${doc.name} để hỏi đáp`}
                       disabled={doc.status !== "ready" || (!chosen && selected.length >= 5)} onChange={() => onChoose(doc.id)} />
-                    <span>{chosen ? "Đã chọn hỏi đáp" : "Chọn hỏi đáp"}</span>
+                    <span>{chosen ? "Đã chọn" : "Hỏi đáp"}</span>
                   </label>
-                  <div className={styles.actions}>
-                    {doc.status === "ready" ? <a className={styles.openFile} href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer">
-                      {doc.file_type === "pdf" ? "Mở PDF" : "Tải DOCX"}<span className="sr-only">: {doc.name} (mở trong tab mới)</span>
-                    </a> : <span className={styles.notReady}>{doc.status === "deleting" ? "Đang dọn dữ liệu" : "Mở sau khi xử lý xong"}</span>}
-                    {mode === "personal" && doc.status === "failed" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "retry")}>Thử xử lý lại</button>}
-                    {mode === "personal" && doc.status === "uploading" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "complete")}>Xác nhận tải</button>}
-                    {mode === "personal" && doc.status === "deleting" && doc.error && <button disabled={actionId !== null} onClick={() => void act(doc, "delete")}>Thử xóa lại</button>}
-                    {mode === "personal" && doc.status !== "deleting" && <button className={styles.delete} disabled={actionId !== null} onClick={() => void act(doc, "delete")}>
-                      {actionId === doc.id ? "Đang gửi…" : "Xóa"}<span className="sr-only"> {doc.name}</span></button>}
-                  </div>
-                </div>
-              </article>;
-            })}
+                  {doc.status === "ready" && <a className={styles.openFile} href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer">
+                    {doc.file_type === "pdf" ? "Mở PDF" : "Tải DOCX"}<span className="sr-only">: {doc.name} (mở trong tab mới)</span>
+                  </a>}
+                  {mode === "personal" && doc.status === "failed" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "retry")}>Thử xử lý lại</button>}
+                  {mode === "personal" && doc.status === "uploading" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "complete")}>Xác nhận tải</button>}
+                  {mode === "personal" && doc.status === "deleting" && doc.error && <button disabled={actionId !== null} onClick={() => void act(doc, "delete")}>Thử xóa lại</button>}
+                  {mode === "personal" && doc.status !== "deleting" && <button className={styles.delete} disabled={actionId !== null} onClick={() => void act(doc, "delete")}>
+                    {actionId === doc.id ? "Đang gửi…" : "Xóa"}<span className="sr-only"> {doc.name}</span></button>}
+                </>}>
+                <h3 title={doc.name}><Link href={`/study/documents/${doc.id}`}>{doc.name}</Link></h3>
+                <p className={styles.metadata}>
+                  <span>{subjectName(doc.subject)}</span><span>{fileSize(doc.size_bytes)}</span>
+                  <time dateTime={doc.created_at}>{Number.isNaN(date.getTime()) ? "Chưa xác định ngày" : dateFormat.format(date)}</time>
+                  <span className={`pill ${doc.status}`}>{statuses[doc.status] ?? doc.status}</span>
+                </p>
+                {doc.description && <p className={styles.description} title={doc.description}>{doc.description}</p>}
+                {doc.error && <p className={styles.rowError}>{doc.error}</p>}
+              </DocumentListRow>;
+            })}</ul>}
       </div>
     </div>
   );
