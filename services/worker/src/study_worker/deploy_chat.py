@@ -2,13 +2,13 @@
 
 import httpx
 
-from .config import DEEPSEEK_FLASH
+from .config import DEEPSEEK_FLASH, RESEARCH_OUTPUT_TOKENS
 from .openrouter import OutputLimit, ProviderError
 
 CHAT_URL = "https://api-cdn.deploy.com/api/v1/chat/completions"
 
 
-def generate(api_key, messages):
+def generate(api_key, messages, *, research=False):
     if not api_key:
         raise ProviderError("Worker chưa được cấu hình DEPLOY_API_KEY.", permanent=True)
     response = httpx.post(
@@ -16,7 +16,8 @@ def generate(api_key, messages):
         headers={"Authorization": f"Bearer {api_key}"},
         json={
             "model": DEEPSEEK_FLASH, "messages": messages, "stream": False,
-            "max_completion_tokens": 2048, "reasoning_effort": "none", "temperature": 0.2,
+            "max_completion_tokens": RESEARCH_OUTPUT_TOKENS if research else 2048,
+            "reasoning_effort": "none", "temperature": 0.2,
         },
         timeout=httpx.Timeout(150, connect=15),
     )

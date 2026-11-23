@@ -1,6 +1,8 @@
 import json
 import re
 
+from .config import RESEARCH_INPUT_TOKENS
+
 NO_EVIDENCE = "Mình chưa tìm thấy thông tin đủ phù hợp trong các tài liệu đã chọn. Bạn hãy làm rõ câu hỏi hoặc chọn thêm tài liệu liên quan."
 SYSTEM = """Bạn là trợ giảng hỗ trợ sinh viên Việt Nam học Giải tích, Đại số tuyến tính và Vật lý đại cương.
 Với bài tập hoặc câu hỏi yêu cầu tính, giải, chứng minh hay chọn đáp án, hãy hướng dẫn người học tự làm.
@@ -101,16 +103,26 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         system += GENERAL_GUIDANCE
     else:
         system += "Chỉ trả lời dựa trên nguồn. Nếu thiếu bằng chứng, nói rõ chưa tìm thấy thông tin phù hợp.\n"
+    if mode in ("search", "research"):
+        system += "Đặt nhãn [S1], [S2] ngay sau từng nhận định lấy từ nguồn tương ứng. Chỉ dùng nhãn có trong danh sách.\n"
     if mode == "research":
-        system += "Đối chiếu các nguồn và nêu phần còn thiếu bằng chứng. Với câu hỏi khái niệm, tóm tắt điểm chính.\n"
+        system += (
+            "Viết bài tổng hợp chi tiết bằng tiếng Việt, chia mục theo câu hỏi. "
+            "Giải thích khái niệm hoặc cơ chế, tổng hợp kết quả, đối chiếu các nguồn và nêu giới hạn của bằng chứng. "
+            "Ưu tiên bài báo có tóm tắt phù hợp. Phân biệt bài báo với nguồn web và tóm tắt với toàn văn. "
+            "Chỉ khẳng định đã đối chiếu khi thật sự có nhiều nguồn liên quan.\n"
+        )
+    input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else 2900
+    max_sources = 10 if mode == "research" else 5
     follow_up = bool(history)
     if follow_up:
+        if mode != "research":
+            system += "Trả lời câu hỏi tiếp nối trong vài đoạn và kết thúc bằng tối đa một bước thực hành.\n"
         tutoring_question = (
             "Tiếp tục từ đề bài và phần người học vừa xem. Nếu họ hỏi kỹ hơn hoặc hỏi vì sao, "
             "giải thích đúng bước được nhắc tới bằng phép biến đổi cụ thể và lý do. "
             "Nếu hỏi tiếp, đưa ra một bước mới sát với bước vừa làm. "
             "Đi thẳng vào bước đang hỏi, tránh lặp lại đề và các bước đã giải thích. "
-            "Trả lời trong vài đoạn và kết thúc bằng tối đa một bước thực hành. "
             "Nếu lời giải trước có sai sót, sửa ngay tại bước đó. "
             "Với bài tập, để người học tự thực hiện bước quyết định đáp án. "
             "Nếu có nhiều bước có thể được nhắc tới, hỏi rõ bước cần giải thích.\n\n"
@@ -125,8 +137,21 @@ def build_prompt(question, history, candidates, count, mode="documents"):
             f"Đề hoặc câu hỏi của người học:\n{question}"
         )
 
+    if mode == "research":
+        tutoring_question += (
+            "\n\nTổng hợp thành các mục phù hợp, chẳng hạn bối cảnh, cơ chế hoặc phương pháp, "
+            "kết quả từ các nguồn và giới hạn. Khi có từ hai nguồn phù hợp, hãy nêu "
+            "điểm chung hoặc khác biệt bằng dữ kiện cụ thể và trích dẫn ngay tại mỗi điểm. "
+            "Nếu chỉ có một nguồn liên quan, trình bày rõ phạm vi bằng chứng của nguồn đó."
+        )
+
     def render_context(items):
-        references = [{"label": item["label"], "text": item["content"]} for item in items if not item.get("question_image")]
+        references = [
+            {"label": item["label"], "text": item["content"], **(
+                {"title": item["title"], "kind": item["kind"]} if item.get("kind") else {}
+            )}
+            for item in items if not item.get("question_image")
+        ]
         images = [item for item in items if item.get("question_image")]
         user = tutoring_question
         if images:
@@ -154,7 +179,7 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         for index, item in enumerate(candidates[:2], 1)
         if item.get("question_image")
     ])
-    history_budget = min(1100, 2900 - count(system + image_sources + image_question))
+    history_budget = min(1100, input_budget - count(system + image_sources + image_question))
     recent = _prompt_history(question, history, count, history_budget)
     history_tokens = sum(count(message["content"]) + 8 for message in recent)
     chosen = []
@@ -165,12 +190,11 @@ def build_prompt(question, history, candidates, count, mode="documents"):
             continue
         proposed = [*chosen, {**candidate, "label": f"S{len(chosen) + 1}"}]
         source_text, user = render_context(proposed)
-        # Keep room for 3584 Ollama output tokens and chat-template overhead within 7168.
-        if count(system + source_text + user) + history_tokens > 2900:
+        if count(system + source_text + user) + history_tokens > input_budget:
             continue
         chosen = proposed
         seen.add(normalized)
-        if len(chosen) == 5:
+        if len(chosen) == max_sources:
             break
     sources, user = render_context(chosen)
     return [

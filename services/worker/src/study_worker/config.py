@@ -5,6 +5,10 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
+RESEARCH_INPUT_TOKENS = 6200
+RESEARCH_OUTPUT_TOKENS = 5000
+RESEARCH_CONTEXT_TOKENS = 12288
+
 DEEPSEEK_FLASH = "deepseek-ai/deepseek-v4.1-flash-1017"
 
 
@@ -33,6 +37,7 @@ class Settings:
     cloud_embedding_model: str = "BAAI/bge-m3"
     deploy_api_key: str = field(default="", repr=False)
 
+    brave_search_key: str = field(default="", repr=False)
     mineru_python: str = ""
     mineru_model: str = ""
 
@@ -92,6 +97,7 @@ class Settings:
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
             deploy_api_key=deploy_api_key,
+            brave_search_key=os.getenv("BRAVE_SEARCH_API_KEY", "").strip(),
             mineru_python=os.getenv("MINERU_PYTHON", ""),
             mineru_model=os.getenv("MINERU_MODEL_PATH", ""),
         )

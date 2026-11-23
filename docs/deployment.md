@@ -95,3 +95,11 @@ Worker tự tạo collection và chỉ mục Qdrant theo cấu hình. Lần đ�
 | Bản web mới có lỗi | Rollback về deployment trước trên Vercel. Với schema đang dùng, điều chỉnh bằng migration tiếp theo. |
 
 [`supabase/metrics.sql`](../supabase/metrics.sql) có truy vấn theo dõi thời gian chờ, xử lý và lỗi của job.
+
+## Tìm kiếm web và nghiên cứu
+
+Đặt biến môi trường `BRAVE_SEARCH_API_KEY` trên worker thực sự xử lý câu hỏi. Lấy khóa từ [Brave Search API](https://api-dashboard.search.brave.com/documentation/quickstart). Cấu hình từng worker có thể nhận chat, gồm worker chạy bằng Ollama và Render nếu dùng dự phòng. Khởi động lại worker sau khi đặt khóa.
+
+Tìm kiếm dùng đoạn trích từ nhiều trang web. Nếu Brave chưa cấu hình hoặc không trả được nguồn, worker thử Wikipedia và hiển thị phạm vi nguồn dự phòng. Nghiên cứu tra thêm bài tạp chí có tóm tắt qua [Crossref](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) và gắn liên kết DOI. Chế độ này tổng hợp từ đoạn trích web và tóm tắt bài báo. Từ khóa chỉ lấy từ câu hỏi hiện tại. Nếu tra cứu một loại nguồn bị lỗi, câu trả lời ghi rõ phần thiếu.
+
+Nghiên cứu dành tối đa khoảng 6.200 token đầu vào và 5.000 token sinh câu trả lời. Ollama dành context 12.288 token cho chế độ này. Giới hạn thực tế phụ thuộc model, VRAM và nhà cung cấp.

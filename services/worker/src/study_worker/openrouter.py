@@ -7,7 +7,7 @@ import time
 import httpx
 from tokenizers import Tokenizer
 
-from .config import DEEPSEEK_FLASH
+from .config import DEEPSEEK_FLASH, RESEARCH_OUTPUT_TOKENS
 
 
 class ProviderError(RuntimeError):
@@ -180,11 +180,11 @@ class OpenRouterModels:
         # Provider text/IDs cannot introduce new sources; only reorder canonical DB rows.
         return [candidates[item["index"]] for item in sorted(results, key=lambda item: item["relevance_score"], reverse=True)]
 
-    def generate(self, messages, *, on_reset=None):
+    def generate(self, messages, *, on_reset=None, research=False):
         if self.settings.chat_model == DEEPSEEK_FLASH:
             from .deploy_chat import generate
 
-            yield from generate(self.settings.deploy_api_key, messages)
+            yield from generate(self.settings.deploy_api_key, messages, research=research)
             return
         self.pace()
         with self.http.stream("POST", "chat/completions", json={
@@ -192,7 +192,7 @@ class OpenRouterModels:
             "messages": messages,
             "stream": True,
             "temperature": 0.2,
-            "max_tokens": 768,
+            "max_tokens": RESEARCH_OUTPUT_TOKENS if research else 768,
             "reasoning": {"enabled": False, "exclude": True},
             "provider": self.routing(),
         }) as response:

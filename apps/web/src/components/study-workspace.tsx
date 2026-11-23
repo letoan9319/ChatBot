@@ -725,7 +725,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   )}
                   {message.status === "completed" && Boolean(message.web_sources?.length) && (
                     <div className={styles.citations}>{message.web_sources?.map(item => (
-                      <a key={item.label} href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · Wikipedia</a>
+                      <a key={item.label} href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}{item.kind === "article" ? " · Bài báo" : ""}</a>
                     ))}</div>
                   )}
                   {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
@@ -803,8 +803,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
                   : "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
-                    : chatMode === "research" ? "Đối chiếu nhiều truy vấn Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."
-                      : chatMode === "search" ? "Tìm trên Wikipedia. Từ khóa từ câu hỏi sẽ được gửi đi."
+                    : chatMode === "research" ? "Tìm nguồn web và bài báo để tổng hợp chi tiết. Từ khóa từ câu hỏi sẽ được gửi đi."
+                      : chatMode === "search" ? "Tìm thông tin từ các trang web liên quan. Từ khóa từ câu hỏi sẽ được gửi đi."
                         : selected.length ? "Đang dùng tài liệu đã chọn." : "Tự động tìm trong tài liệu chung."}</span>
                 <span>{question.length}/2000</span>
               </div>
@@ -846,7 +846,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   <span>[{item.label}]</span><strong>{item.document_name}</strong><small>{location(item)}</small>
                 </button>)}
                 {allWebSources.map(item => <a className={styles.pdfLink} key={item.id} href={item.url}
-                  target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · Wikipedia</a>)}
+                  target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}{item.kind === "article" ? " · Bài báo" : ""}</a>)}
               </div>}
             </div>
           </aside>

@@ -44,7 +44,7 @@ export type Message = {
   sequence: number;
   generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
-  web_sources?: { label: string; title: string; url: string }[];
+  web_sources?: { label: string; title: string; url: string; kind?: "web" | "article" | "wikipedia" | null }[];
 };
 export type SourceDetail = Source & {
   available: boolean;

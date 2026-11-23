@@ -469,20 +469,17 @@ class Pipeline:
             ]
             image_ids = {row["id"] for row in image_chunks}
             candidates = image_chunks + [item for item in candidates if item["id"] not in image_ids]
-        if mode in ("search", "research"):
-            try:
-                web = search_web(payload["question"], mode)
-            except httpx.RequestError:
-                if not candidates:
-                    raise
-                web = []
-            candidates = candidates[:2] + web[:3] + candidates[2:] + web[3:]
+        external_search = mode in ("search", "research")
+        notices = []
+        if external_search:
+            web, notices = search_web(payload["question"], mode, self.settings.brave_search_key)
+            candidates = candidates[:2] + web[:4] + candidates[2:] + web[4:]
         guard(self.conn, job)
         self.chat_documents(job)
         prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count, mode)
         answer, used = NO_EVIDENCE, []
-        if mode in ("search", "research") and not candidates:
-            answer = "Mình chưa tìm thấy nguồn Wikipedia phù hợp. Hãy thử một câu hỏi cụ thể hơn hoặc chọn thêm tài liệu."
+        if external_search and not selected:
+            answer = "Mình chưa tìm thấy nguồn phù hợp. Hãy thử từ khóa cụ thể hơn."
         allow_uncited = allows_general_knowledge(mode)
         generated = bool(selected) or allow_uncited
         if image_versions and not any(item.get("question_image") for item in selected):
@@ -498,25 +495,42 @@ class Pipeline:
                 self.save_partial(job, answer)
                 last_flush = time.monotonic()
 
-            truncated = False
-            try:
-                with closing(self.models.generate(prompt, on_reset=reset_answer)) as tokens:
-                    for token in tokens:
-                        if self.heartbeat.lost.is_set():
-                            guard(self.conn, job)
-                            raise LostLease()
-                        answer += token
-                        if not image_documents and time.monotonic() - last_flush >= 1:
-                            self.save_partial(job, answer)
-                            last_flush = time.monotonic()
-            except OutputLimit:
-                truncated = True
-                LOG.info("chat_output_limit job_id=%s", job["id"])
-            if image_documents:
-                answer = first_image_hint(answer)
-            answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
-            if truncated:
-                answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
+            options = {"research": True} if mode == "research" else {}
+            for attempt in range(2 if external_search else 1):
+                truncated = False
+                if attempt:
+                    reset_answer()
+                    prompt[-1]["content"] += (
+                        "\n\nViết lại câu trả lời. Gắn trích dẫn đúng nhãn từ danh sách nguồn ngay sau "
+                        "nhận định được hỗ trợ. Dùng nguồn có liên quan và bỏ các nhận định thiếu cơ sở."
+                    )
+                try:
+                    with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
+                        for token in tokens:
+                            if self.heartbeat.lost.is_set():
+                                guard(self.conn, job)
+                                raise LostLease()
+                            answer += token
+                            if not image_documents and time.monotonic() - last_flush >= 1:
+                                self.save_partial(job, answer)
+                                last_flush = time.monotonic()
+                except OutputLimit:
+                    truncated = True
+                    LOG.info("chat_output_limit job_id=%s", job["id"])
+                if image_documents:
+                    answer = first_image_hint(answer)
+                answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
+                if answer != NO_EVIDENCE:
+                    if truncated:
+                        answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
+                    break
+            if external_search and answer == NO_EVIDENCE:
+                answer = "Mình tìm thấy nguồn nhưng chưa tổng hợp được câu trả lời có trích dẫn hợp lệ."
+                used = [source for source in selected if "url" in source]
+                if used:
+                    answer += " Bạn có thể mở các nguồn tìm được bên dưới."
+        if notices:
+            answer += "\n\n*" + " ".join(notices) + "*"
         with self.conn.transaction():
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
@@ -542,7 +556,10 @@ class Pipeline:
                  job["message_id"]),
             )
             if mode in ("search", "research"):
-                web_sources = [{key: item[key] for key in ("label", "title", "url")} for item in used if "url" in item]
+                web_sources = [
+                    {**{key: item[key] for key in ("label", "title", "url")}, "kind": item.get("kind")}
+                    for item in used if "url" in item
+                ]
                 self.conn.execute("update public.messages set web_sources=%s where id=%s",
                                   (Jsonb(web_sources), job["message_id"]))
             for item in used:

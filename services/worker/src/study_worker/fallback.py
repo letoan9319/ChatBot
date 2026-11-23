@@ -33,14 +33,15 @@ class ChatFallbackModels:
     def rerank(self, query, candidates):
         return candidates
 
-    def generate(self, messages, *, on_reset=None):
+    def generate(self, messages, *, on_reset=None, research=False):
         self.last_generation_provider = "ollama"
         # Callers that cannot reset their output (evaluation/benchmark) receive
         # local content only after the whole primary attempt succeeds.
+        options = {"research": True} if research else {}
         buffered = []
         saw_content = False
         try:
-            for token in self.primary.generate(messages):
+            for token in self.primary.generate(messages, **options):
                 if token:
                     saw_content = True
                 if on_reset is not None:
@@ -74,7 +75,7 @@ class ChatFallbackModels:
                 candidate.close()
                 raise
             self.remote = candidate
-        yield from self.remote.generate(messages)
+        yield from self.remote.generate(messages, **options)
 
     def close(self):
         self.primary.close()

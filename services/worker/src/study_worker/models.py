@@ -5,7 +5,7 @@ import httpx
 from qdrant_client import QdrantClient, models
 from tokenizers import Tokenizer
 
-from .config import Settings
+from .config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS, Settings
 from .openrouter import OutputLimit
 
 
@@ -60,7 +60,7 @@ class LocalModels:
             raise ValueError("Expected BGE-M3 dense embeddings of dimension 1024")
         return vectors
 
-    def generate(self, messages, *, on_reset=None):
+    def generate(self, messages, *, on_reset=None, research=False):
         self.unload(self.settings.embed_model)
         with self.http.stream(
             "POST",
@@ -71,7 +71,11 @@ class LocalModels:
                 "think": False,
                 "stream": True,
                 "keep_alive": "5m",
-                "options": {"num_ctx": 7168, "num_predict": 3584, "temperature": 0.2},
+                "options": {
+                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research else 7168,
+                    "num_predict": RESEARCH_OUTPUT_TOKENS if research else 3584,
+                    "temperature": 0.2,
+                },
             },
         ) as response:
             response.raise_for_status()
