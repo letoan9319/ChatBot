@@ -97,9 +97,15 @@ def _wikipedia(http, terms):
     return sources
 
 
+def _query_terms(text):
+    return " ".join(re.findall(r"[^\W_]+", text, re.UNICODE)[:32])[:350]
+
+
 def search_web(question, mode, brave_key=""):
-    # Forward only terms from the current user input, never history or document excerpts.
-    terms = " ".join(re.findall(r"[^\W_]+", question, re.UNICODE)[:32])[:350]
+    # Keep an explicit topic before ":" separate from instructions about the report.
+    topic, separator, _ = question.partition(":")
+    focused = _query_terms(topic) if separator and mode == "research" else ""
+    terms = focused or _query_terms(question)
     if not terms:
         return [], []
     research = mode == "research"
@@ -127,6 +133,15 @@ def search_web(question, mode, brave_key=""):
                 else:
                     if not articles:
                         notices.append("Chưa tìm thấy bài báo có tóm tắt cho truy vấn này.")
+    if focused and articles:
+        keywords = {word for word in focused.casefold().split() if len(word) >= 3}
+        if len(keywords) >= 3:
+            articles = [
+                source for source in articles
+                if len(keywords & set(_query_terms(source["title"]).casefold().split())) >= 2
+            ]
+        if not articles:
+            notices.append("Chưa tìm thấy bài báo có tiêu đề sát chủ đề.")
     # Give both source types a chance to fit into the prompt before filling with extras.
     sources = web[:2] + articles[:2] + web[2:] + articles[2:]
     unique = {}

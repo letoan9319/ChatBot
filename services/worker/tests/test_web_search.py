@@ -51,3 +51,22 @@ def test_basic_search_without_key_uses_disclosed_wikipedia_fallback(monkeypatch)
     sources, notices = web_search.search_web("Newton", "search")
     assert [source["kind"] for source in sources] == ["wikipedia"]
     assert "Nguồn web dự phòng từ Wikipedia." in notices
+
+
+def test_research_uses_explicit_topic_and_discards_irrelevant_papers(monkeypatch):
+    def respond(request):
+        if request.url.host == "vi.wikipedia.org":
+            return httpx.Response(200, json={})
+        assert request.url.params["query.bibliographic"] == "Physics informed neural networks"
+        abstract = " ".join(["Long abstract."] * 12)
+        return httpx.Response(200, json={"message": {"items": [
+            {"DOI": "10.1234/off-topic", "title": ["Kết quả thực nghiệm của doanh nghiệp"], "abstract": abstract},
+            {"DOI": "10.1234/pinn", "title": ["Physics-informed neural networks"], "abstract": abstract},
+        ]}})
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    sources, _ = web_search.search_web(
+        "Physics-informed neural networks: cơ chế hoạt động, kết quả thực nghiệm và giới hạn", "research",
+    )
+    assert [source["url"] for source in sources] == ["https://doi.org/10.1234/pinn"]
