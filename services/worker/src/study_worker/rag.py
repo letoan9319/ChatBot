@@ -44,6 +44,9 @@ COMPLEX_QUESTION = re.compile(
 )
 
 
+VISUAL_REQUEST = re.compile(r"biểu đồ|sơ đồ|lưu đồ|diagram|flowchart|bar chart|learnstep-visual", re.I)
+
+
 def image_transcription(question):
     transcription = re.match(r"^(?:hãy )?(?:đọc|chép|phiên âm|trích xuất)\b", question.strip(), re.IGNORECASE)
     asks_for_solution = re.search(r"\b(?:hướng dẫn|giải|tính|chứng minh)\b", question, re.IGNORECASE)
@@ -133,9 +136,11 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         )
     input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else 2900
     max_sources = 10 if mode == "research" else 5
-    if re.search(r"biểu đồ|sơ đồ|lưu đồ|diagram|flowchart|bar chart|learnstep-visual", question, re.I):
+    wants_visual = bool(VISUAL_REQUEST.search(question))
+    if wants_visual:
         system += (
-            "Nếu người học yêu cầu biểu đồ hoặc sơ đồ, xuất một khối mã learnstep-visual chứa JSON. "
+            "Yêu cầu tạo biểu đồ từ số liệu đã cho hoặc sơ đồ từ các bước đã biết là yêu cầu minh họa. "
+            "Hãy tạo trực tiếp hình minh họa bằng khối mã learnstep-visual chứa JSON. "
             'Biểu đồ thanh: {"type":"bar","title":"...","items":[{"label":"...","value":12}]}. '
             'Sơ đồ quy trình: {"type":"flow","title":"...","steps":["Bước A","Bước B"]}. '
             "Tối đa 8 mục, dùng số liệu được cung cấp hoặc ghi rõ số liệu minh họa trong phần văn bản. "
@@ -147,6 +152,13 @@ def build_prompt(question, history, candidates, count, mode="documents"):
         tutoring_question = (
             "Chép trực tiếp và chính xác chữ, số hoặc công thức người dùng hỏi trong ảnh. "
             "Trả lời ngắn bằng tiếng Việt. Hãy nói rõ nếu dữ kiện không đọc được.\n\n"
+            f"{question}"
+        )
+    elif wants_visual:
+        tutoring_question = (
+            "Tạo trực tiếp biểu đồ hoặc sơ đồ hiển thị được bằng khối learnstep-visual theo cấu trúc đã mô tả. "
+            "Giữ đúng dữ liệu và thứ tự mà người dùng đã cung cấp. "
+            "Với bài tập, dùng hình để minh họa dữ kiện hoặc bước giải mà không tiết lộ đáp án cuối.\n\n"
             f"{question}"
         )
     elif follow_up:
@@ -240,9 +252,10 @@ def build_prompt(question, history, candidates, count, mode="documents"):
     ], chosen
 
 
-def close_visual_block(answer):
+def close_visual_block(answer, question=""):
     fence = chr(96) * 3
-    start = re.search(r"(?m)^" + fence + r"learnstep-visual[ \t]*\r?\n", answer)
+    languages = r"(?:learnstep-visual|json)" if VISUAL_REQUEST.search(question) else "learnstep-visual"
+    start = re.search(r"(?m)^" + fence + languages + r"[ \t]*\r?\n", answer)
     if not start:
         return answer
     payload = answer[start.end():]
@@ -255,9 +268,10 @@ def close_visual_block(answer):
         return answer
     boundary = start.end() + padding + end
     tail = answer[boundary:].lstrip()
+    block = answer[:start.start()] + fence + "learnstep-visual\n" + answer[start.end():boundary]
     if tail.startswith(fence):
-        return answer
-    return answer[:boundary] + "\n" + fence + ("\n\n" + tail if tail else "")
+        return block + answer[boundary:]
+    return block + "\n" + fence + ("\n\n" + tail if tail else "")
 
 
 def first_image_hint(answer):

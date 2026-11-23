@@ -177,3 +177,12 @@ def test_valid_visual_json_can_be_closed_without_swallowing_following_text():
     assert close_visual_block(visual + "\n\nDiễn giải") == expected
     assert close_visual_block(expected) == expected
     assert close_visual_block(fence + "learnstep-visual\n{incomplete") == fence + "learnstep-visual\n{incomplete"
+
+
+def test_plain_json_tag_becomes_visual_only_for_visual_requests():
+    from study_worker.rag import close_visual_block
+
+    fence = chr(96) * 3
+    response = fence + 'json\n{"type":"flow","title":"A","steps":["B","C"]}\n' + fence
+    assert close_visual_block(response, "Trả dữ liệu JSON") == response
+    assert close_visual_block(response, "Vẽ sơ đồ").startswith(fence + "learnstep-visual\n")

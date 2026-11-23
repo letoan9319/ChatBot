@@ -575,7 +575,7 @@ class Pipeline:
                     LOG.info("chat_output_limit job_id=%s", job["id"])
                 if image_documents:
                     answer = first_image_hint(answer)
-                answer = close_visual_block(answer)
+                answer = close_visual_block(answer, question)
                 answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
                 if answer != NO_EVIDENCE:
                     if truncated:
