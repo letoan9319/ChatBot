@@ -232,8 +232,10 @@ def test_chat_refuses_old_embedding_space_before_any_ai_call():
         pipeline.chat_documents({"user_id": "u", "payload": {"document_ids": ["d"], "versions": {"d": 1}}})
 
 
-@pytest.mark.parametrize(("authorized_owner", "mode"), [("alice", "documents"), ("library", "documents"), ("library", "library")])
-def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkeypatch, authorized_owner, mode):
+@pytest.mark.parametrize(("authorized_owner", "mode", "subject"), [
+    ("alice", "documents", None), ("library", "documents", "calculus"), ("library", "library", "calculus"),
+])
+def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkeypatch, authorized_owner, mode, subject):
     canonical = {
         "id": "own-chunk", "document_id": "own-doc", "user_id": authorized_owner, "index_version": 1,
         "content": "Authorized source", "document_name": "source.pdf", "page": 1, "section": None, "paragraph": None,
@@ -246,12 +248,17 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
 
         def execute(self, sql, params):
             if "select role,content" in sql:
+                assert "subject is not distinct from %s" in sql and params[2] == subject
                 return SimpleNamespace(fetchall=lambda: [])
             if "select c.*" in sql:
-                assert params[1:] == (authorized_owner, "own-doc", authorized_owner, 1, mode == "library", "alice")
+                assert "d.subject=%s" in sql
+                assert params[1:] == (authorized_owner, "own-doc", authorized_owner, 1, subject, subject, mode == "library", "alice")
                 return SimpleNamespace(fetchone=lambda: canonical if params[0] == "own-chunk" else None)
-            if "join public.knowledge_documents" in sql or "from public.knowledge_documents k" in sql:
+            if "from public.knowledge_documents k" in sql:
+                assert "d.subject=%s" in sql and params[-2:] == (subject, subject)
                 return SimpleNamespace(fetchall=lambda: [{"id": "own-doc", "user_id": authorized_owner, "index_version": 1}])
+            if "join public.knowledge_documents" in sql:
+                return SimpleNamespace(fetchall=lambda: [{"id": "own-doc", "index_version": 1}])
             return None
 
     def rerank(query, candidates):
@@ -281,6 +288,7 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
     pipeline.chat({"id": "job", "message_id": "assistant", "user_id": "alice", "payload": {
         "document_ids": [] if mode == "library" else ["own-doc"], "versions": {"own-doc": 1}, "conversation_id": "conv",
         "mode": mode,
+        "subject": subject,
         "owners": {"own-doc": authorized_owner},
         "user_message_id": "question", "question": "q",
     }})

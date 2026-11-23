@@ -9,7 +9,7 @@
   --ux-line-2: var(--line-strong);
   --ux-ease: cubic-bezier(.2,.8,.2,1);
 }
-.u453Wrap{width:250px;max-width:100%}
+.u453Wrap{max-width:100%}
 .u453Toggle{font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:8px;height:34px;margin-left:-9px;padding:0 9px;border:0;border-radius:11px;background:none;font-size:15px;font-weight:500;letter-spacing:-.01em;color:var(--ux-ink-2);transition:background-color .2s var(--ux-ease),color .2s var(--ux-ease)}
 .u453Toggle:hover{background:color-mix(in srgb,var(--ux-ink) 6%,transparent);color:var(--ux-ink)}
 .u453 .u453Toggle:focus-visible{outline:2px solid var(--ux-accent);outline-offset:1px}
@@ -47,3 +47,5 @@
     -webkit-text-fill-color: currentColor;
   }
 }
+
+.approach { margin: 8px 0 4px; font-size: 13px; }

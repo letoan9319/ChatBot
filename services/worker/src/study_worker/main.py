@@ -17,7 +17,7 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image, ollama_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, allows_general_knowledge, build_prompt, close_visual_block, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
+from .rag import NO_EVIDENCE, SUBJECTS, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -366,8 +366,11 @@ class Pipeline:
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
             self.conn.execute(
-                "update public.messages set content=%s,status='generating' where id=%s and user_id=%s",
-                (content, job["message_id"], job["user_id"]),
+                """update public.messages set content=%s,status='generating',
+                   thinking_started_at=case when %s then null else thinking_started_at end,
+                   thinking_ms=case when %s then null else thinking_ms end
+                   where id=%s and user_id=%s""",
+                (content, not content, not content, job["message_id"], job["user_id"]),
             )
 
     def save_thinking(self, job, elapsed):
@@ -433,6 +436,7 @@ class Pipeline:
     def chat(self, job):
         payload = job["payload"]
         mode = payload.get("mode", "documents")
+        subject = payload.get("subject")
         guard(self.conn, job)
         image_documents = self.chat_documents(job)
         document_ids = payload["document_ids"]
@@ -442,8 +446,9 @@ class Pipeline:
             catalog = self.conn.execute(
                 """select d.id,d.user_id,d.index_version from public.knowledge_documents k
                 join public.documents d on d.id=k.document_id where d.status='ready'
-                and d.embedding_profile=%s and d.vector_collection=%s""",
-                (self.settings.embedding_profile, self.vectors.collection),
+                and d.embedding_profile=%s and d.vector_collection=%s
+                and (%s::text is null or d.subject=%s)""",
+                (self.settings.embedding_profile, self.vectors.collection, subject, subject),
             ).fetchall()
             document_ids = [str(row["id"]) for row in catalog]
             versions = {str(row["id"]): row["index_version"] for row in catalog}
@@ -451,10 +456,11 @@ class Pipeline:
         history = self.conn.execute(
             """select role,content,id from public.messages
             where conversation_id=%s and user_id=%s
+            and subject is not distinct from %s
             and (status='completed' or (status='stopped' and content<>'')) and sequence <
             (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
             order by sequence desc limit 24""",
-            (payload["conversation_id"], job["user_id"], payload["user_message_id"],
+            (payload["conversation_id"], job["user_id"], subject, payload["user_message_id"],
              payload["conversation_id"], job["user_id"]),
         ).fetchall()[::-1]
         question = payload["question"]
@@ -477,6 +483,7 @@ class Pipeline:
                 join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
                 and c.document_id=%s and d.user_id=%s and d.status='ready'
                 and c.index_version=d.index_version and c.index_version=%s
+                and (%s::text is null or d.subject=%s)
                 and ((not %s and d.user_id=%s) or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
                 (
                     point.get("chunk_id"),
@@ -484,6 +491,7 @@ class Pipeline:
                     point.get("document_id"),
                     point.get("user_id"),
                     versions.get(point.get("document_id")),
+                    subject, subject,
                     mode == "library",
                     job["user_id"],
                 ),
@@ -518,11 +526,16 @@ class Pipeline:
         external_search = mode in ("search", "research")
         notices = []
         if external_search:
-            web, notices = search_web(payload["question"], mode, self.settings.searxng_url)
+            terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
+            web, notices = search_web(terms, mode, self.settings.searxng_url)
             candidates = candidates[:2] + web[:4] + candidates[2:] + web[4:]
         guard(self.conn, job)
         self.chat_documents(job)
-        prompt, selected = build_prompt(payload["question"], history, candidates, self.models.count, mode)
+        reason = should_reason(query, mode, has_image=bool(image_versions))
+        prompt, selected = build_prompt(
+            question, history, candidates, self.models.count, mode, subject=subject,
+            reasoning=reason and not image_versions,
+        )
         answer, used = NO_EVIDENCE, []
         if external_search and not selected:
             answer = "Mình chưa tìm thấy nguồn phù hợp. Hãy thử từ khóa cụ thể hơn."
@@ -542,8 +555,7 @@ class Pipeline:
                 last_flush = time.monotonic()
 
             options = {"research": True} if mode == "research" else {}
-            if (getattr(self.models, "supports_thinking_progress", False)
-                    and should_reason(query, mode, has_image=bool(image_versions))):
+            if reason and getattr(self.models, "supports_thinking_progress", False):
                 options["on_thinking"] = lambda elapsed: self.save_thinking(job, elapsed)
             if image_versions and getattr(self.models, "supports_question_vision", False):
                 images = self.question_vision(job, image_versions)
@@ -576,6 +588,8 @@ class Pipeline:
                 if image_documents:
                     answer = first_image_hint(answer)
                 answer = close_visual_block(answer, question)
+                if answer.strip() and allow_uncited and not image_versions:
+                    answer = add_gradient_example(answer, question, subject=subject)
                 answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
                 if answer != NO_EVIDENCE:
                     if truncated:

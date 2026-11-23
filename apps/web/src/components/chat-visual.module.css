@@ -11,3 +11,17 @@
 .chart[data-divided="true"] .axis::before { content: ""; position: absolute; inset: -2px auto -2px 50%; border-left: 1px solid var(--control-line); }
 .chart[data-divided="true"] .bar { left: 50%; }
 .chart[data-divided="true"] .bar[data-negative="true"] { left: auto; right: 50%; background: var(--secondary-edge); }
+.line { max-width: 520px; font-size: 13px; overflow-wrap: anywhere; }
+.plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; margin-top: 6px; }
+.plot svg { display: block; width: 100%; height: clamp(100px, 25vw, 160px); }
+.plot line, .plot polyline { fill: none; vector-effect: non-scaling-stroke; }
+.plot line { stroke: var(--control-line); }
+.plot polyline { stroke: var(--primary-edge); stroke-width: 2.5px; stroke-linejoin: round; }
+.yScale, .xScale { display: flex; justify-content: space-between; }
+.yScale { flex-direction: column; align-items: flex-end; }
+.yScale[data-flat="true"] { justify-content: center; }
+.xScale { grid-column: 2; padding-inline: 1.333%; }
+.xLabel { text-align: right; margin-bottom: 8px; }
+.line table { width: 100%; table-layout: fixed; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.plot .zero { stroke-dasharray: 4 3; }

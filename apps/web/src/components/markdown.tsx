@@ -6,10 +6,11 @@ import rehypeKatex from "rehype-katex";
 import { normalizeChatMath } from "./chat-math";
 import { ChatVisual, parseChatVisual } from "./chat-visual";
 
-export function Markdown({ content, chatMath = false, visuals = false }: {
+export function Markdown({ content, chatMath = false, visuals = false, streaming = false }: {
   content: string;
   chatMath?: boolean;
   visuals?: boolean;
+  streaming?: boolean;
 }) {
   // Raw HTML is never parsed; KaTeX cannot trust URLs or HTML commands.
   return (
@@ -25,8 +26,9 @@ export function Markdown({ content, chatMath = false, visuals = false }: {
         ]}
         components={{
           pre: ({ children }) => {
-            if (visuals && isValidElement<{ className?: string; children?: unknown }>(children) &&
+            if ((visuals || streaming) && isValidElement<{ className?: string; children?: unknown }>(children) &&
               children.props.className === "language-learnstep-visual" && typeof children.props.children === "string") {
+              if (streaming) return null;
               const visual = parseChatVisual(children.props.children);
               if (visual) return <ChatVisual visual={visual} />;
             }

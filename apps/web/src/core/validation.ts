@@ -7,6 +7,9 @@ export const subjects = {
   "linear-algebra": "Đại số tuyến tính",
   physics: "Vật lý đại cương",
 } as const;
+export const subjectSchema = z.enum(["calculus", "linear-algebra", "physics"]);
+export type Subject = keyof typeof subjects;
+
 export const uploadSchema = z.object({
   name: z
     .string()
@@ -15,7 +18,7 @@ export const uploadSchema = z.object({
     .max(180)
     .regex(/\.(pdf|docx)$/i, "Chỉ hỗ trợ PDF và DOCX."),
   size: z.number().int().min(1).max(MAX_FILE_SIZE),
-  subject: z.enum(["calculus", "linear-algebra", "physics"]),
+  subject: subjectSchema,
   key: uuid,
 });
 export const chatModes = { documents: "Theo tài liệu", search: "Tìm kiếm", research: "Nghiên cứu" } as const;
@@ -29,6 +32,7 @@ export const messageSchema = z.object({
     .refine((ids) => new Set(ids).size === ids.length),
   key: uuid,
   mode: z.enum(["documents", "search", "research"]).optional(),
+  subject: subjectSchema.optional(),
 });
 export const keySchema = z.object({ key: uuid });
 

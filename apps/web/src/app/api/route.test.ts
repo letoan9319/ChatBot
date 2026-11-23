@@ -43,6 +43,17 @@ beforeEach(() => {
 });
 
 describe("API authorization and asynchronous boundaries", () => {
+  it("scopes library chat to the requested subject and rejects unknown subjects", async () => {
+    mocks.rpc.mockResolvedValue({ data: { id }, error: null });
+    const message = { question: "Gradient là gì?", documentIds: [], key: id, subject: "calculus" };
+    expect((await POST(request(`conversations/${id}/messages`, message))).status).toBe(202);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_send_message", {
+      p_conversation: id, p_question: message.question, p_documents: [], p_key: id,
+      p_mode: "library", p_subject: "calculus",
+    });
+    expect((await POST(request(`conversations/${id}/messages`, { ...message, subject: "unknown" }))).status).toBe(400);
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
   it("reads the shared catalog and exact document/chunk through authorized RPCs", async () => {
     mocks.rpc.mockResolvedValue({ data: [{ id, scope: "knowledge" }], error: null });
     expect((await GET(request("knowledge?user_id=foreign"))).status).toBe(200);

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { subjects } from "@/core/validation";
+import { useEffect, useRef } from "react";
 import { SidebarIcon } from "./sidebar-icon";
 import styles from "./study-workspace.module.css";
 
@@ -9,11 +8,10 @@ export function ChatDocumentMenu({ selected, canUpload, onChoose, onUpload }: {
   selected: number;
   canUpload: boolean;
   onChoose: () => void;
-  onUpload: (file: File, subject: string) => Promise<void>;
+  onUpload: (file: File) => Promise<void>;
 }) {
   const menu = useRef<HTMLDetailsElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [subject, setSubject] = useState("calculus");
   useEffect(() => {
     function closeOutside(event: PointerEvent) {
       if (menu.current?.open && !menu.current.contains(event.target as Node)) menu.current.open = false;
@@ -35,12 +33,6 @@ export function ChatDocumentMenu({ selected, canUpload, onChoose, onUpload }: {
       <button type="button" className={styles.menuAction} disabled={!canUpload}
         aria-label="Đính kèm PDF hoặc DOCX" title="Đính kèm PDF hoặc DOCX"
         onClick={() => fileInput.current?.click()}><SidebarIcon name="attach" /></button>
-      <label className={styles.menuField} htmlFor="chat-upload-subject">
-        <span>Môn học</span>
-        <select id="chat-upload-subject" value={subject} disabled={!canUpload} onChange={event => setSubject(event.target.value)}>
-          {Object.entries(subjects).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-      </label>
       <hr className={styles.menuDivider} />
       <button type="button" className={styles.menuAction} onClick={() => {
         if (menu.current) menu.current.open = false;
@@ -51,7 +43,7 @@ export function ChatDocumentMenu({ selected, canUpload, onChoose, onUpload }: {
         event.currentTarget.value = "";
         if (!file) return;
         if (menu.current) menu.current.open = false;
-        void onUpload(file, subject);
+        void onUpload(file);
       }} />
     </div>
   </details>;

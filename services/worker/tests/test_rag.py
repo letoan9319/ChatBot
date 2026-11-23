@@ -77,7 +77,10 @@ def test_general_answer_can_complete_without_sources_but_cannot_invent_citations
     assert answer.startswith("1 + 1 = 2.")
     assert "Kiến thức tổng quát" in answer
     assert used == []
-    assert validate_citations("1 + 1 = 2 [S1]", sources, allow_uncited=True) == (NO_EVIDENCE, [])
+    assert validate_citations("1 + 1 = 2 [S1].", sources, allow_uncited=True) == (answer, [])
+    assert validate_citations("1 + 1 = 2 [S1].", sources) == (NO_EVIDENCE, [])
+    available = [{"label": "S2", "content": "Phép cộng"}]
+    assert validate_citations("1 + 1 = 2 [S1].", available, allow_uncited=True) == (NO_EVIDENCE, [])
 
 
 def test_question_image_is_in_the_current_turn_and_keeps_a_source_link():
@@ -186,3 +189,44 @@ def test_plain_json_tag_becomes_visual_only_for_visual_requests():
     response = fence + 'json\n{"type":"flow","title":"A","steps":["B","C"]}\n' + fence
     assert close_visual_block(response, "Trả dữ liệu JSON") == response
     assert close_visual_block(response, "Vẽ sơ đồ").startswith(fence + "learnstep-visual\n")
+
+
+def test_gradient_concept_enables_reasoning_and_a_line_plot_without_changing_exercise_prompt():
+    from study_worker.rag import add_gradient_example, should_reason
+
+    question = "Giải thích giúp mình khái niệm về gradient"
+    assert should_reason(question, "library")
+    prompt, _ = build_prompt(question, [], [], lambda text: len(text.split()), mode="library")
+    assert "vectơ các đạo hàm riêng" in prompt[-1]["content"]
+    answer = add_gradient_example("Định nghĩa gradient.", question)
+    assert '"type": "line"' in answer
+    assert '"x": -2, "y": -4' in answer
+    assert '"x": 2, "y": 4' in answer
+    assert add_gradient_example("Giải thích.", "Gradient nhiệt độ là gì?") == "Giải thích."
+
+    exercise = "Giải thích từng bước cách đạo hàm ẩn hạng tử xy^3"
+    prompt, _ = build_prompt(exercise, [], [], lambda text: len(text.split()), mode="library")
+    assert "learnstep-visual" not in prompt[0]["content"]
+    assert "Tuyệt đối không tính ra kết quả cuối" in prompt[-1]["content"]
+
+
+def test_prompt_respects_selected_subject_for_ambiguous_gradient():
+    from study_worker.rag import add_gradient_example
+
+    question = "Gradient là gì?"
+    calculus, _ = build_prompt(question, [], [], len, "library", subject="calculus")
+    physics, _ = build_prompt(question, [], [], len, "library", subject="physics")
+    assert "đã chọn là Giải tích" in calculus[0]["content"]
+    assert "đã chọn là Vật lý đại cương" in physics[0]["content"]
+    assert add_gradient_example("Ví dụ vật lý.", question, subject="physics") == "Ví dụ vật lý."
+
+
+def test_explicit_reasoning_requests_use_a_public_approach_summary():
+    from study_worker.rag import should_reason
+
+    question = "Suy luận kỹ giúp mình về quy tắc tích."
+    assert should_reason(question, "library")
+    messages, _ = build_prompt(question, [], [], len, "library", reasoning=True)
+    assert "**Cách tiếp cận:**" in messages[-1]["content"]
+    assert "không kể lại quá trình suy nghĩ riêng" in messages[-1]["content"]
+    assert not should_reason("Công thức quy tắc tích là gì?", "library")

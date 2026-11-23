@@ -38,6 +38,7 @@ before(async () => {
     "202611140001_deploy_generation_provider.sql",
     "20261120150841_chat_lifecycle.sql",
     "202611240001_chat_thinking_progress.sql",
+    "202611240002_chat_subject.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -62,6 +63,27 @@ test("external chat modes allow zero sources and participate in idempotency", as
   const libraryJob = await rpc(other, "app_send_message", [otherConversation, args[1], [], randomUUID(), "library"]);
   assert.equal(libraryJob.payload.mode, "library");
   assert.deepEqual(libraryJob.payload.document_ids, []);
+});
+
+test("chat subject is validated, snapshotted with both turns and included in retry identity", async () => {
+  const user = await learner();
+  await db.query("insert into worker_heartbeats(id) values($1)", [randomUUID()]);
+  const own = await repositoryDocument(user);
+  const other = await learner();
+  const privateDoc = await repositoryDocument(other);
+  const conversation = await rpc(user, "app_create_conversation", [randomUUID()]);
+  const args = [conversation, "Gradient là gì?", [own.id], randomUUID(), "documents"];
+  await assert.rejects(rpc(user, "app_send_message", [...args, "unknown"]), /INVALID_SUBJECT/);
+  await assert.rejects(rpc(user, "app_send_message", [...args, "physics"]), /DOCUMENT_SUBJECT_MISMATCH/);
+  await assert.rejects(rpc(user, "app_send_message", [conversation, args[1], [privateDoc.id], randomUUID(), "documents", "calculus"]), /INVALID_DOCUMENTS/);
+  const job = await rpc(user, "app_send_message", [...args, "calculus"]);
+  assert.equal(job.payload.subject, "calculus");
+  assert.equal((await rpc(user, "app_send_message", [...args, "calculus"])).id, job.id);
+  await assert.rejects(rpc(user, "app_send_message", [...args, "physics"]), /IDEMPOTENCY_CONFLICT/);
+  const messages = await asUser(user, () => db.query("select subject from messages where conversation_id=$1 order by sequence", [conversation]));
+  assert.deepEqual(messages.rows, [{ subject: "calculus" }, { subject: "calculus" }]);
+  const hidden = await asUser(other, () => db.query("select subject from messages where conversation_id=$1", [conversation]));
+  assert.deepEqual(hidden.rows, []);
 });
 
 async function learner(name) {

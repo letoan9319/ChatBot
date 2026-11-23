@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { pastedChatMath } from "./chat-math";
 import { Markdown } from "./markdown";
+import { revealSegments } from "./streaming-answer";
+import { readApproach } from "./thinking-progress";
 
 describe("untrusted chat content", () => {
   it("does not render script tags, raw event handlers or tracking images", () => {
@@ -92,6 +94,20 @@ describe("chat visuals", () => {
     expect(renderToStaticMarkup(<Markdown content={content} />)).toContain("<pre>");
   });
 
+  it("renders line plots with sorted coordinates and rejects duplicate x points", () => {
+    const data = {
+      type: "line", title: "Nhiệt độ", xLabel: "Chiều cao (m)", yLabel: "Nhiệt độ (°C)",
+      points: [{ x: 2.5, y: 29 }, { x: 0, y: 24 }],
+    };
+    const html = renderToStaticMarkup(<Markdown visuals content={block(data)} />);
+    expect(html).toContain('points="4,116 296,4"');
+    expect(html).toContain("<td>2,5</td>");
+    expect(html).toContain("Chiều cao (m)");
+    expect(renderToStaticMarkup(<Markdown visuals content={block({
+      ...data, points: [{ x: 0, y: 1 }, { x: 0, y: 2 }],
+    })} />)).toContain("<pre>");
+  });
+
   it("renders ordered flows and falls back to code for unsupported data", () => {
     expect(renderToStaticMarkup(<Markdown visuals content={block({
       type: "flow", title: "Cách làm", steps: ["Đọc đề", "Chọn quy tắc"],
@@ -99,5 +115,27 @@ describe("chat visuals", () => {
     expect(renderToStaticMarkup(<Markdown visuals content={block({
       type: "flow", title: "Cách làm", steps: ["Đọc đề", null],
     })} />)).toContain("<pre>");
+  });
+});
+
+
+describe("stream display and reasoning details", () => {
+  it("keeps a Vietnamese grapheme together during reveal", () => {
+    expect(revealSegments("a\u0306\u0301b")).toEqual(["a\u0306\u0301", "b"]);
+  });
+
+  it("hides unfinished visual payloads during streaming", () => {
+    const source = "Phần giải thích\n\n" + String.fromCharCode(96).repeat(3) + 'learnstep-visual\n{"type":"line"';
+    const html = renderToStaticMarkup(<Markdown content={source} streaming />);
+    expect(html).toContain("Phần giải thích");
+    expect(html).not.toContain("type");
+  });
+
+  it("summarizes only the marked approach paragraph", () => {
+    expect(readApproach("**Cách tiếp cận:** Lấy đạo hàm riêng.\nXét từng biến.\n\n## Giải thích"))
+      .toEqual("Lấy đạo hàm riêng.\nXét từng biến.");
+    expect(readApproach("**Cách tiếp cận**: Lấy đạo hàm riêng.\n\nVí dụ"))
+      .toEqual("Lấy đạo hàm riêng.");
+    expect(readApproach("Một đoạn giải thích không có tóm tắt.")).toBeNull();
   });
 });

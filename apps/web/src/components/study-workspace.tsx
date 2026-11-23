@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
-import { chatModes, MAX_FILE_SIZE, statuses, type ChatMode } from "@/core/validation";
+import { chatModes, MAX_FILE_SIZE, statuses, subjects, type ChatMode, type Subject } from "@/core/validation";
 import type {
   Conversation,
   Message,
@@ -20,6 +20,7 @@ import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
 import { ChatPromptBox } from "./chat-prompt-box";
 import { ThinkingProgress } from "./thinking-progress";
+import { StreamingAnswer } from "./streaming-answer";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
 import { SidebarIcon } from "./sidebar-icon";
@@ -75,6 +76,8 @@ const location = (source: Source) =>
         .filter(Boolean)
         .join(" · ");
 
+const ignoreReveal = () => {};
+
 export function StudyWorkspace({ username, canManageKnowledge, initialConversationId = null, initialLibrary = null }: {
   username: string;
   canManageKnowledge: boolean;
@@ -106,6 +109,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   const [question, setQuestion] = useState("");
   const [questionImage, setQuestionImage] = useState<{ file: File; key: string; pdf?: File; documentId?: string } | null>(null);
   const [readingImage, setReadingImage] = useState(false);
+  const [chatSubject, setChatSubject] = useState<Subject | "">("");
   const [chatMode, setChatMode] = useState<ChatMode>("documents");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -246,12 +250,18 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     }, 2000);
     return () => clearInterval(timer);
   }, [refresh, pendingDocuments, pendingChat]);
+  const followStream = useCallback(() => {
+    const container = chatScroll.current;
+    if (container?.clientHeight && preferences.autoScroll && followConversation.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [preferences.autoScroll]);
   useEffect(() => {
     const container = chatScroll.current;
     if (!container || !container.clientHeight || !preferences.autoScroll || !followConversation.current) return;
     container.scrollTo({ top: container.scrollHeight,
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-  }, [messages.length, messages.at(-1)?.content.length, tab, sourcesOpen, view, preferences.autoScroll]);
+  }, [messages.length, tab, sourcesOpen, view, preferences.autoScroll]);
   useEffect(() => {
     if (sourcesOpen && view === "study") sourceHeading.current?.focus({ preventScroll: true });
     else if (restoreChatFocus.current) {
@@ -269,7 +279,20 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
 
+  function changeChatSubject(subject: Subject | "") {
+    setChatSubject(subject);
+    if (subject) {
+      const matching = new Set([...documents, ...knowledge].filter(doc => doc.subject === subject).map(doc => doc.id));
+      setSelected(previous => previous.filter(id => matching.has(id)));
+    }
+  }
+
   function choose(id: string) {
+    const document = [...documents, ...knowledge].find(doc => doc.id === id);
+    if (!selected.includes(id) && chatSubject && document?.subject !== chatSubject) {
+      setNotice("Tài liệu này thuộc môn khác. Hãy đổi môn học trong phần chat để chọn.");
+      return;
+    }
     setSelected((previous) => {
       if (previous.includes(id)) return previous.filter((item) => item !== id);
       if (previous.length >= 5) {
@@ -320,7 +343,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
       if (documents.length >= 20) throw new Error("Kho cá nhân đã đủ 20 tệp. Hãy xóa bớt tài liệu trước khi gửi ảnh.");
       image.pdf ??= await chatImageToPdf(image.file);
       if (!isCurrent()) return;
-      image.documentId = await uploadPrivateDocument(image.pdf, "calculus", image.key);
+      image.documentId = await uploadPrivateDocument(image.pdf, chatSubject || "calculus", image.key);
     }
     const id = image.documentId;
     const deadline = Date.now() + 120_000;
@@ -408,7 +431,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           setConversationId(id);
         }
       }
-      const fingerprint = JSON.stringify([id, text, documentIds, chatMode]);
+      const fingerprint = JSON.stringify([id, text, documentIds, chatMode, chatSubject]);
       const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
         ? requestIdentity.current.key : crypto.randomUUID();
       if (isCurrent()) requestIdentity.current = { fingerprint, key };
@@ -417,7 +440,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
         return;
       }
       const job = await api<{ id: string; status: string }>(`conversations/${id}/messages`, "POST", {
-        question: text, documentIds, key, mode: chatMode,
+        question: text, documentIds, key, mode: chatMode, subject: chatSubject || undefined,
       });
       if (isCurrent()) {
         ++refreshRequest.current;
@@ -629,6 +652,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           <LearningPlans documents={Array.from(new Map([...documents, ...knowledge].map(doc => [doc.id, doc])).values())}
             onAsk={(ids, topic) => {
               openConversation(null);
+              setChatSubject("");
               setSelected(ids.filter(id => [...documents, ...knowledge].some(doc => doc.id === id && doc.status === "ready")));
               setQuestion(`Giúp tôi học chủ đề “${topic}” dựa trên tài liệu đã chọn.`);
             }} />
@@ -710,7 +734,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
               {!docked && <div className={styles.welcome}>
                 <h2>Bạn muốn học gì hôm nay?</h2>
               </div>}
-              {messages.map((message) => (
+              {messages.map((message, index) => (
                 <article className={styles.message} data-role={message.role} key={message.id}>
                   <div className={styles.messageLabel}>
                     <strong>{message.role === "user" ? "Bạn" : "LearnStep"}</strong>
@@ -718,10 +742,15 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
-                  {message.role === "assistant" && (message.thinking_started_at || (!message.content && message.status === "generating")) &&
-                    <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)} duration={message.thinking_ms} />}
-                  {message.content ? <Markdown content={message.content} chatMath visuals={message.role === "assistant" && message.status === "completed"} />
-                    : message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
+                  {message.role === "assistant" && (message.thinking_started_at || message.status === "generating" ||
+                    (index === messages.length - 1 && message.status === "completed")) &&
+                    <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)}
+                      duration={message.thinking_ms} content={message.content} provider={message.generation_provider} />}
+                  {message.role === "assistant"
+                    ? <StreamingAnswer content={message.content} status={message.status}
+                        onReveal={index === messages.length - 1 ? followStream : ignoreReveal} />
+                    : <Markdown content={message.content} chatMath />}
+                  {!message.content && message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
                     <div className={styles.citations}>{message.message_sources.map((item) => (
                       <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
@@ -742,18 +771,21 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             </div>
             <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
+              <div className={styles.chatOptions}>
+                <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
+                  options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
+                  onChange={value => setChatMode(value as ChatMode)} />
+                <SelectField label="Môn học" value={chatSubject} compact disabled={busy}
+                  options={[{ value: "", label: "Tất cả môn học" }, ...Object.entries(subjects).map(([value, label]) => ({ value, label }))]}
+                  onChange={value => changeChatSubject(value as Subject | "")} />
+              </div>
               <ChatPromptBox inactive={activeChatHere ? stopping
                 : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
                 label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
                   : readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
                 onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
-                tools={<>
-                  <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
-                    onChoose={showDocuments} onUpload={upload} />
-                  <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
-                    options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
-                    onChange={value => setChatMode(value as ChatMode)} />
-                </>}>
+                tools={<ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
+                  onChoose={showDocuments} onUpload={file => upload(file, chatSubject || "calculus")} />}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
                   placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
@@ -804,7 +836,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
                     : chatMode === "research" ? "Tìm nguồn web và bài báo để tổng hợp chi tiết. Từ khóa từ câu hỏi sẽ được gửi đi."
                       : chatMode === "search" ? "Tìm thông tin từ các trang web liên quan. Từ khóa từ câu hỏi sẽ được gửi đi."
-                        : selected.length ? "Đang dùng tài liệu đã chọn." : "Tự động tìm trong tài liệu chung."}</span>
+                        : selected.length ? "Đang dùng tài liệu đã chọn." : chatSubject ? `Tự động tìm trong tài liệu chung môn ${subjects[chatSubject]}.` : "Tự động tìm trong tài liệu chung."}</span>
                 <span>{question.length}/2000</span>
               </div>
             </form>

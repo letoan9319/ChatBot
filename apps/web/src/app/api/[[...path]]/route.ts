@@ -8,6 +8,7 @@ import { checkMutationRequest, readJsonBody, RequestError } from "@/core/request
 import {
   keySchema,
   messageSchema,
+  subjectSchema,
   uploadSchema,
   uuid,
 } from "@/core/validation";
@@ -28,6 +29,7 @@ const failures: Record<string, [number, string]> = {
     409,
     "Trạng thái tài liệu đã thay đổi. Hãy tải lại danh sách.",
   ],
+  DOCUMENT_SUBJECT_MISMATCH: [400, "Hãy chọn tài liệu cùng môn học với câu hỏi."],
   INVALID_DOCUMENTS: [400, "Hãy chọn 1–5 tài liệu của bạn đã sẵn sàng."],
   INVALID_QUESTION: [400, "Câu hỏi phải có từ 1 đến 2.000 ký tự."],
   CHAT_BUSY: [409, "Bạn đang có một câu hỏi chờ xử lý."],
@@ -42,7 +44,6 @@ const failures: Record<string, [number, string]> = {
   GROUP_OWNER: [409, "Chủ nhóm không thể rời nhóm học."],
 };
 
-const subjectSchema = z.enum(["calculus", "linear-algebra", "physics"]);
 const createGroupSchema = z.object({
   name: z.string().trim().min(3).max(80),
   subject: subjectSchema,
@@ -485,14 +486,15 @@ async function handle(request: NextRequest) {
         }
         if (method === "POST") {
           const value = messageSchema.parse(await body());
+          const mode = value.mode ?? "documents";
+          const retrievalMode = mode === "documents" && !value.documentIds.length ? "library" : mode;
           const { data, error } = await db.rpc("app_send_message", {
             p_conversation: id,
             p_question: value.question,
             p_documents: value.documentIds,
             p_key: value.key,
-            ...(!value.documentIds.length && (!value.mode || value.mode === "documents")
-              ? { p_mode: "library" }
-              : value.mode && value.mode !== "documents" ? { p_mode: value.mode } : {}),
+            ...(value.subject ? { p_subject: value.subject } : {}),
+            ...(value.subject || retrievalMode !== "documents" ? { p_mode: retrievalMode } : {}),
           });
           check(error);
           return json(data, 202);
