@@ -559,7 +559,9 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   return (
     <main className={styles.shell} data-answer-font-size={preferences.answerFontSize} data-view={view}>
       <aside className={styles.appNavigation} aria-label="Điều hướng ứng dụng">
-        <div className={styles.navigationBrand}><Brand workspace /></div>
+        <div className={styles.navigationBrand}>
+          <Brand workspace onWorkspaceHome={() => setView("overview")} />
+        </div>
         <nav aria-label="Điều hướng góc học tập">
           <button className={styles.newChatButton} onClick={() => openConversation(null)}>
             <SidebarIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
