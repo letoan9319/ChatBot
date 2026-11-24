@@ -117,6 +117,7 @@ function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: 
   }
 
   return <section className={styles.membersPanel} aria-label="Thành viên và thông tin nhóm">
+    {group.description && <p className={styles.memberDescription}>{group.description}</p>}
     {error && <p role="alert">{error}</p>}
     {!roster && (error
       ? <button type="button" className={styles.leaveButton} onClick={() => setRetry(retry + 1)}>Thử lại</button>
@@ -193,6 +194,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
   const anchor = useRef<{ id: string; top: number } | null>(null);
   const formId = useId();
   const roomTitleId = useId();
+  const messageSearchId = useId();
+  const messageSearchButton = useRef<HTMLButtonElement>(null);
   const activeGroupId = selectedGroup?.joined ? selectedGroup.id : null;
   const groups = groupSnapshot?.subject === subject ? groupSnapshot.items : null;
   const messages = activeGroupId && messageSnapshot?.groupId === activeGroupId ? messageSnapshot.items : null;
@@ -200,7 +203,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
   const visibleGroups = groups?.filter((group) => (!joinedOnly || group.joined) &&
     (!groupTerm || normalizeSearch(`${group.name} ${group.description}`).includes(groupTerm)));
   const showMembers = Boolean(activeGroupId && memberRoom === activeGroupId);
-  const messageQuery = messageSearch?.room === activeGroupId ? messageSearch?.query ?? "" : "";
+  const showMessageSearch = Boolean(activeGroupId && messageSearch?.room === activeGroupId);
+  const messageQuery = showMessageSearch ? messageSearch?.query ?? "" : "";
   const messageTerm = normalizeSearch(messageQuery);
   const visibleMessages = messageTerm ? messages?.filter((message) =>
     normalizeSearch(`${message.username ?? ""} ${message.content}`).includes(messageTerm)) : messages;
@@ -619,19 +623,30 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
       <section className={styles.room} aria-labelledby={roomTitleId}>
         {selectedGroup ? <>
           <header className={styles.roomHeading}>
-            <button type="button" className={styles.backButton} onClick={() => setMobileRoom(false)}>Danh sách nhóm</button>
-            <div className={styles.roomIdentity}><span className={styles.subjectTag}>{subjects[selectedGroup.subject] ?? selectedGroup.subject}</span>
-              <h2 id={roomTitleId}>{selectedGroup.name}</h2><p>{selectedGroup.member_count} thành viên<span> · </span>{selectedGroup.owned ? "Bạn là chủ nhóm" : selectedGroup.joined ? "Bạn đã tham gia nhóm" : "Nhóm mở để khám phá"}</p></div>
+            <button type="button" className={styles.backButton} aria-label="Danh sách nhóm" onClick={() => setMobileRoom(false)}>Về nhóm</button>
+            <div className={styles.roomIdentity}>
+              <h2 id={roomTitleId}>{selectedGroup.name}</h2>
+              <p>{subjects[selectedGroup.subject] ?? selectedGroup.subject} · {selectedGroup.member_count} thành viên{selectedGroup.owned ? " · Chủ nhóm" : ""}</p>
+            </div>
             {selectedGroup.joined && <div className={styles.roomActions}>
+              <button ref={messageSearchButton} type="button" className={`${styles.leaveButton} ${styles.searchToggle}`}
+                aria-expanded={showMessageSearch} aria-controls={showMessageSearch ? messageSearchId : undefined}
+                aria-label="Tìm tin nhắn" title="Tìm tin nhắn"
+                onClick={() => {
+                  setMemberRoom(null);
+                  setMessageSearch(showMessageSearch ? null : { room: selectedGroup.id, query: "" });
+                }}>
+                <PixelNavigationIcon name="search" className={styles.pixel} />
+              </button>
               <button type="button" className={styles.leaveButton} aria-expanded={showMembers}
-                onClick={() => setMemberRoom(showMembers ? null : selectedGroup.id)}>
+                onClick={() => { setMessageSearch(null); setMemberRoom(showMembers ? null : selectedGroup.id); }}>
                 <PixelNavigationIcon name="groups" className={styles.pixel} /> Thành viên
               </button>
               {!selectedGroup.owned && <button type="button" className={styles.leaveButton} disabled={membershipBusy !== null}
                 onClick={() => void changeMembership(false)}>{membershipBusy === selectedGroup.id ? "Đang lưu..." : "Rời nhóm"}</button>}
             </div>}
           </header>
-          {selectedGroup.description && <p className={styles.roomDescription}>{selectedGroup.description}</p>}
+          {!selectedGroup.joined && selectedGroup.description && <p className={styles.roomDescription}>{selectedGroup.description}</p>}
           {notice && <p role="status" className={styles.notice}>{notice}</p>}
           {actionError && <div className={styles.actionError} role="alert"><p>{actionError}</p><button type="button" onClick={() => setListRefresh((current) => current + 1)}>Tải lại nhóm</button></div>}
           {selectedGroup.joined ? <>
@@ -640,12 +655,17 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
               setListRefresh((value) => value + 1);
               setNotice("Đã lưu thông tin nhóm.");
             }} />}
-            <label className={`${styles.groupSearch} ${styles.messageSearch}`}>
+            {showMessageSearch && <label id={messageSearchId} className={`${styles.groupSearch} ${styles.messageSearch}`}>
               <PixelNavigationIcon name="search" className={styles.pixel} />
               <span className="sr-only">Tìm trong 50 tin nhắn gần nhất</span>
-              <input type="search" placeholder="Tìm trong 50 tin nhắn gần nhất…" value={messageQuery}
-                onChange={(event) => setMessageSearch({ room: selectedGroup.id, query: event.target.value })} />
-            </label>
+              <input type="search" autoFocus placeholder="Tìm trong 50 tin nhắn gần nhất…" value={messageQuery}
+                onChange={(event) => setMessageSearch({ room: selectedGroup.id, query: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  setMessageSearch(null);
+                  messageSearchButton.current?.focus();
+                }} />
+            </label>}
             <div className={styles.feedWrapper}>
               <div ref={feed} className={styles.feed} role="log" aria-label="Tin nhắn trong nhóm" aria-live="off"
                 onScroll={() => { const element = feed.current; if (!element) return; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 90; if (nearBottom.current) setHasNewMessages(false); }}>

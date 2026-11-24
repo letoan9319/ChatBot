@@ -1,24 +1,24 @@
-.groups { display: grid; grid-template-columns: 292px minmax(0, 1fr); flex: 1 1 0; gap: 14px; min-height: 0; min-width: 0; padding: 14px 18px 18px; overflow: hidden; }
+.groups { display: grid; grid-template-columns: 248px minmax(0, 1fr); flex: 1 1 0; gap: 10px; min-height: 0; min-width: 0; padding: 8px 12px 12px; overflow: hidden; }
 .library, .room { min-height: 0; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .library { display: flex; flex-direction: column; }
-.libraryHeading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 10px; padding: 20px 17px 17px; border-bottom: 1px solid var(--line); }
+.libraryHeading { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .libraryHeading p { margin: 0 0 3px; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 1.3px; }
 .libraryHeading h2 { margin: 0; font-size: 18px; font-weight: 800; }
 .createToggle { min-height: 33px; padding: 6px 10px; border: 1px solid var(--green-line); border-bottom-width: 2px; border-radius: 9px; background: var(--primary-soft); color: var(--primary-edge); font-size: 11px; font-weight: 800; white-space: nowrap; }
-.libraryScroll { flex: 1; min-height: 0; padding: 15px 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.libraryScroll { flex: 1; min-height: 0; padding: 8px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .filter { padding: 0 3px; }
-.filter [data-select-trigger] { min-height: 40px; font-size: 12px; }
-.listHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 17px 1px 10px; color: var(--muted); font-size: 11px; }
+.filter [data-select-trigger] { min-height: 34px; padding-block: 5px; font-size: 12px; }
+.listHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 3px 1px 5px; color: var(--muted); font-size: 11px; }
 .listHeading button { flex-shrink: 0; min-height: 24px; color: var(--primary-edge); font-size: 10px; font-weight: 800; }
 .groupList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.groupCard { display: block; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; }
+.groupCard { display: block; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; }
 .groupCard[aria-pressed="true"] { border-color: var(--green-strong-line); background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
 .groupCardTop { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
 .subjectTag { display: inline-block; max-width: 100%; padding: 3px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-alt); color: var(--muted); font-size: 9px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
 .joinedTag { flex-shrink: 0; color: var(--primary-edge); font-size: 9px; font-weight: 800; }
-.groupCard > strong { display: block; margin-top: 9px; color: var(--text); font-size: 13px; font-weight: 800; line-height: 1.5; overflow-wrap: anywhere; }
+.groupCard > strong { display: block; margin-top: 4px; color: var(--text); font-size: 13px; font-weight: 800; line-height: 1.5; overflow-wrap: anywhere; }
 .groupCard > p { display: -webkit-box; margin: 5px 0 0; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--muted); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
-.groupCardBottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 13px; color: var(--muted); font-size: 10px; }
+.groupCardBottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; color: var(--muted); font-size: 10px; }
 .groupCardBottom > span { color: var(--primary-edge); font-weight: 800; }
 .listEmpty { margin: 2px 2px 0; padding: 20px 13px; border: 1px dashed var(--line-strong); border-radius: 10px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .listEmpty strong { color: var(--text); font-size: 12px; }
@@ -37,9 +37,9 @@
 .secondaryButton { border-color: var(--line-strong); background: var(--surface); color: var(--muted); }
 .formActions button { min-height: 35px; padding: 6px 9px; font-size: 10px; }
 .room { display: flex; flex-direction: column; }
-.roomHeading { display: flex; flex-shrink: 0; align-items: center; gap: 18px; padding: 18px 24px 17px; border-bottom: 1px solid var(--line); }
+.roomHeading { display: flex; flex-shrink: 0; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--line); }
 .roomIdentity { flex: 1; min-width: 0; }
-.roomIdentity h2 { margin: 7px 0 3px; color: var(--text); font-size: 20px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
+.roomIdentity h2 { margin: 0; color: var(--text); font-size: 16px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
 .roomIdentity p { margin: 0; color: var(--muted); font-size: 11px; }
 .leaveButton { flex-shrink: 0; min-height: 33px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .roomDescription { flex-shrink: 0; max-height: 90px; margin: 0; padding: 12px 24px; overflow-y: auto; border-bottom: 1px solid var(--line); background: var(--surface-alt); color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
@@ -97,9 +97,9 @@
 .groups button:disabled { opacity: .6; cursor: not-allowed; }
 .groups button:focus-visible, .groups input:focus-visible, .createForm textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .groupCard:hover { border-color: var(--green-line); background: var(--primary-soft); } .primaryButton:hover:not(:disabled), .sendButton:hover:not(:disabled) { background: var(--primary-hover); } .leaveButton:hover, .welcomeSubjects button:hover { background: var(--surface-alt); } }
-@media (max-width: 1100px) { .groups { grid-template-columns: 260px minmax(0, 1fr); gap: 10px; padding: 10px 12px 14px; } .libraryHeading { padding-inline: 13px; } .roomHeading { padding-inline: 18px; gap: 12px; } .roomIdentity h2 { font-size: 18px; } .feed { padding-inline: 18px; } .composer { padding-inline: 16px; } }
-@media (max-width: 860px) { .groups { grid-template-columns: 230px minmax(0, 1fr); } .libraryHeading { gap: 6px; } .libraryHeading h2 { font-size: 16px; } .createToggle { padding-inline: 7px; font-size: 10px; } .libraryScroll { padding-inline: 9px; } .groupCard { padding: 12px; } .groupCardTop { align-items: start; flex-direction: column; } .membershipGate, .welcome { padding: 28px 20px; } .roomIdentity p { font-size: 10px; } }
-@media (max-width: 680px) { .groups { grid-template-columns: minmax(0, 1fr); padding: 8px 10px 10px; } .groups[data-mobile-room="false"] .room { display: none; } .groups[data-mobile-room="true"] .library { display: none; } .libraryHeading { padding: 17px; } .libraryHeading h2 { font-size: 19px; } .libraryScroll { padding-inline: 14px; } .groupCardTop { align-items: center; flex-direction: row; } .groupCard { padding: 15px; } .groupCard > strong { font-size: 14px; } .groupCard > p { font-size: 12px; } .createToggle { min-height: 36px; padding-inline: 12px; font-size: 12px; } .roomHeading { flex-wrap: wrap; gap: 10px; padding: 12px 15px; } .backButton { display: block; min-height: 29px; padding: 3px 0; color: var(--primary-edge); font-size: 11px; font-weight: 800; text-align: left; } .roomHeading > .backButton { flex-basis: 100%; } .welcome > .backButton { align-self: start; margin-bottom: 20px; } .roomIdentity h2 { font-size: 18px; } .roomDescription { padding: 10px 15px; font-size: 11px; } .leaveButton { padding-inline: 9px; font-size: 10px; } .feed { padding: 16px 13px 20px; } .memberAvatar { width: 28px; height: 28px; border-radius: 9px; font-size: 10px; } .message { gap: 8px; } .bubble { padding: 9px 12px; font-size: 13px; } .messageMeta { gap: 6px; } .composer { padding: 6px 12px; } .composerRow textarea, .createForm input, .createForm textarea { font-size: 16px; } .sendButton { padding-inline: 10px; font-size: 11px; } .membershipGate, .welcome { justify-content: safe center; padding: 22px; } .membershipGate > p, .welcome > p { font-size: 12px; } .membershipGate h3, .welcome h2 { font-size: 24px; } .notice, .actionError { margin-inline: 12px; } }
+@media (max-width: 1100px) { .groups { grid-template-columns: 228px minmax(0, 1fr); gap: 10px; padding: 10px 12px 14px; } .libraryHeading { padding-inline: 13px; } .roomHeading { padding-inline: 18px; gap: 12px; } .roomIdentity h2 { font-size: 16px; } .feed { padding-inline: 18px; } .composer { padding-inline: 16px; } }
+@media (max-width: 860px) { .groups { grid-template-columns: 202px minmax(0, 1fr); } .libraryHeading { gap: 6px; } .libraryHeading h2 { font-size: 16px; } .createToggle { padding-inline: 7px; font-size: 10px; } .libraryScroll { padding-inline: 9px; }  .membershipGate, .welcome { padding: 28px 20px; } .roomIdentity p { font-size: 10px; } }
+@media (max-width: 680px) { .groups { grid-template-columns: minmax(0, 1fr); padding: 8px 10px 10px; } .groups[data-mobile-room="false"] .room { display: none; } .groups[data-mobile-room="true"] .library { display: none; } .libraryHeading { padding: 8px 12px; } .groupCardTop { align-items: center; flex-direction: row; }  .groupCard > strong { font-size: 14px; } .groupCard > p { font-size: 12px; } .createToggle { min-height: 36px; padding-inline: 12px; font-size: 12px; } .roomHeading { flex-wrap: wrap; gap: 5px 8px; padding: 6px 10px; } .backButton { display: block; min-height: 29px; padding: 3px 0; color: var(--primary-edge); font-size: 11px; font-weight: 800; text-align: left; }  .welcome > .backButton { align-self: start; margin-bottom: 20px; } .roomIdentity h2 { font-size: 16px; } .roomDescription { padding: 10px 15px; font-size: 11px; } .leaveButton { padding-inline: 9px; font-size: 10px; } .feed { padding: 16px 13px 20px; } .memberAvatar { width: 28px; height: 28px; border-radius: 9px; font-size: 10px; } .message { gap: 8px; } .bubble { padding: 9px 12px; font-size: 13px; } .messageMeta { gap: 6px; } .composer { padding: 6px 12px; } .composerRow textarea, .createForm input, .createForm textarea { font-size: 16px; } .sendButton { padding-inline: 10px; font-size: 11px; } .membershipGate, .welcome { justify-content: safe center; padding: 22px; } .membershipGate > p, .welcome > p { font-size: 12px; } .membershipGate h3, .welcome h2 { font-size: 24px; } .notice, .actionError { margin-inline: 12px; } }
 
 .groupImage {
   display: block;
@@ -170,7 +170,7 @@
 }
 .groupSearch {
   padding: 0 10px;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
   background: var(--surface-alt);
@@ -179,18 +179,19 @@
 .groupSearch input {
   width: 100%;
   min-width: 0;
-  min-height: 40px;
+  min-height: 34px;
   border: 0;
   background: transparent;
   color: var(--text);
   font-size: 14px;
 }
 .groups .groupSearch input:focus-visible { outline: none; }
-.joinedFilter { min-height: 34px; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.joinedFilter { min-height: 28px; margin-top: 4px; color: var(--muted); font-size: 12px; }
 .joinedFilter input { width: 16px; height: 16px; accent-color: var(--primary-edge); }
-.roomActions { flex-wrap: wrap; justify-content: end; }
+.roomActions { flex-wrap: wrap; justify-content: end; gap: 5px; }
 .roomActions [aria-expanded="true"] { background: var(--primary-soft); border-color: var(--green-line); }
-.messageSearch { flex-shrink: 0; margin: 10px 16px 0; }
+.searchToggle { width: 36px; min-height: 36px; padding: 0; }
+.messageSearch { flex-shrink: 0; margin: 5px 12px 0; }
 .membersPanel {
   flex-shrink: 0;
   max-height: min(36vh, 350px);
@@ -204,12 +205,14 @@
   font-size: 13px;
 }
 .membersPanel > p { margin: 0 0 8px; }
+.memberDescription { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .membersPanel .createForm { margin: 8px 0 0; }
 .memberList { display: grid; gap: 4px; padding: 0; margin: 0; list-style: none; }
 .memberList li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; overflow-wrap: anywhere; }
 .membersPanel > button { margin-top: 8px; }
 .welcomeArt { width: clamp(124px, 21vw, 208px); height: auto; flex-shrink: 0; image-rendering: pixelated; }
 @media (max-width: 680px) {
-  .roomActions { justify-content: start; }
+  .roomIdentity { flex: 1 1 100px; }
+  .roomActions { margin-inline-start: auto; }
   .groupSearch input { font-size: 16px; }
 }
