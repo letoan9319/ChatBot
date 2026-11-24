@@ -78,7 +78,8 @@ const location = (source: Source) =>
 
 const ignoreReveal = () => {};
 
-export function StudyWorkspace({ username, canManageKnowledge, initialConversationId = null, initialLibrary = null }: {
+export function StudyWorkspace({ userId, username, canManageKnowledge, initialConversationId = null, initialLibrary = null }: {
+  userId: string;
   username: string;
   canManageKnowledge: boolean;
   initialConversationId?: string | null;
@@ -648,7 +649,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           onPersonalLibrary={() => showLibrary("documents")} onHistory={() => showLibrary("history")}
           onPlans={showPlans} onConversation={openConversation} />}
         {view === "settings" && <StudySettings preferences={preferences} onChange={updatePreferences} storageAvailable={storageAvailable} />}
-        {view === "groups" && <StudyGroups username={username} initialGroupId={groupToOpen} onSelectGroup={setGroupToOpen} />}
+        {view === "groups" && <StudyGroups userId={userId} username={username} initialGroupId={groupToOpen} onSelectGroup={setGroupToOpen} />}
         {plansOpened && <div className="learning-plans-panel" hidden={view !== "plans"}>
           <LearningPlans documents={Array.from(new Map([...documents, ...knowledge].map(doc => [doc.id, doc])).values())}
             onAsk={(ids, topic) => {

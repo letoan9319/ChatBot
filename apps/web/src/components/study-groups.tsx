@@ -141,10 +141,11 @@ function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: 
   </section>;
 }
 
-export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
+export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }: {
   initialGroupId?: string | null;
   onSelectGroup?: (id: string) => void;
   username?: string;
+  userId: string;
 }) {
   const [subject, setSubject] = useState("");
   const [groupQuery, setGroupQuery] = useState("");
@@ -656,9 +657,13 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                 {visibleMessages && visibleMessages.length > 0 && <>
                   {(messages?.length ?? 0) >= 50 && <p className={styles.historyNote}>50 tin nhắn gần nhất trong nhóm</p>}
                   <ol className={styles.messageList}>
-                    {visibleMessages.map((message) => <li key={message.id} data-message-id={message.id} className={styles.message}>
+                    {visibleMessages.map((message) => <li key={message.id} data-message-id={message.id}
+                      data-own={message.user_id === userId} className={styles.message}>
                       <span className={styles.memberAvatar} aria-hidden="true">{(message.username ?? "").trim().slice(0, 1).toLocaleUpperCase("vi-VN") || "B"}</span>
-                      <div className={styles.messageMain}><div className={styles.messageMeta}><strong>{message.username || "Bạn học"}</strong><time dateTime={message.created_at} title={messageTime(message.created_at, true)}>{messageTime(message.created_at)}</time></div>
+                      <div className={styles.messageMain}><div className={styles.messageMeta}>
+                        <strong>{message.user_id === userId ? "Bạn" : message.username || "Bạn học"}</strong>
+                        <time dateTime={message.created_at} title={messageTime(message.created_at, true)}>{messageTime(message.created_at)}</time>
+                      </div>
                         <div className={styles.bubble}>
                           {message.has_image && (
                             // The session-protected endpoint streams the original attachment.
@@ -703,18 +708,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
               {!messageTerm && hasNewMessages && <button type="button" className={styles.jumpButton} onClick={() => { nearBottom.current = true; setHasNewMessages(false); if (feed.current) feed.current.scrollTop = feed.current.scrollHeight; }}>Có tin nhắn mới · Xem mới nhất</button>}
             </div>
             <form className={styles.composer} onSubmit={sendMessage}>
-              <label className={styles.composerLabel} htmlFor={`${formId}-message`}>Gửi tin nhắn cho nhóm</label>
+              <label className="sr-only" htmlFor={`${formId}-message`}>Gửi tin nhắn cho nhóm</label>
               <div className={styles.composerRow}>
-                <textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={2}
-                onChange={(event) => setDraft(event.target.value)}
-                aria-describedby={`${formId}-message-hint`} disabled={sending}
-                onPaste={(event) => {
-                  const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
-                  if (!file) return;
-                  event.preventDefault();
-                  attachImage(file);
-                }}
-                onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
                 <div className={styles.composerBar}>
                   <div className={styles.attachmentTools}>
                     <button type="button" className={styles.attachmentButton} disabled={sending}
@@ -729,13 +724,24 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                     <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
                       title="Chọn emoji" aria-label="Chọn emoji"
                       onClick={() => setEmojiOpen((open) => !open)}><SidebarIcon name="smile" /></button>
-                    {image && <button type="button" className={styles.clearAttachment} disabled={sending}
-                      title={image.name} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
                   </div>
+                  <textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={1}
+                    placeholder="Nhập tin nhắn…"
+                    onChange={(event) => setDraft(event.target.value)}
+                    aria-describedby={`${formId}-message-hint`} disabled={sending}
+                    onPaste={(event) => {
+                      const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+                      if (!file) return;
+                      event.preventDefault();
+                      attachImage(file);
+                    }}
+                    onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
                   <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>
                     <PixelNavigationIcon name="send" className={styles.pixel} /> {sending ? "Đang gửi..." : "Gửi tin"}
                   </button>
                 </div>
+                {image && <button type="button" className={styles.clearAttachment} disabled={sending}
+                  title={image.name} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
                 {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
                   {groupEmojis.map((code) => {
                     const value = String.fromCodePoint(code);

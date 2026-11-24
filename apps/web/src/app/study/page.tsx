@@ -46,6 +46,6 @@ export default async function StudyPage({ searchParams }: { searchParams: Promis
   const query = await searchParams;
   const conversation = uuid.safeParse(query.conversation);
   const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
-  return <StudyWorkspace username={profile.username} canManageKnowledge={Boolean(contentRole)}
+  return <StudyWorkspace userId={user.id} username={profile.username} canManageKnowledge={Boolean(contentRole)}
     initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
 }
