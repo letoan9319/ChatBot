@@ -101,7 +101,7 @@
 }
 
 .box .bar > details > summary svg { width: 16px; height: 16px; }
-.box .bar > div[data-compact] { width: auto; min-width: 0; }
+.box .bar > div[data-compact] { width: auto; min-width: 0; flex: 0 1 auto; }
 
 .box .bar > div[data-compact] > button[data-select-trigger] {
   gap: 3px;

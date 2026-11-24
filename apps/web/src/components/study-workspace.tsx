@@ -771,21 +771,21 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
             </div>
             <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
-              <div className={styles.chatOptions}>
+              <ChatPromptBox inactive={activeChatHere ? stopping
+                : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
+                label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
+                  : readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
+                onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
+                tools={<>
+                  <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
+                    onChoose={showDocuments} onUpload={file => upload(file, chatSubject || "calculus")} />
                 <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
                   options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
                   onChange={value => setChatMode(value as ChatMode)} />
                 <SelectField label="Môn học" value={chatSubject} compact disabled={busy}
                   options={[{ value: "", label: "Tất cả môn học" }, ...Object.entries(subjects).map(([value, label]) => ({ value, label }))]}
                   onChange={value => changeChatSubject(value as Subject | "")} />
-              </div>
-              <ChatPromptBox inactive={activeChatHere ? stopping
-                : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
-                label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
-                  : readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
-                onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
-                tools={<ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
-                  onChoose={showDocuments} onUpload={file => upload(file, chatSubject || "calculus")} />}>
+                </>}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
                   placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
