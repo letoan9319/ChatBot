@@ -43,6 +43,23 @@ beforeEach(() => {
 });
 
 describe("API authorization and asynchronous boundaries", () => {
+  it("only accepts built-in avatar and sticker IDs and rejects forged ownership", async () => {
+    mocks.rpc.mockResolvedValue({ data: "owl", error: null });
+    const avatar = await POST(request("profile/avatar", { avatar: "owl" }));
+    expect(avatar.status).toBe(200);
+    expect(await avatar.json()).toEqual({ avatar: "owl" });
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_set_avatar", { p_avatar: "owl" });
+    expect((await POST(request("profile/avatar", { avatar: "owl", userId: id }))).status).toBe(400);
+    expect((await POST(request("profile/avatar", { avatar: "https://example.com/owl.webp" }))).status).toBe(400);
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    mocks.rpc.mockResolvedValue({ data: { id, sticker_id: "hello" }, error: null });
+    const path = `groups/${id}/stickers`;
+    expect((await POST(request(path, { sticker: "hello", key: id }))).status).toBe(201);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_post_group_sticker", { p_group: id, p_sticker: "hello", p_key: id });
+    expect((await POST(request(path, { sticker: "unknown", key: id }))).status).toBe(400);
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  });
+
   it("scopes library chat to the requested subject and rejects unknown subjects", async () => {
     mocks.rpc.mockResolvedValue({ data: { id }, error: null });
     const message = { question: "Gradient là gì?", documentIds: [], key: id, subject: "calculus" };

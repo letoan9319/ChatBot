@@ -28,6 +28,7 @@ import { chatImageToPdf, validateChatImage } from "@/core/chat-image";
 import { ChatDocumentMenu } from "./chat-document-menu";
 import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
+import type { AvatarId } from "@/core/pixel-packs";
 import { LearningPlans } from "./learning-plans";
 import { StudyGroups } from "./study-groups";
 import { useStudyPreferences } from "./use-study-preferences";
@@ -78,14 +79,16 @@ const location = (source: Source) =>
 
 const ignoreReveal = () => {};
 
-export function StudyWorkspace({ userId, username, canManageKnowledge, initialConversationId = null, initialLibrary = null }: {
+export function StudyWorkspace({ userId, username, canManageKnowledge, initialAvatar, initialConversationId = null, initialLibrary = null }: {
   userId: string;
   username: string;
+  initialAvatar: AvatarId | null;
   canManageKnowledge: boolean;
   initialConversationId?: string | null;
   initialLibrary?: "knowledge" | "documents" | null;
 }) {
   const router = useRouter();
+  const [avatar, setAvatar] = useState(initialAvatar);
   const { preferences, updatePreferences, storageAvailable } = useStudyPreferences();
   const [documents, setDocuments] = useState<StudyDocument[]>([]);
   const [knowledge, setKnowledge] = useState<StudyDocument[]>([]);
@@ -630,7 +633,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialCo
         </nav>
       </aside>
       <div className={styles.mainColumn} data-view={view}>
-        <StudyToolbar username={username} canManageKnowledge={canManageKnowledge}
+        <StudyToolbar username={username} avatar={avatar} canManageKnowledge={canManageKnowledge}
           online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
           onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")}
@@ -648,7 +651,8 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialCo
           onNewConversation={() => openConversation(null)} onLibrary={() => showLibrary("knowledge")}
           onPersonalLibrary={() => showLibrary("documents")} onHistory={() => showLibrary("history")}
           onPlans={showPlans} onConversation={openConversation} />}
-        {view === "settings" && <StudySettings preferences={preferences} onChange={updatePreferences} storageAvailable={storageAvailable} />}
+        {view === "settings" && <StudySettings preferences={preferences} onChange={updatePreferences} storageAvailable={storageAvailable}
+          username={username} avatar={avatar} onAvatarChange={setAvatar} />}
         {view === "groups" && <StudyGroups userId={userId} username={username} initialGroupId={groupToOpen} onSelectGroup={setGroupToOpen} />}
         {plansOpened && <div className="learning-plans-panel" hidden={view !== "plans"}>
           <LearningPlans documents={Array.from(new Map([...documents, ...knowledge].map(doc => [doc.id, doc])).values())}

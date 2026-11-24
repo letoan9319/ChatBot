@@ -36,10 +36,14 @@ before(async () => {
     "20261112205940_chat_search_modes.sql",
     "202611130001_chat_shared_library.sql",
     "202611140001_deploy_generation_provider.sql",
+    "20261119071403_group_message_images.sql",
+    "20261119155925_group_message_reactions.sql",
     "20261120150841_chat_lifecycle.sql",
     "202611240001_chat_thinking_progress.sql",
     "202611240002_chat_subject.sql",
     "202611240003_group_management.sql",
+    "202611250001_group_moderation.sql",
+    "202611250002_pixel_packs.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -111,6 +115,65 @@ const create = (user, overrides = {}) => {
 const post = (user, group, content = "Cùng thảo luận bài tập", key = randomUUID()) =>
   rpc(user, "app_post_group_message", [group, content, key]);
 
+test("avatar preferences are account-owned and stickers use the protected group feed", async () => {
+  const owner = await learner("pixel_owner");
+  const member = await learner("pixel_member");
+  const group = await create(owner);
+  const send = (user, sticker, key) => rpc(user, "app_post_group_sticker", [group.id, sticker, key]);
+  const key = randomUUID();
+  await assert.rejects(send(member, "hello", key), /NOT_FOUND/);
+  await assert.rejects(rpc(owner, "app_set_avatar", ["invalid"]), /INVALID_AVATAR/);
+  assert.equal(await rpc(owner, "app_set_avatar", ["owl"]), "owl");
+  assert.deepEqual((await asUser(member, () => db.query("select avatar_id from profiles order by username"))).rows,
+    [{ avatar_id: null }]);
+  await assert.rejects(asUser(member, () => db.query("update profiles set avatar_id='cat' where id=$1", [owner])), /permission denied/);
+  await rpc(member, "app_join_group", [group.id]);
+  assert.equal((await rpc(member, "app_group_members", [group.id])).members[0].avatar_id, "owl");
+  await assert.rejects(send(owner, "invalid", randomUUID()), /INVALID_GROUP/);
+  await assert.rejects(send(owner, null, randomUUID()), /INVALID_GROUP/);
+  const message = await send(owner, "hello", key);
+  assert.equal(message.content, "");
+  assert.equal(message.sticker_id, "hello");
+  assert.equal((await send(owner, "hello", key)).id, message.id);
+  await assert.rejects(send(owner, "reading", key), /IDEMPOTENCY_CONFLICT/);
+  await assert.rejects(post(owner, group.id, "Chào nhóm", key), /IDEMPOTENCY_CONFLICT/);
+  const postImage = () => rpc(owner, "app_post_group_image_message", [group.id, "", randomUUID(),
+    Buffer.from("89504e470d0a1a0a00000000", "hex").toString("base64"), "image/png"]);
+  assert.equal((await postImage()).has_image, true);
+  const readback = (await rpc(member, "app_group_messages", [group.id])).find((item) => item.id === message.id);
+  assert.equal(readback.avatar_id, "owl");
+  assert.equal(readback.sticker_id, "hello");
+  assert.equal(await rpc(owner, "app_set_avatar", [null]), null);
+  assert.equal((await rpc(member, "app_group_messages", [group.id])).find((item) => item.id === message.id).avatar_id, null);
+});
+
+test("group moderation requires ownership and removes only data in the selected group", async () => {
+  const owner = await learner("moderation_owner");
+  const member = await learner("moderation_member");
+  const group = await create(owner);
+  const otherGroup = await create(owner);
+  await rpc(member, "app_join_group", [group.id]);
+  await rpc(member, "app_join_group", [otherGroup.id]);
+  const message = await post(member, group.id);
+  const remove = (user, target) => rpc(user, "app_remove_group_member", [group.id, target]);
+  const discard = (user) => rpc(user, "app_delete_group", [group.id]);
+
+  await assert.rejects(remove(member, owner), /FORBIDDEN/);
+  await assert.rejects(discard(member), /FORBIDDEN/);
+  await assert.rejects(remove(owner, owner), /GROUP_OWNER/);
+  assert.equal((await remove(owner, member)).member_count, 1);
+  await assert.rejects(rpc(member, "app_group_members", [group.id]), /FORBIDDEN/);
+  await assert.rejects(post(member, group.id), /NOT_FOUND/);
+  assert.ok((await rpc(owner, "app_group_messages", [group.id])).some((item) => item.id === message.id));
+  assert.equal((await rpc(member, "app_group_members", [otherGroup.id])).members.length, 2);
+
+  await discard(owner);
+  await discard(owner);
+  assert.equal((await db.query("select count(*)::int as count from study_group_messages where id=$1", [message.id])).rows[0].count, 0);
+  assert.equal((await rpc(member, "app_list_groups", [])).some((item) => item.id === group.id), false);
+  assert.equal((await rpc(member, "app_group_members", [otherGroup.id])).members.length, 2);
+});
+
 test("only members can see the roster and only the owner can update the group", async () => {
   const owner = await learner("roster_owner");
   const member = await learner("roster_member");
@@ -123,8 +186,8 @@ test("only members can see the roster and only the owner can update the group", 
   assert.deepEqual(await roster(member), {
     can_edit: false,
     members: [
-      { id: owner, username: "roster_owner", is_owner: true },
-      { id: member, username: "roster_member", is_owner: false },
+      { id: owner, username: "roster_owner", is_owner: true, avatar_id: null },
+      { id: member, username: "roster_member", is_owner: false, avatar_id: null },
     ],
   });
   assert.equal((await roster(owner)).can_edit, true);

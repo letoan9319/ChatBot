@@ -15,6 +15,16 @@
 .settingsFooter { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 2px; }
 .settingsFooter p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .settingsFooter button { flex-shrink: 0; min-height: 38px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface-alt); font-size: 12px; font-weight: 700; }
+.avatarPicker { min-width: 0; margin: 12px 0; padding: 0; border: 0; }
+.avatarPicker legend { padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.avatarOptions { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.avatarOption { display: grid; place-items: center; gap: 6px; padding: 8px 4px; text-align: center; font-size: 11px; border: 1px solid var(--line); border-radius: 11px; cursor: pointer; }
+.avatarOption:has(:checked) { border-color: var(--primary-edge); background: var(--primary-soft); }
+.avatarOption:has(:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.avatarPreview { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--surface-alt); color: var(--primary-edge); font-size: 14px; font-weight: 800; }
+.group form .settingsFooter { justify-content: flex-start; padding-bottom: 14px; }
+.settingsFooter button:disabled { opacity: .6; cursor: default; }
+.settingsFooter [role="alert"] { color: var(--danger-ink); }
 @media (hover: hover) and (pointer: fine) { .settingsFooter button:hover { background: var(--neutral-hover); } }
 @media (max-width: 760px) {
   .settingsPanel { padding: 14px 16px 24px; }

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { StudyStreak } from "@/core/types";
+import type { AvatarId } from "@/core/pixel-packs";
+import { PixelAvatar } from "./pixel-avatar";
 import { ThemeToggle } from "./theme-provider";
 import { StreakFlame, StudyStreakCard } from "./study-streak";
 import { NotificationCenter } from "./notification-center";
@@ -11,8 +13,9 @@ import styles from "./study-workspace.module.css";
 
 type Panel = "streak" | "status" | "account";
 
-export function StudyToolbar({ username, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings }: {
+export function StudyToolbar({ username, avatar, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings }: {
   username: string;
+  avatar: AvatarId | null;
   canManageKnowledge: boolean;
   online: boolean;
   loading: boolean;
@@ -80,7 +83,7 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
         <button className={styles.accountButton} id="toolbar-account"
           aria-label={`Tài khoản ${username}`} aria-expanded={panel === "account"}
           aria-controls="toolbar-account-panel" onClick={() => toggle("account")}>
-          <span className={styles.avatar} aria-hidden="true">{username.slice(0, 2).toUpperCase()}</span>
+          <PixelAvatar className={styles.avatar} avatar={avatar} username={username} />
           <span className={styles.accountName}>{username}</span>
         </button>
       </div>
@@ -104,7 +107,7 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
           setPanel(null);
           onOpenSettings();
           document.getElementById("toolbar-account")?.focus();
-        }}><SidebarIcon name="settings" /> Cài đặt</button>
+        }}><SidebarIcon name="settings" /> Hồ sơ và cài đặt</button>
         {canManageKnowledge && <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
           <SidebarIcon name="documents" /> Quản lý tài liệu chung
         </Link>}

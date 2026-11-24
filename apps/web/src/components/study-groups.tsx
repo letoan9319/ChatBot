@@ -4,6 +4,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import type { FormEvent } from "react";
 import { groupReactionOptions, type GroupReaction, type GroupReactionSummary } from "@/core/group-reactions";
+import { stickerIds, stickerLabels, type AvatarId, type StickerId } from "@/core/pixel-packs";
+import { PixelAvatar } from "./pixel-avatar";
 import { PixelNavigationIcon, SidebarIcon } from "./sidebar-icon";
 import { normalizeSearch } from "@/core/document-catalog";
 import { subjects } from "@/core/validation";
@@ -30,6 +32,8 @@ type GroupMessage = {
   username: string | null;
   content: string;
   has_image?: boolean;
+  sticker_id?: StickerId | null;
+  avatar_id?: AvatarId | null;
   reactions?: GroupReactionSummary[];
   created_at: string;
 };
@@ -38,7 +42,7 @@ type MessageSnapshot = { groupId: string; items: GroupMessage[] | null };
 type RetryKey = { signature: string; key: string };
 type GroupRoster = {
   can_edit: boolean;
-  members: Array<{ id: string; username: string; is_owner: boolean }>;
+  members: Array<{ id: string; username: string; is_owner: boolean; avatar_id?: AvatarId | null }>;
 };
 
 class CommunityError extends Error {
@@ -70,7 +74,11 @@ function messageTime(value: string, full = false) {
 const subjectOptions = Object.entries(subjects).map(([value, label]) => ({ value, label }));
 const filterOptions = [{ value: "", label: "Tất cả môn học" }, ...subjectOptions];
 
-function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: StudyGroup) => void }) {
+function GroupMembers({ group, onSaved, onDeleted }: {
+  group: StudyGroup;
+  onSaved: (group: StudyGroup, notice: string) => void;
+  onDeleted: () => void;
+}) {
   const [roster, setRoster] = useState<GroupRoster | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -107,7 +115,39 @@ function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: 
         method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: String(fields.get("name")).trim(), description: String(fields.get("description")).trim() }),
       }));
-      if (!controller.signal.aborted) { onSaved(updated); setEditing(false); }
+      if (!controller.signal.aborted) { onSaved(updated, "Đã lưu thông tin nhóm."); setEditing(false); }
+    } catch (error) {
+      if (!controller.signal.aborted) setError(errorText(error));
+    } finally {
+      pending.current = null;
+      if (!controller.signal.aborted) setSaving(false);
+    }
+  }
+
+  async function moderate(member?: GroupRoster["members"][number]) {
+    if (pending.current || !roster?.can_edit || member?.is_owner) return;
+    const prompt = member
+      ? `Loại ${member.username} khỏi nhóm? Tin nhắn đã gửi của thành viên này sẽ được giữ lại.`
+      : `Xóa nhóm “${group.name}”? Tin nhắn và ảnh đính kèm trong nhóm sẽ bị xóa vĩnh viễn.`;
+    if (!window.confirm(prompt)) return;
+
+    const controller = new AbortController();
+    pending.current = controller;
+    setSaving(true);
+    setError("");
+    const url = `/api/groups/${group.id}${member ? `/members/${member.id}` : ""}`;
+    try {
+      const result = await responseData(await fetch(url, {
+        method: "DELETE", signal: controller.signal, headers: { "Content-Type": "application/json" },
+      }));
+      if (controller.signal.aborted) return;
+      if (member) {
+        setRoster({ ...roster, members: roster.members.filter((item) => item.id !== member.id) });
+        setRetry((value) => value + 1);
+        onSaved(result, `Đã loại ${member.username} khỏi nhóm.`);
+      } else {
+        onDeleted();
+      }
     } catch (error) {
       if (!controller.signal.aborted) setError(errorText(error));
     } finally {
@@ -124,10 +164,21 @@ function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: 
       : <p role="status">Đang tải thành viên…</p>)}
     {roster && <>
       <ul className={styles.memberList}>{roster.members.map((member) =>
-        <li key={member.id}><strong>{member.username}</strong>{member.is_owner && <span className={styles.subjectTag}>Chủ nhóm</span>}</li>
+        <li key={member.id}>
+          <PixelAvatar className={styles.memberAvatar} avatar={member.avatar_id} username={member.username} />
+          <strong>{member.username}</strong>
+          {member.is_owner ? <span className={styles.subjectTag}>Chủ nhóm</span>
+            : roster.can_edit && <button type="button" className={styles.dangerButton}
+              disabled={saving || editing} aria-label={`Loại ${member.username} khỏi nhóm`}
+              onClick={() => void moderate(member)}>Loại</button>}
+        </li>
       )}</ul>
-      {roster.can_edit && !editing && <button type="button" className={styles.leaveButton}
-        onClick={() => setEditing(true)}>Sửa thông tin nhóm</button>}
+      {roster.can_edit && !editing && <div className={styles.memberActions}>
+        <button type="button" className={styles.leaveButton} disabled={saving}
+          onClick={() => setEditing(true)}>Sửa thông tin nhóm</button>
+        <button type="button" className={styles.dangerButton} disabled={saving}
+          onClick={() => void moderate()}>Xóa nhóm</button>
+      </div>}
       {editing && <form className={styles.createForm} onSubmit={save}>
         <label htmlFor={`${id}-name`}>Tên nhóm</label>
         <input id={`${id}-name`} name="name" defaultValue={group.name} minLength={3} maxLength={80} required disabled={saving} />
@@ -144,7 +195,7 @@ function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: 
 
 export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }: {
   initialGroupId?: string | null;
-  onSelectGroup?: (id: string) => void;
+  onSelectGroup?: (id: string | null) => void;
   username?: string;
   userId: string;
 }) {
@@ -207,7 +258,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
   const messageQuery = showMessageSearch ? messageSearch?.query ?? "" : "";
   const messageTerm = normalizeSearch(messageQuery);
   const visibleMessages = messageTerm ? messages?.filter((message) =>
-    normalizeSearch(`${message.username ?? ""} ${message.content}`).includes(messageTerm)) : messages;
+    normalizeSearch(`${message.username ?? ""} ${message.content} ${message.sticker_id ? stickerLabels[message.sticker_id] ?? "" : ""}`)
+      .includes(messageTerm)) : messages;
 
   useEffect(() => {
     alive.current = true;
@@ -511,13 +563,12 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
     setImage(file);
   }
 
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function sendMessage(sticker?: StickerId) {
     if (!selectedGroup?.joined || sending) return;
     const groupId = selectedGroup.id;
     const originalDraft = draft;
-    const content = draft.trim();
-    if ((!content && !image) || content.length > 2000) return;
+    const content = sticker ? "" : draft.trim();
+    if (!sticker && ((!content && !image) || content.length > 2000)) return;
     const controller = new AbortController();
     mutationControllers.current.add(controller);
     setSending(true);
@@ -525,22 +576,25 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
     setNotice("");
     try {
       let attachment: { image: string; mime: string } | undefined;
-      if (image) {
+      if (image && !sticker) {
         const bytes = new Uint8Array(await image.arrayBuffer());
         let binary = "";
         for (const byte of bytes) binary += String.fromCharCode(byte);
         attachment = { image: btoa(binary), mime: image.type };
       }
       if (controller.signal.aborted || selectedId.current !== groupId) return;
-      const endpoint = attachment ? "images" : "messages";
+      const endpoint = sticker ? "stickers" : attachment ? "images" : "messages";
+      const payload = sticker ? { sticker } : { content, ...attachment };
       await responseData(await fetch(`/api/groups/${encodeURIComponent(groupId)}/${endpoint}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-        body: JSON.stringify({ content, ...attachment, key: retryKey(messageKey, JSON.stringify([groupId, content, attachment])) }),
+        body: JSON.stringify({ ...payload, key: retryKey(messageKey, JSON.stringify([groupId, payload])) }),
       }));
       if (!alive.current || controller.signal.aborted) return;
       if (selectedId.current === groupId) {
-        setDraft((current) => current === originalDraft ? "" : current);
-        setImage(null);
+        if (!sticker) {
+          setDraft((current) => current === originalDraft ? "" : current);
+          setImage(null);
+        }
         setEmojiOpen(false);
         nearBottom.current = true;
         setHasNewMessages(false);
@@ -551,7 +605,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
     } catch (error) {
       if (!alive.current || controller.signal.aborted || selectedId.current !== groupId) return;
       setActionError(errorText(error));
-      if (error instanceof CommunityError && error.status === 403) {
+      if (error instanceof CommunityError && (error.status === 403 || error.status === 404)) {
         setSelectedGroup((current) => current?.id === groupId ? { ...current, joined: false } : current);
         const snapshot = { groupId, items: null };
         messageSnapshotRef.current = snapshot;
@@ -574,6 +628,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
           </button>
         </header>
         <div className={styles.libraryScroll}>
+          {!selectedGroup && notice && <p className={styles.listNotice} role="status">{notice}</p>}
           {creating && <form id={`${formId}-create`} className={styles.createForm} onSubmit={createGroup}>
             <h3>Một góc học tập mới</h3>
             <p>Cùng ôn bài và trao đổi với bạn học theo môn.</p>
@@ -650,10 +705,26 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
           {notice && <p role="status" className={styles.notice}>{notice}</p>}
           {actionError && <div className={styles.actionError} role="alert"><p>{actionError}</p><button type="button" onClick={() => setListRefresh((current) => current + 1)}>Tải lại nhóm</button></div>}
           {selectedGroup.joined ? <>
-            {showMembers && <GroupMembers key={selectedGroup.id} group={selectedGroup} onSaved={(updated) => {
+            {showMembers && <GroupMembers key={selectedGroup.id} group={selectedGroup} onSaved={(updated, feedback) => {
               setSelectedGroup((current) => current?.id === updated.id ? { ...current, ...updated } : current);
               setListRefresh((value) => value + 1);
-              setNotice("Đã lưu thông tin nhóm.");
+              setNotice(feedback);
+            }} onDeleted={() => {
+              const deletedId = selectedGroup.id;
+              if (selectedId.current !== deletedId) return;
+              selectedId.current = null;
+              setSelectedGroup(null);
+              setGroupSnapshot((current) => current && { ...current, items: current.items.filter((item) => item.id !== deletedId) });
+              setMemberRoom(null);
+              setDraft("");
+              setImage(null);
+              setEmojiOpen(false);
+              setReactionMenu(null);
+              setMobileRoom(false);
+              setListRefresh((value) => value + 1);
+              setNotice("Đã xóa nhóm học.");
+              setActionError("");
+              onSelectGroup?.(null);
             }} />}
             {showMessageSearch && <label id={messageSearchId} className={`${styles.groupSearch} ${styles.messageSearch}`}>
               <PixelNavigationIcon name="search" className={styles.pixel} />
@@ -679,12 +750,15 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
                   <ol className={styles.messageList}>
                     {visibleMessages.map((message) => <li key={message.id} data-message-id={message.id}
                       data-own={message.user_id === userId} className={styles.message}>
-                      <span className={styles.memberAvatar} aria-hidden="true">{(message.username ?? "").trim().slice(0, 1).toLocaleUpperCase("vi-VN") || "B"}</span>
+                      <PixelAvatar className={styles.memberAvatar} avatar={message.avatar_id} username={message.username || "Bạn học"} />
                       <div className={styles.messageMain}><div className={styles.messageMeta}>
                         <strong>{message.user_id === userId ? "Bạn" : message.username || "Bạn học"}</strong>
                         <time dateTime={message.created_at} title={messageTime(message.created_at, true)}>{messageTime(message.created_at)}</time>
                       </div>
-                        <div className={styles.bubble}>
+                        {message.sticker_id && stickerIds.includes(message.sticker_id) ? (
+                          <Image className={styles.stickerMessage} src={`/stickers/${message.sticker_id}.webp`}
+                            width={128} height={128} alt={stickerLabels[message.sticker_id]} unoptimized />
+                        ) : <div className={styles.bubble}>
                           {message.has_image && (
                             // The session-protected endpoint streams the original attachment.
                             // eslint-disable-next-line @next/next/no-img-element
@@ -692,7 +766,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
                               alt="Ảnh đính kèm trong nhóm" loading="lazy" />
                           )}
                           {message.content && <Markdown content={message.content} />}
-                        </div>
+                        </div>}
                         <div className={styles.reactionBar}>
                           {message.reactions?.map((item) => (
                             <button type="button" className={styles.reactionChip} key={item.reaction}
@@ -727,7 +801,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
               </div>
               {!messageTerm && hasNewMessages && <button type="button" className={styles.jumpButton} onClick={() => { nearBottom.current = true; setHasNewMessages(false); if (feed.current) feed.current.scrollTop = feed.current.scrollHeight; }}>Có tin nhắn mới · Xem mới nhất</button>}
             </div>
-            <form className={styles.composer} onSubmit={sendMessage}>
+            <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
               <label className="sr-only" htmlFor={`${formId}-message`}>Gửi tin nhắn cho nhóm</label>
               <div className={styles.composerRow}>
                 <div className={styles.composerBar}>
@@ -742,7 +816,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
                           if (file) attachImage(file);
                         }} />
                     <button type="button" className={styles.attachmentButton} aria-expanded={emojiOpen} disabled={sending}
-                      title="Chọn emoji" aria-label="Chọn emoji"
+                      title="Sticker và emoji" aria-label="Sticker và emoji"
                       onClick={() => setEmojiOpen((open) => !open)}><SidebarIcon name="smile" /></button>
                   </div>
                   <textarea id={`${formId}-message`} ref={composer} value={draft} maxLength={2000} rows={1}
@@ -762,23 +836,34 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
                 </div>
                 {image && <button type="button" className={styles.clearAttachment} disabled={sending}
                   title={image.name} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
-                {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
-                  {groupEmojis.map((code) => {
-                    const value = String.fromCodePoint(code);
-                    return <button key={code} type="button" onClick={() => {
-                      const field = composer.current;
-                      const start = field?.selectionStart ?? draft.length;
-                      const end = field?.selectionEnd ?? start;
-                      const next = draft.slice(0, start) + value + draft.slice(end);
-                      if (next.length > 2000) return;
-                      setDraft(next);
-                      setEmojiOpen(false);
-                      requestAnimationFrame(() => {
-                        field?.focus();
-                        field?.setSelectionRange(start + value.length, start + value.length);
-                      });
-                    }}>{value}</button>;
-                  })}
+                {emojiOpen && <div className={styles.expressionPicker} onKeyDown={(event) => {
+                  if (event.key === "Escape") { setEmojiOpen(false); composer.current?.focus(); }
+                }}>
+                  <div className={styles.stickerGrid} role="group" aria-label="Sticker LearnStep">
+                    {stickerIds.map((sticker) => <button type="button" key={sticker} disabled={sending}
+                      title={stickerLabels[sticker]} aria-label={`Gửi sticker: ${stickerLabels[sticker]}`}
+                      onClick={() => void sendMessage(sticker)}>
+                      <Image src={`/stickers/${sticker}.webp`} width={52} height={52} alt="" unoptimized />
+                    </button>)}
+                  </div>
+                  <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
+                    {groupEmojis.map((code) => {
+                      const value = String.fromCodePoint(code);
+                      return <button key={code} type="button" disabled={sending} onClick={() => {
+                        const field = composer.current;
+                        const start = field?.selectionStart ?? draft.length;
+                        const end = field?.selectionEnd ?? start;
+                        const next = draft.slice(0, start) + value + draft.slice(end);
+                        if (next.length > 2000) return;
+                        setDraft(next);
+                        setEmojiOpen(false);
+                        requestAnimationFrame(() => {
+                          field?.focus();
+                          field?.setSelectionRange(start + value.length, start + value.length);
+                        });
+                      }}>{value}</button>;
+                    })}
+                  </div>
                 </div>}
               </div>
               <div className={styles.composerHint} id={`${formId}-message-hint`}><span>{username ? `${username} · ` : ""}Dán ảnh vào ô chat · Ctrl + Enter để gửi</span><span>{draft.length}/2000</span></div>
@@ -791,7 +876,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, userId, username }:
           </div>}
         </> : <div className={styles.welcome}>
           <button type="button" className={styles.backButton} onClick={() => setMobileRoom(false)}>Danh sách nhóm</button>
-          <Image src="/illustrations/study-frog.webp" alt="" width={432} height={314}
+          <Image src="/illustrations/study-group.webp" alt="" width={432} height={288}
             className={styles.welcomeArt} unoptimized />
           <h2 id={roomTitleId}>{unavailable ? "Chưa tìm thấy nhóm học này" : "Bài khó cũng dễ hơn khi có bạn học"}</h2>
           <p>{unavailable ? "Nhóm không có trong danh sách hiện tại. Hãy tải lại danh sách hoặc chọn một nhóm khác để tiếp tục." : "Chọn một nhóm theo môn để cùng đặt câu hỏi, chia sẻ cách giải và giữ nhịp học tập mỗi ngày."}</p>

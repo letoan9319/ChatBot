@@ -209,7 +209,26 @@
 .membersPanel .createForm { margin: 8px 0 0; }
 .memberList { display: grid; gap: 4px; padding: 0; margin: 0; list-style: none; }
 .memberList li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; overflow-wrap: anywhere; }
-.membersPanel > button { margin-top: 8px; }
+.memberList li > strong { flex: 1; }
+.stickerMessage { display: block; width: 112px; max-width: 100%; height: auto; }
+.expressionPicker { display: grid; gap: 7px; padding: 6px; }
+.stickerGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(42px, 1fr)); gap: 4px; width: min(100%, 340px); }
+.stickerGrid button { display: grid; place-items: center; min-width: 0; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.stickerGrid button:hover:not(:disabled), .stickerGrid button:focus-visible { border-color: var(--primary-edge); background: var(--primary-soft); }
+.stickerGrid img { display: block; width: 100%; max-width: 52px; height: auto; }
+.membersPanel > button, .memberActions { margin-top: 8px; }
+.memberActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dangerButton {
+  min-height: 33px;
+  padding: 5px 9px;
+  border: 1px solid var(--danger-line);
+  border-radius: 8px;
+  color: var(--danger-ink);
+  background: var(--danger-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+.listNotice { margin: 0 0 8px; padding: 8px; border-radius: 8px; background: var(--primary-soft); color: var(--primary-edge); font-size: 12px; }
 .welcomeArt { width: clamp(124px, 21vw, 208px); height: auto; flex-shrink: 0; image-rendering: pixelated; }
 @media (max-width: 680px) {
   .roomIdentity { flex: 1 1 100px; }

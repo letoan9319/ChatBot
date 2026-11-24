@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-provider";
 import { uuid } from "@/core/validation";
+import type { AvatarId } from "@/core/pixel-packs";
 
 export const viewport: Viewport = { interactiveWidget: "resizes-content" };
 
@@ -38,14 +39,18 @@ export default async function StudyPage({ searchParams }: { searchParams: Promis
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/auth");
-  const [{ data: profile, error }, { data: contentRole }] = await Promise.all([
-    db.from("profiles").select("username").eq("id", user.id).maybeSingle(),
+  const [profileResult, { data: contentRole }] = await Promise.all([
+    db.from("profiles").select("username,avatar_id").eq("id", user.id).maybeSingle(),
     db.from("user_roles").select("role").eq("user_id", user.id).eq("role", "content_manager").maybeSingle(),
   ]);
-  if (error || !profile?.username) redirect("/onboarding");
+  const profile = profileResult.error?.code === "42703"
+    ? (await db.from("profiles").select("username").eq("id", user.id).maybeSingle()).data
+    : profileResult.data;
+  if (!profile?.username) redirect("/onboarding");
   const query = await searchParams;
   const conversation = uuid.safeParse(query.conversation);
   const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
   return <StudyWorkspace userId={user.id} username={profile.username} canManageKnowledge={Boolean(contentRole)}
+    initialAvatar={(profileResult.data?.avatar_id ?? null) as AvatarId | null}
     initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
 }

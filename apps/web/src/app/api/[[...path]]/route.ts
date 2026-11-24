@@ -4,6 +4,7 @@ import { groupReactionOptions } from "@/core/group-reactions";
 import { learningPlanSchema } from "@/core/learning-plan";
 import { sessionClient, storageAdmin } from "@/core/supabase-server";
 import { profileSchema, USERNAME_HELP } from "@/core/profile";
+import { avatarIds, stickerIds } from "@/core/pixel-packs";
 import { checkMutationRequest, readJsonBody, RequestError } from "@/core/request-security";
 import {
   keySchema,
@@ -215,6 +216,18 @@ async function handle(request: NextRequest) {
         checkCommunity(error);
         return json(data);
       }
+      if (action === "members" && parts.length === 4 && method === "DELETE") {
+        const { data, error } = await db.rpc("app_remove_group_member", {
+          p_group: uuid.parse(rawId), p_member: uuid.parse(parts[3]),
+        });
+        checkCommunity(error);
+        return json(data);
+      }
+      if (parts.length === 2 && method === "DELETE") {
+        const { error } = await db.rpc("app_delete_group", { p_group: uuid.parse(rawId) });
+        checkCommunity(error);
+        return json({ ok: true });
+      }
       if (action === "settings" && parts.length === 3 && method === "POST") {
         const value = createGroupSchema.pick({ name: true, description: true }).parse(await body());
         const { data, error } = await db.rpc("app_update_group", {
@@ -254,7 +267,7 @@ async function handle(request: NextRequest) {
         checkCommunity(error);
         return json(data ?? []);
       }
-      if (parts.length === 3 && ["join", "leave", "messages"].includes(action)) {
+      if (parts.length === 3 && ["join", "leave", "messages", "stickers"].includes(action)) {
         const id = uuid.parse(rawId);
         if (method === "POST" && ["join", "leave"].includes(action)) {
           emptyBodySchema.parse(await body());
@@ -278,7 +291,24 @@ async function handle(request: NextRequest) {
           checkCommunity(error);
           return json(data, 201);
         }
+        if (action === "stickers" && method === "POST") {
+          const value = z.object({ sticker: z.enum(stickerIds), key: uuid }).strict().parse(await body());
+          const { data, error } = await db.rpc("app_post_group_sticker", {
+            p_group: id, p_sticker: value.sticker, p_key: value.key,
+          });
+          checkCommunity(error);
+          return json(data, 201);
+        }
       }
+    }
+    if (resource === "profile" && method === "POST" && parts.length === 2 && rawId === "avatar") {
+      const value = z.object({ avatar: z.enum(avatarIds).nullable() }).strict().parse(await body());
+      const { data, error } = await db.rpc("app_set_avatar", { p_avatar: value.avatar });
+      if (error && ["PGRST202", "42703"].includes(error.code)) {
+        throw new ApiError(503, "Dịch vụ hồ sơ tài khoản chưa sẵn sàng.");
+      }
+      check(error);
+      return json({ avatar: data });
     }
     if (resource === "profile" && method === "POST" && parts.length === 1) {
       const parsed = profileSchema.safeParse(await body());
