@@ -79,6 +79,18 @@
 .steps li { padding-inline-start: 4px; line-height: 1.65; }
 .steps li + li { margin-top: 12px; }
 .steps li::marker { color: var(--primary-edge); font-weight: 750; }
+.motionHelp {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  line-height: 1.6;
+}
+.motionHelp h4, .motionHelp p { margin: 0; }
+.motionHelp h4 { margin-bottom: 6px; }
+.motionHelp ol { margin-block: 8px; padding-inline-start: 20px; }
+.motionHelp a { display: inline-block; margin-top: 8px; color: var(--primary-edge); text-decoration: underline; }
 @media (max-width: 620px) {
   .header, .footer, .welcomeBody, .topic { padding: 14px; }
   .footer { flex-wrap: wrap; }

@@ -86,6 +86,18 @@
 }
 .toolbarActions { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-width: 0; margin-left: auto; }
 .toolbarActions :global(.theme-toggle) { width: 34px; height: 34px; border-width: 1px; }
+.guideButton {
+  min-height: 38px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.guideButton:hover { background: var(--surface-alt); }
 .statusButton, .streakButton, .accountButton {
   display: flex;
   align-items: center;
@@ -402,6 +414,7 @@
   .mainColumn[data-view="plans"] .pageHeading h1 { font-size: 16px; white-space: normal; }
   .pageHeading p { display: none; }
   .toolbarActions { gap: 7px; }
+  .guideButton { min-height: 34px; padding-inline: 7px; border-radius: 10px; }
   .streakUnit { display: none; }
   .contentGrid, .contentGrid[data-sources-open="true"] { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 8px; }
   .contentGrid[data-panel] > .library, .contentGrid[data-panel] > .chatPanel, .contentGrid[data-panel] > .sourcePanel { display: none; grid-column: 1; }
@@ -431,6 +444,13 @@
   .streakPopover :global(.streak-week) { justify-content: space-between; }
 }
 @media (max-width: 480px) {
+  .topbar {
+    --notification-panel-top: 96px;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .pageHeading { flex-basis: 100%; }
   .statusLabel { display: none; }
   .statusShort { display: inline; }
   .statusButton { min-width: 28px; padding: 4px; }

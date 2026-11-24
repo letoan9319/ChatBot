@@ -29,7 +29,7 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
   onOpenConversation: (id: string) => void;
   onOpenGroup: (id: string) => void;
   onOpenSettings: () => void;
-  onOpenGuide: () => void;
+  onOpenGuide: (trigger: HTMLButtonElement) => void;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -80,6 +80,11 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
           <span className={styles.streakUnit}>ngày</span>
         </button>}
         <NotificationCenter onOpenConversation={onOpenConversation} onOpenGroup={onOpenGroup} />
+        <button type="button" className={styles.guideButton} aria-label="Hướng dẫn sử dụng" aria-haspopup="dialog"
+          onClick={(event) => {
+            setPanel(null);
+            onOpenGuide(event.currentTarget);
+          }}>Hướng dẫn</button>
         <ThemeToggle />
         <button className={styles.accountButton} id="toolbar-account"
           aria-label={`Tài khoản ${username}`} aria-expanded={panel === "account"}
@@ -109,10 +114,6 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
           onOpenSettings();
           document.getElementById("toolbar-account")?.focus();
         }}><SidebarIcon name="settings" /> Hồ sơ và cài đặt</button>
-        <button type="button" className={styles.menuAction} aria-haspopup="dialog" onClick={() => {
-          setPanel(null);
-          onOpenGuide();
-        }}>Hướng dẫn sử dụng</button>
         {canManageKnowledge && <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
           <SidebarIcon name="documents" /> Quản lý tài liệu chung
         </Link>}

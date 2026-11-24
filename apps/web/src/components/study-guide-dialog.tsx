@@ -93,6 +93,18 @@ export function StudyGuideDialog({ mode, onClose, onOpenFullGuide, onNavigate }:
             <ol className={styles.steps}>
               {detail.steps.map((instruction) => <li key={instruction}>{instruction}</li>)}
             </ol>
+            {topic === "settings" && <section className={styles.motionHelp}>
+              <h4>Hiệu ứng chuyển động trên Windows 11</h4>
+              <p>Nếu muốn xem robot bay và các hiệu ứng trong LearnStep, bạn có thể bật hiệu ứng hoạt hình của Windows.</p>
+              <ol>
+                <li>Nhấn <kbd>Win</kbd> + <kbd>I</kbd> để mở <strong>Cài đặt (Settings)</strong>.</li>
+                <li>Vào <strong>Trợ năng (Accessibility)</strong>, rồi chọn <strong>Hiệu ứng hình ảnh (Visual effects)</strong>.</li>
+                <li>Bật <strong>Hiệu ứng hoạt hình (Animation effects)</strong> và quay lại phiên chat mới.</li>
+              </ol>
+              <p>Nếu bạn thích giao diện ít chuyển động, cứ giữ tùy chọn này tắt. Trợ giảng vẫn sử dụng được.</p>
+              <a href="https://support.microsoft.com/en-gb/accessibility/windows/make-it-easier-to-focus-on-tasks"
+                target="_blank" rel="noreferrer">Xem hướng dẫn của Microsoft (mở tab mới)</a>
+            </section>}
             <button type="button" className={styles.primary} onClick={() => onNavigate(topic)}>{detail.action}</button>
           </article>
         </div>}

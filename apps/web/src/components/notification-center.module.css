@@ -39,4 +39,4 @@
 .error button { min-height: 28px; margin-top: 3px; text-decoration: underline; font-weight: 800; }
 .root button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (hover: hover) and (pointer: fine) { .trigger:hover, .close:hover { background: var(--surface-alt); } .item:hover { background: var(--neutral-hover); } }
-@media (max-width: 760px) { .panel { position: fixed; top: 76px; right: 12px; max-height: calc(100dvh - 100px); } .trigger { width: 34px; height: 34px; border-radius: 10px; } }
+@media (max-width: 760px) { .panel { position: fixed; top: var(--notification-panel-top, 76px); right: 12px; max-height: calc(100dvh - var(--notification-panel-top, 76px) - 24px); } .trigger { width: 34px; height: 34px; border-radius: 10px; } }

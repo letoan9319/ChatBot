@@ -567,8 +567,8 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
     setTab("chat");
     setSourcesOpen(false);
   }
-  function openGuide() {
-    guideReturnFocus.current = document.getElementById("toolbar-account");
+  function openGuide(trigger: HTMLButtonElement) {
+    guideReturnFocus.current = trigger;
     setGuide("guide");
   }
   function finishWelcome(next: StudyGuideMode | null) {
