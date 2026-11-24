@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import Image from "next/image";
 import type { FormEvent } from "react";
 import { groupReactionOptions, type GroupReaction, type GroupReactionSummary } from "@/core/group-reactions";
-import { SidebarIcon } from "./sidebar-icon";
+import { PixelNavigationIcon, SidebarIcon } from "./sidebar-icon";
+import { normalizeSearch } from "@/core/document-catalog";
 import { subjects } from "@/core/validation";
 import { Markdown } from "./markdown";
 import { SelectField } from "./select-field";
@@ -19,6 +21,7 @@ type StudyGroup = {
   created_at: string;
   member_count: number;
   joined: boolean;
+  owned?: boolean;
 };
 type GroupMessage = {
   id: string;
@@ -33,6 +36,10 @@ type GroupMessage = {
 const groupEmojis = [0x1f600, 0x1f602, 0x1f914, 0x1f44d, 0x1f64c, 0x2764, 0x1f4da, 0x1f389];
 type MessageSnapshot = { groupId: string; items: GroupMessage[] | null };
 type RetryKey = { signature: string; key: string };
+type GroupRoster = {
+  can_edit: boolean;
+  members: Array<{ id: string; username: string; is_owner: boolean }>;
+};
 
 class CommunityError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
@@ -63,12 +70,87 @@ function messageTime(value: string, full = false) {
 const subjectOptions = Object.entries(subjects).map(([value, label]) => ({ value, label }));
 const filterOptions = [{ value: "", label: "Tất cả môn học" }, ...subjectOptions];
 
+function GroupMembers({ group, onSaved }: { group: StudyGroup; onSaved: (group: StudyGroup) => void }) {
+  const [roster, setRoster] = useState<GroupRoster | null>(null);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef<AbortController | null>(null);
+  const id = useId();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError("");
+    void fetch(`/api/groups/${group.id}/members`, { cache: "no-store", signal: controller.signal })
+      .then(responseData)
+      .then((value) => {
+        if (!Array.isArray(value?.members)) throw new Error("Danh sách thành viên chưa sẵn sàng.");
+        if (!controller.signal.aborted) setRoster(value);
+      })
+      .catch((error: unknown) => { if (!controller.signal.aborted) setError(errorText(error)); });
+    return () => controller.abort();
+  }, [group.id, group.member_count, retry]);
+
+  useEffect(() => () => pending.current?.abort(), []);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending.current) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    setSaving(true);
+    setError("");
+    const fields = new FormData(event.currentTarget);
+    try {
+      const updated = await responseData(await fetch(`/api/groups/${group.id}/settings`, {
+        method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: String(fields.get("name")).trim(), description: String(fields.get("description")).trim() }),
+      }));
+      if (!controller.signal.aborted) { onSaved(updated); setEditing(false); }
+    } catch (error) {
+      if (!controller.signal.aborted) setError(errorText(error));
+    } finally {
+      pending.current = null;
+      if (!controller.signal.aborted) setSaving(false);
+    }
+  }
+
+  return <section className={styles.membersPanel} aria-label="Thành viên và thông tin nhóm">
+    {error && <p role="alert">{error}</p>}
+    {!roster && (error
+      ? <button type="button" className={styles.leaveButton} onClick={() => setRetry(retry + 1)}>Thử lại</button>
+      : <p role="status">Đang tải thành viên…</p>)}
+    {roster && <>
+      <ul className={styles.memberList}>{roster.members.map((member) =>
+        <li key={member.id}><strong>{member.username}</strong>{member.is_owner && <span className={styles.subjectTag}>Chủ nhóm</span>}</li>
+      )}</ul>
+      {roster.can_edit && !editing && <button type="button" className={styles.leaveButton}
+        onClick={() => setEditing(true)}>Sửa thông tin nhóm</button>}
+      {editing && <form className={styles.createForm} onSubmit={save}>
+        <label htmlFor={`${id}-name`}>Tên nhóm</label>
+        <input id={`${id}-name`} name="name" defaultValue={group.name} minLength={3} maxLength={80} required disabled={saving} />
+        <label htmlFor={`${id}-description`}>Giới thiệu</label>
+        <textarea id={`${id}-description`} name="description" defaultValue={group.description} maxLength={500} disabled={saving} />
+        <div className={styles.formActions}>
+          <button type="button" className={styles.secondaryButton} disabled={saving} onClick={() => { setEditing(false); setError(""); }}>Hủy</button>
+          <button type="submit" className={styles.primaryButton} disabled={saving}>{saving ? "Đang lưu…" : "Lưu thay đổi"}</button>
+        </div>
+      </form>}
+    </>}
+  </section>;
+}
+
 export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
   initialGroupId?: string | null;
   onSelectGroup?: (id: string) => void;
   username?: string;
 }) {
   const [subject, setSubject] = useState("");
+  const [groupQuery, setGroupQuery] = useState("");
+  const [joinedOnly, setJoinedOnly] = useState(false);
+  const [memberRoom, setMemberRoom] = useState<string | null>(null);
+  const [messageSearch, setMessageSearch] = useState<{ room: string; query: string } | null>(null);
   const [groupSnapshot, setGroupSnapshot] = useState<{ subject: string; items: StudyGroup[] } | null>(null);
   const [groupsError, setGroupsError] = useState("");
   const [groupsLoading, setGroupsLoading] = useState(true);
@@ -113,6 +195,14 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
   const activeGroupId = selectedGroup?.joined ? selectedGroup.id : null;
   const groups = groupSnapshot?.subject === subject ? groupSnapshot.items : null;
   const messages = activeGroupId && messageSnapshot?.groupId === activeGroupId ? messageSnapshot.items : null;
+  const groupTerm = normalizeSearch(groupQuery);
+  const visibleGroups = groups?.filter((group) => (!joinedOnly || group.joined) &&
+    (!groupTerm || normalizeSearch(`${group.name} ${group.description}`).includes(groupTerm)));
+  const showMembers = Boolean(activeGroupId && memberRoom === activeGroupId);
+  const messageQuery = messageSearch?.room === activeGroupId ? messageSearch?.query ?? "" : "";
+  const messageTerm = normalizeSearch(messageQuery);
+  const visibleMessages = messageTerm ? messages?.filter((message) =>
+    normalizeSearch(`${message.username ?? ""} ${message.content}`).includes(messageTerm)) : messages;
 
   useEffect(() => {
     alive.current = true;
@@ -275,6 +365,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     setImage(null);
     setEmojiOpen(false);
     setReactionMenu(null);
+    setMemberRoom(null);
+    setMessageSearch(null);
     setHasNewMessages(false);
     setMobileRoom(true);
     nearBottom.current = true;
@@ -310,7 +402,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
       if (!group?.id) throw new Error("Nhóm đã được gửi lên máy chủ nhưng chưa nhận được mã nhóm. Hãy tải lại danh sách trước khi tạo tiếp.");
       selectedId.current = group.id;
       setSelectedGroup({ ...group, subject: group.subject ?? createSubject, name: group.name ?? cleanName,
-        description: group.description ?? cleanDescription, joined: true, member_count: group.member_count ?? 1 });
+        description: group.description ?? cleanDescription, joined: true, owned: true, member_count: group.member_count ?? 1 });
       setSubject("");
       setListRefresh((current) => current + 1);
       setName("");
@@ -470,9 +562,11 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
     <section className={styles.groups} data-mobile-room={mobileRoom} aria-label="Cộng đồng học tập">
       <aside className={styles.library} aria-label="Danh sách nhóm học">
         <header className={styles.libraryHeading}>
-          <div><p>CỘNG ĐỒNG</p><h2>Học cùng nhau</h2></div>
+          <div className={styles.groupBrand}><PixelNavigationIcon name="groups" className={styles.pixel} /><h2>Nhóm học</h2></div>
           <button type="button" className={styles.createToggle} aria-expanded={creating} aria-controls={`${formId}-create`}
-            onClick={() => { setCreating((current) => !current); setCreateError(""); }}>Tạo nhóm</button>
+            onClick={() => { setCreating((current) => !current); setCreateError(""); }}>
+            <PixelNavigationIcon name="new" className={styles.pixel} /> Tạo nhóm
+          </button>
         </header>
         <div className={styles.libraryScroll}>
           {creating && <form id={`${formId}-create`} className={styles.createForm} onSubmit={createGroup}>
@@ -493,17 +587,27 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
               <button type="submit" className={styles.primaryButton} disabled={savingGroup || name.trim().length < 3}>{savingGroup ? "Đang tạo..." : "Tạo nhóm học"}</button></div>
           </form>}
           <div className={styles.filter}>
+            <label className={styles.groupSearch}>
+              <PixelNavigationIcon name="search" className={styles.pixel} />
+              <span className="sr-only">Tìm nhóm theo tên hoặc giới thiệu</span>
+              <input type="search" placeholder="Tìm nhóm học…" value={groupQuery} onChange={(event) => setGroupQuery(event.target.value)} />
+            </label>
             <SelectField label="Lọc nhóm theo môn học" value={subject} options={filterOptions} onChange={setSubject} />
+            <label className={styles.joinedFilter}>
+              <input type="checkbox" checked={joinedOnly} onChange={(event) => setJoinedOnly(event.target.checked)} />
+              Chỉ nhóm đã tham gia
+            </label>
             <div className={styles.listHeading}><span>{subject ? subjects[subject as Subject] : "Khám phá nhóm học"}</span>
               <button type="button" disabled={groupsLoading} onClick={() => setListRefresh((current) => current + 1)}>{groupsLoading ? "Đang tải..." : "Làm mới"}</button></div>
           </div>
           {groupsError && <div role="alert" className={styles.listError}><p>{groupsError}</p><button type="button" onClick={() => setListRefresh((current) => current + 1)}>Thử lại</button></div>}
           {groups === null && !groupsError && <p role="status" className={styles.listEmpty}>Đang tìm các nhóm học...</p>}
           {groups?.length === 0 && <div className={styles.listEmpty}><strong>Chưa có nhóm cho môn học này</strong><p>Hãy tạo nhóm đầu tiên và bắt đầu trao đổi cùng bạn học.</p></div>}
-          {groups && groups.length > 0 && <ul className={styles.groupList}>
-            {groups.map((group) => <li key={group.id}><button type="button" className={styles.groupCard} aria-pressed={selectedGroup?.id === group.id}
+          {Boolean(groups?.length) && visibleGroups?.length === 0 && <p role="status" className={styles.listEmpty}>Không tìm thấy nhóm phù hợp.</p>}
+          {visibleGroups && visibleGroups.length > 0 && <ul className={styles.groupList}>
+            {visibleGroups.map((group) => <li key={group.id}><button type="button" className={styles.groupCard} aria-pressed={selectedGroup?.id === group.id}
               onClick={() => selectGroup(group)}>
-              <span className={styles.groupCardTop}><span className={styles.subjectTag}>{subjects[group.subject] ?? group.subject}</span>{group.joined && <span className={styles.joinedTag}>Đã tham gia</span>}</span>
+              <span className={styles.groupCardTop}><span className={styles.subjectTag}>{subjects[group.subject] ?? group.subject}</span>{group.joined && <span className={styles.joinedTag}>{group.owned ? "Chủ nhóm" : "Đã tham gia"}</span>}</span>
               <strong>{group.name}</strong>
               {group.description && <p>{group.description}</p>}
               <span className={styles.groupCardBottom}>{group.member_count} thành viên<span>{selectedGroup?.id === group.id ? "Đang xem" : "Xem nhóm"}</span></span>
@@ -516,24 +620,43 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
           <header className={styles.roomHeading}>
             <button type="button" className={styles.backButton} onClick={() => setMobileRoom(false)}>Danh sách nhóm</button>
             <div className={styles.roomIdentity}><span className={styles.subjectTag}>{subjects[selectedGroup.subject] ?? selectedGroup.subject}</span>
-              <h2 id={roomTitleId}>{selectedGroup.name}</h2><p>{selectedGroup.member_count} thành viên<span> · </span>{selectedGroup.joined ? "Bạn đã tham gia nhóm" : "Nhóm mở để khám phá"}</p></div>
-            {selectedGroup.joined && <button type="button" className={styles.leaveButton} disabled={membershipBusy !== null}
-              onClick={() => void changeMembership(false)}>{membershipBusy === selectedGroup.id ? "Đang lưu..." : "Rời nhóm"}</button>}
+              <h2 id={roomTitleId}>{selectedGroup.name}</h2><p>{selectedGroup.member_count} thành viên<span> · </span>{selectedGroup.owned ? "Bạn là chủ nhóm" : selectedGroup.joined ? "Bạn đã tham gia nhóm" : "Nhóm mở để khám phá"}</p></div>
+            {selectedGroup.joined && <div className={styles.roomActions}>
+              <button type="button" className={styles.leaveButton} aria-expanded={showMembers}
+                onClick={() => setMemberRoom(showMembers ? null : selectedGroup.id)}>
+                <PixelNavigationIcon name="groups" className={styles.pixel} /> Thành viên
+              </button>
+              {!selectedGroup.owned && <button type="button" className={styles.leaveButton} disabled={membershipBusy !== null}
+                onClick={() => void changeMembership(false)}>{membershipBusy === selectedGroup.id ? "Đang lưu..." : "Rời nhóm"}</button>}
+            </div>}
           </header>
           {selectedGroup.description && <p className={styles.roomDescription}>{selectedGroup.description}</p>}
           {notice && <p role="status" className={styles.notice}>{notice}</p>}
           {actionError && <div className={styles.actionError} role="alert"><p>{actionError}</p><button type="button" onClick={() => setListRefresh((current) => current + 1)}>Tải lại nhóm</button></div>}
           {selectedGroup.joined ? <>
+            {showMembers && <GroupMembers key={selectedGroup.id} group={selectedGroup} onSaved={(updated) => {
+              setSelectedGroup((current) => current?.id === updated.id ? { ...current, ...updated } : current);
+              setListRefresh((value) => value + 1);
+              setNotice("Đã lưu thông tin nhóm.");
+            }} />}
+            <label className={`${styles.groupSearch} ${styles.messageSearch}`}>
+              <PixelNavigationIcon name="search" className={styles.pixel} />
+              <span className="sr-only">Tìm trong 50 tin nhắn gần nhất</span>
+              <input type="search" placeholder="Tìm trong 50 tin nhắn gần nhất…" value={messageQuery}
+                onChange={(event) => setMessageSearch({ room: selectedGroup.id, query: event.target.value })} />
+            </label>
             <div className={styles.feedWrapper}>
               <div ref={feed} className={styles.feed} role="log" aria-label="Tin nhắn trong nhóm" aria-live="off"
                 onScroll={() => { const element = feed.current; if (!element) return; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 90; if (nearBottom.current) setHasNewMessages(false); }}>
                 {messagesError && <div className={styles.messageError} role="alert"><p>{messagesError}</p><button type="button" onClick={() => setMessageRefresh((current) => current + 1)}>Tải lại tin nhắn</button></div>}
                 {messages === null && !messagesError && <p role="status" className={styles.loadingMessages}>Đang tải cuộc trao đổi...</p>}
                 {messages?.length === 0 && <div className={styles.conversationEmpty}><span aria-hidden="true" className={styles.emptyMonogram}>NH</span><h3>Cuộc trao đổi bắt đầu từ bạn</h3><p>Chia sẻ một câu hỏi, một cách giải hay hoặc mục tiêu ôn tập hôm nay với cả nhóm.</p></div>}
-                {messages && messages.length > 0 && <>
-                  {messages.length >= 50 && <p className={styles.historyNote}>50 tin nhắn gần nhất trong nhóm</p>}
+                {messageTerm && Boolean(messages?.length) && visibleMessages?.length === 0 &&
+                  <p role="status" className={styles.loadingMessages}>Không tìm thấy tin nhắn phù hợp.</p>}
+                {visibleMessages && visibleMessages.length > 0 && <>
+                  {(messages?.length ?? 0) >= 50 && <p className={styles.historyNote}>50 tin nhắn gần nhất trong nhóm</p>}
                   <ol className={styles.messageList}>
-                    {messages.map((message) => <li key={message.id} data-message-id={message.id} className={styles.message}>
+                    {visibleMessages.map((message) => <li key={message.id} data-message-id={message.id} className={styles.message}>
                       <span className={styles.memberAvatar} aria-hidden="true">{(message.username ?? "").trim().slice(0, 1).toLocaleUpperCase("vi-VN") || "B"}</span>
                       <div className={styles.messageMain}><div className={styles.messageMeta}><strong>{message.username || "Bạn học"}</strong><time dateTime={message.created_at} title={messageTime(message.created_at, true)}>{messageTime(message.created_at)}</time></div>
                         <div className={styles.bubble}>
@@ -577,7 +700,7 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                   </ol>
                 </>}
               </div>
-              {hasNewMessages && <button type="button" className={styles.jumpButton} onClick={() => { nearBottom.current = true; setHasNewMessages(false); if (feed.current) feed.current.scrollTop = feed.current.scrollHeight; }}>Có tin nhắn mới · Xem mới nhất</button>}
+              {!messageTerm && hasNewMessages && <button type="button" className={styles.jumpButton} onClick={() => { nearBottom.current = true; setHasNewMessages(false); if (feed.current) feed.current.scrollTop = feed.current.scrollHeight; }}>Có tin nhắn mới · Xem mới nhất</button>}
             </div>
             <form className={styles.composer} onSubmit={sendMessage}>
               <label className={styles.composerLabel} htmlFor={`${formId}-message`}>Gửi tin nhắn cho nhóm</label>
@@ -609,7 +732,9 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
                     {image && <button type="button" className={styles.clearAttachment} disabled={sending}
                       title={image.name} onClick={() => setImage(null)}>Bỏ ảnh: {image.name}</button>}
                   </div>
-                  <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>{sending ? "Đang gửi..." : "Gửi tin"}</button>
+                  <button type="submit" className={styles.sendButton} disabled={sending || (!draft.trim() && !image)}>
+                    <PixelNavigationIcon name="send" className={styles.pixel} /> {sending ? "Đang gửi..." : "Gửi tin"}
+                  </button>
                 </div>
                 {emojiOpen && <div className={styles.attachmentTools} role="group" aria-label="Chọn emoji">
                   {groupEmojis.map((code) => {
@@ -640,7 +765,8 @@ export function StudyGroups({ initialGroupId, onSelectGroup, username }: {
           </div>}
         </> : <div className={styles.welcome}>
           <button type="button" className={styles.backButton} onClick={() => setMobileRoom(false)}>Danh sách nhóm</button>
-          <span className={styles.emptyMonogram} aria-hidden="true">NH</span><span className={styles.eyebrow}>MỖI NGÀY, CÙNG TIẾN BỘ</span>
+          <Image src="/illustrations/study-frog.webp" alt="" width={432} height={314}
+            className={styles.welcomeArt} unoptimized />
           <h2 id={roomTitleId}>{unavailable ? "Chưa tìm thấy nhóm học này" : "Bài khó cũng dễ hơn khi có bạn học"}</h2>
           <p>{unavailable ? "Nhóm không có trong danh sách hiện tại. Hãy tải lại danh sách hoặc chọn một nhóm khác để tiếp tục." : "Chọn một nhóm theo môn để cùng đặt câu hỏi, chia sẻ cách giải và giữ nhịp học tập mỗi ngày."}</p>
           {unavailable ? <button type="button" className={styles.primaryButton} onClick={() => { setSubject(""); setListRefresh((current) => current + 1); }}>Tải lại danh sách nhóm</button>

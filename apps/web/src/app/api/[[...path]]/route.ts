@@ -19,6 +19,7 @@ export const maxDuration = 90;
 
 const failures: Record<string, [number, string]> = {
   UNAUTHORIZED: [401, "Vui lòng đăng nhập."],
+  FORBIDDEN: [403, "Bạn không có quyền thực hiện thao tác này."],
   OCR_UNAVAILABLE: [404, "Tài liệu chưa có kết quả OCR để xem."],
   NOT_FOUND: [404, "Không tìm thấy dữ liệu."],
   WORKER_OFFLINE: [503, "AI đang offline. Vui lòng chờ máy xử lý kết nối lại."],
@@ -198,7 +199,7 @@ async function handle(request: NextRequest) {
           p_subject: subject === null ? null : subjectSchema.parse(subject),
         });
         checkCommunity(error);
-        return json(data ?? []);
+        return json((data ?? []).map((group: { owner_id: string }) => ({ ...group, owned: group.owner_id === user.id })));
       }
       if (method === "POST" && parts.length === 1) {
         const value = createGroupSchema.parse(await body());
@@ -208,6 +209,19 @@ async function handle(request: NextRequest) {
         });
         checkCommunity(error);
         return json(data, 201);
+      }
+      if (action === "members" && parts.length === 3 && method === "GET") {
+        const { data, error } = await db.rpc("app_group_members", { p_group: uuid.parse(rawId) });
+        checkCommunity(error);
+        return json(data);
+      }
+      if (action === "settings" && parts.length === 3 && method === "POST") {
+        const value = createGroupSchema.pick({ name: true, description: true }).parse(await body());
+        const { data, error } = await db.rpc("app_update_group", {
+          p_group: uuid.parse(rawId), p_name: value.name, p_description: value.description,
+        });
+        checkCommunity(error);
+        return json(data);
       }
       if (action === "images" && parts.length === 3 && method === "POST") {
         const value = groupImageSchema.parse(await readJsonBody(request, 710_000));

@@ -151,3 +151,62 @@
 .reactionChip svg { width: 16px; height: 16px; }
 .reactionChip[aria-pressed="true"] { border-color: var(--green-line); background: var(--primary-soft); }
 .reactionChip:hover:not(:disabled) { background: var(--surface-alt); }
+
+.groupBrand, .roomActions, .groupSearch, .joinedFilter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pixel { width: 20px; height: 20px; flex: none; image-rendering: pixelated; }
+.createToggle, .leaveButton, .sendButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.groupSearch {
+  padding: 0 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-alt);
+}
+.groupSearch:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
+.groupSearch input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+}
+.groups .groupSearch input:focus-visible { outline: none; }
+.joinedFilter { min-height: 34px; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.joinedFilter input { width: 16px; height: 16px; accent-color: var(--primary-edge); }
+.roomActions { flex-wrap: wrap; justify-content: end; }
+.roomActions [aria-expanded="true"] { background: var(--primary-soft); border-color: var(--green-line); }
+.messageSearch { flex-shrink: 0; margin: 10px 16px 0; }
+.membersPanel {
+  flex-shrink: 0;
+  max-height: min(36vh, 350px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--green-line);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  font-size: 13px;
+}
+.membersPanel > p { margin: 0 0 8px; }
+.membersPanel .createForm { margin: 8px 0 0; }
+.memberList { display: grid; gap: 4px; padding: 0; margin: 0; list-style: none; }
+.memberList li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; overflow-wrap: anywhere; }
+.membersPanel > button { margin-top: 8px; }
+.welcomeArt { width: clamp(124px, 21vw, 208px); height: auto; flex-shrink: 0; image-rendering: pixelated; }
+@media (max-width: 680px) {
+  .roomActions { justify-content: start; }
+  .groupSearch input { font-size: 16px; }
+}

@@ -111,11 +111,11 @@ describe("API authorization and asynchronous boundaries", () => {
   });
   it("supports community reads and mutations using the session without a service-role key", async () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const group = { id, name: "Nhóm giải tích", subject: "calculus", member_count: 1, joined: true };
+    const group = { id, owner_id: "authenticated-owner", name: "Nhóm giải tích", subject: "calculus", member_count: 1, joined: true };
     mocks.rpc.mockResolvedValue({ data: [group], error: null });
     const list = await GET(request("groups?subject=calculus&user_id=foreign"));
     expect(list.status).toBe(200);
-    expect(await list.json()).toEqual([group]);
+    expect(await list.json()).toEqual([{ ...group, owned: true }]);
     expect(mocks.rpc).toHaveBeenLastCalledWith("app_list_groups", { p_subject: "calculus" });
     mocks.rpc.mockResolvedValue({ data: group, error: null });
     const create = await POST(request("groups", { name: " Nhóm giải tích ", subject: "calculus", key: id }));

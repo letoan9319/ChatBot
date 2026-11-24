@@ -39,6 +39,7 @@ before(async () => {
     "20261120150841_chat_lifecycle.sql",
     "202611240001_chat_thinking_progress.sql",
     "202611240002_chat_subject.sql",
+    "202611240003_group_management.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -109,6 +110,33 @@ const create = (user, overrides = {}) => {
 };
 const post = (user, group, content = "Cùng thảo luận bài tập", key = randomUUID()) =>
   rpc(user, "app_post_group_message", [group, content, key]);
+
+test("only members can see the roster and only the owner can update the group", async () => {
+  const owner = await learner("roster_owner");
+  const member = await learner("roster_member");
+  const group = await create(owner);
+  const roster = (viewer) => rpc(viewer, "app_group_members", [group.id]);
+  const update = (viewer, name) => rpc(viewer, "app_update_group", [group.id, name, "Ôn bài mỗi tuần"]);
+
+  await assert.rejects(roster(member), /FORBIDDEN/);
+  await rpc(member, "app_join_group", [group.id]);
+  assert.deepEqual(await roster(member), {
+    can_edit: false,
+    members: [
+      { id: owner, username: "roster_owner", is_owner: true },
+      { id: member, username: "roster_member", is_owner: false },
+    ],
+  });
+  assert.equal((await roster(owner)).can_edit, true);
+  await assert.rejects(update(member, "Tên bị đổi"), /FORBIDDEN/);
+  await assert.rejects(update(owner, " "), /INVALID_GROUP/);
+  const edited = await update(owner, "  Giải tích cuối tuần  ");
+  assert.equal(edited.name, "Giải tích cuối tuần");
+  assert.equal(edited.description, "Ôn bài mỗi tuần");
+  assert.equal((await rpc(member, "app_list_groups", [])).find((item) => item.id === group.id).name, edited.name);
+  await rpc(member, "app_leave_group", [group.id]);
+  await assert.rejects(roster(member), /FORBIDDEN/);
+});
 
 async function repositoryDocument(owner, status = "ready") {
   const id = randomUUID(), chunk = randomUUID(), path = `${owner}/${id}.pdf`;
