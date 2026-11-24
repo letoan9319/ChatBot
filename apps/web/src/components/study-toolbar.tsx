@@ -13,7 +13,7 @@ import styles from "./study-workspace.module.css";
 
 type Panel = "streak" | "status" | "account";
 
-export function StudyToolbar({ username, avatar, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings }: {
+export function StudyToolbar({ username, avatar, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings, onOpenGuide }: {
   username: string;
   avatar: AvatarId | null;
   canManageKnowledge: boolean;
@@ -29,6 +29,7 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
   onOpenConversation: (id: string) => void;
   onOpenGroup: (id: string) => void;
   onOpenSettings: () => void;
+  onOpenGuide: () => void;
 }) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -61,7 +62,7 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
 
   return (
     <header className={styles.topbar} ref={header}>
-      <div className={styles.pageHeading}><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
+      <div className={styles.pageHeading}><h1 id="study-workspace-heading" tabIndex={-1}>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
       <div className={styles.toolbarActions}>
         <button className={styles.statusButton} id="toolbar-status"
           aria-label={`Trạng thái trợ giảng: ${status}`} aria-expanded={panel === "status"}
@@ -108,6 +109,10 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
           onOpenSettings();
           document.getElementById("toolbar-account")?.focus();
         }}><SidebarIcon name="settings" /> Hồ sơ và cài đặt</button>
+        <button type="button" className={styles.menuAction} aria-haspopup="dialog" onClick={() => {
+          setPanel(null);
+          onOpenGuide();
+        }}>Hướng dẫn sử dụng</button>
         {canManageKnowledge && <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
           <SidebarIcon name="documents" /> Quản lý tài liệu chung
         </Link>}

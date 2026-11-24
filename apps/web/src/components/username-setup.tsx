@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@/core/supabase-browser";
 import { authErrorMessage } from "@/core/auth-errors";
+import { welcomeGuidePath } from "@/core/study-guide";
 import {
   USERNAME_HELP, usernameSchema, readUsernameDraft,
   saveUsernameDraft, clearUsernameDraft,
@@ -51,7 +52,7 @@ export function UsernameSetup({ email, verified, initialError = "" }: {
         return;
       }
       clearUsernameDraft(email);
-      router.replace("/study");
+      router.replace(welcomeGuidePath);
       router.refresh();
     } catch (error) {
       setFailed(true);

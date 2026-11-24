@@ -29,6 +29,8 @@ import { chatImageToPdf, validateChatImage } from "@/core/chat-image";
 import { ChatDocumentMenu } from "./chat-document-menu";
 import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
+import { StudyGuideDialog, type StudyGuideMode } from "./study-guide-dialog";
+import type { GuideTopic } from "@/core/study-guide";
 import type { AvatarId } from "@/core/pixel-packs";
 import { LearningPlans } from "./learning-plans";
 import { StudyGroups } from "./study-groups";
@@ -80,15 +82,18 @@ const location = (source: Source) =>
 
 const ignoreReveal = () => {};
 
-export function StudyWorkspace({ userId, username, canManageKnowledge, initialAvatar, initialConversationId = null, initialLibrary = null }: {
+export function StudyWorkspace({ userId, username, canManageKnowledge, initialAvatar, initialConversationId = null, initialLibrary = null, initialWelcome = false }: {
   userId: string;
   username: string;
   initialAvatar: AvatarId | null;
   canManageKnowledge: boolean;
   initialConversationId?: string | null;
   initialLibrary?: "knowledge" | "documents" | null;
+  initialWelcome?: boolean;
 }) {
   const router = useRouter();
+  const [guide, setGuide] = useState<StudyGuideMode | null>(initialWelcome ? "welcome" : null);
+  const guideReturnFocus = useRef<HTMLElement | null>(null);
   const [avatar, setAvatar] = useState(initialAvatar);
   const { preferences, updatePreferences, storageAvailable } = useStudyPreferences();
   const [documents, setDocuments] = useState<StudyDocument[]>([]);
@@ -562,6 +567,35 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
     setTab("chat");
     setSourcesOpen(false);
   }
+  function openGuide() {
+    guideReturnFocus.current = document.getElementById("toolbar-account");
+    setGuide("guide");
+  }
+  function finishWelcome(next: StudyGuideMode | null) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("welcome");
+    window.history.replaceState(null, "", url);
+    setGuide(next);
+  }
+  function closeGuide(navigating = false) {
+    if (guide === "welcome") finishWelcome(null);
+    else setGuide(null);
+    const opener = navigating ? null : guideReturnFocus.current;
+    guideReturnFocus.current = null;
+    requestAnimationFrame(() => {
+      (opener?.isConnected ? opener : document.getElementById("study-workspace-heading"))?.focus({ preventScroll: true });
+    });
+  }
+  function navigateFromGuide(topic: GuideTopic) {
+    switch (topic) {
+      case "study": goToStudy(); break;
+      case "library": showLibrary("knowledge"); break;
+      case "history": showLibrary("history"); break;
+      case "plans": showPlans(); break;
+      default: setView(topic);
+    }
+    closeGuide(true);
+  }
   function openGroup(id: string) {
     setGroupToOpen(id);
     setView("groups");
@@ -641,7 +675,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
         <StudyToolbar username={username} avatar={avatar} canManageKnowledge={canManageKnowledge}
           online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
-          onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")}
+          onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")} onOpenGuide={openGuide}
           showStreak={view !== "overview"}
           title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
           subtitle={view === "plans" ? "Đặt mục tiêu, chọn tài liệu và theo dõi tiến độ của bạn." : view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "" : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
@@ -929,6 +963,8 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
           </aside>
         </div>
       </div>
+      {guide && <StudyGuideDialog mode={guide} onClose={() => closeGuide()}
+        onOpenFullGuide={() => finishWelcome("guide")} onNavigate={navigateFromGuide} />}
     </main>
   );
 }

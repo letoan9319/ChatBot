@@ -6,12 +6,15 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-provider";
 import { uuid } from "@/core/validation";
+import { shouldShowWelcomeGuide } from "@/core/study-guide";
 import type { AvatarId } from "@/core/pixel-packs";
 
 export const viewport: Viewport = { interactiveWidget: "resizes-content" };
 
 export const dynamic = "force-dynamic";
-export default async function StudyPage({ searchParams }: { searchParams: Promise<{ conversation?: string; library?: string }> }) {
+export default async function StudyPage({ searchParams }: {
+  searchParams: Promise<{ conversation?: string; library?: string; welcome?: string | string[] }>;
+}) {
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -52,5 +55,6 @@ export default async function StudyPage({ searchParams }: { searchParams: Promis
   const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
   return <StudyWorkspace userId={user.id} username={profile.username} canManageKnowledge={Boolean(contentRole)}
     initialAvatar={(profileResult.data?.avatar_id ?? null) as AvatarId | null}
+    initialWelcome={shouldShowWelcomeGuide(query.welcome, conversation.success, Boolean(library))}
     initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;
 }
