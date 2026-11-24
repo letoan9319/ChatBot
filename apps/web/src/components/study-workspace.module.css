@@ -13,10 +13,23 @@
 .mainColumn[data-view="plans"] .pageHeading { font-family: "Inter Variable", var(--font-body); }
 .mainColumn[data-view="plans"] .pageHeading p { font-weight: 500; }
 .navigationBrand :global(.brand) {
-  font-family: "Pixelify Sans", var(--font-body);
+  position: relative;
+  font-family: "Google Sans Flex Variable", var(--font-body), sans-serif;
   font-size: 26px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 750;
+  letter-spacing: -.018em;
+}
+.navigationBrand :global(.brand)::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: -5px;
+  width: 1.8em;
+  height: 6px;
+  background: currentColor;
+  opacity: .72;
+  clip-path: polygon(0 67%, 32% 67%, 32% 33%, 65% 33%, 65% 0, 100% 0, 100% 33%, 69% 33%, 69% 67%, 36% 67%, 36% 100%, 0 100%);
+  pointer-events: none;
 }
 .navigationBrand :global(.brand span) { display: none; }
 .appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; }

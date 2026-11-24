@@ -36,7 +36,6 @@ import { useStudyPreferences } from "./use-study-preferences";
 import { shouldSendQuestion } from "@/core/study-preferences";
 import styles from "./study-workspace.module.css";
 import "@fontsource-variable/google-sans-flex";
-import "@fontsource/pixelify-sans/latin-700.css";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {

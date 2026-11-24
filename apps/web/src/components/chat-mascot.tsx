@@ -1,88 +1,105 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import styles from "./chat-mascot.module.css";
 
 type Point = { x: number; y: number };
+const flightActions = ["glide", "dash", "dive"] as const;
+const actions = [...flightActions, "hover", "greet"] as const;
+type Action = (typeof actions)[number];
 
-function position({ x, y }: Point) {
-  return `translate(${x * 100}%, ${y * 100}%)`;
+function frame({ x, y }: Point, tilt = 0) {
+  return { transform: `translate(${x * 100}%, ${y * 100}%) rotate(${tilt}deg)` };
+}
+
+function maneuver(action: Action, current: Point, width: number) {
+  if (action === "hover" || action === "greet") {
+    const upper = { x: current.x, y: 0.03 + current.y * 0.35 };
+    const lower = { x: current.x, y: 0.56 + current.y * 0.40 };
+    return {
+      next: current,
+      frames: action === "hover"
+        ? [frame(current), frame(upper, -4), frame(lower, 4), frame(upper, -4), frame(current)]
+        : [frame(current), frame(upper, -16), frame(lower, 13), frame(current)],
+      duration: action === "hover" ? 1550 : 950,
+    };
+  }
+
+  const next = {
+    x: current.x < 0.5 ? 0.60 + Math.random() * 0.34 : 0.06 + Math.random() * 0.34,
+    y: 0.16 + Math.random() * 0.68,
+  };
+  const direction = Math.sign(next.x - current.x);
+  const middleX = (current.x + next.x) / 2;
+  const middle = action === "dive" ? frame({ x: middleX, y: 0.93 }, 13 * direction)
+    : action === "glide" ? frame({ x: middleX, y: 0.08 }, -9 * direction)
+      : frame({ x: middleX, y: (current.y + next.y) / 2 }, 14 * direction);
+  const speed = action === "dash" ? 0.46 : 0.23;
+  return {
+    next,
+    frames: [frame(current), middle, frame(next)],
+    duration: Math.max(500, Math.abs(next.x - current.x) * width / speed),
+  };
 }
 
 export function ChatMascot({ docked, sending }: { docked: boolean; sending: boolean }) {
   const track = useRef<HTMLDivElement>(null);
-  const activeFlight = useRef<Animation | null>(null);
-  const [reducedMotion, setReducedMotion] = useState(true);
-  const [motionChoice, setMotionChoice] = useState<boolean | null>(null);
-  const moving = motionChoice ?? !reducedMotion;
   const visible = !docked && !sending;
-
-  useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReducedMotion(preference.matches);
-    update();
-    preference.addEventListener("change", update);
-    return () => preference.removeEventListener("change", update);
-  }, []);
 
   useEffect(() => {
     const element = track.current;
     if (!visible || !element) return;
-    let current: Point = { x: 0.12, y: 0.55 };
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let current = { x: 0.12, y: 0.55 };
+    let previous: Action | undefined;
+    let remaining: readonly Action[] = actions;
+    let animation: Animation | undefined;
 
-    function fly(element: HTMLDivElement) {
-      const x = current.x < 0.5 ? 0.55 + Math.random() * 0.43 : 0.02 + Math.random() * 0.43;
-      const y = 0.04 + Math.random() * 0.92;
-      const next = { x, y };
-      const distance = Math.hypot((x - current.x) * element.offsetWidth, (y - current.y) * element.offsetHeight);
-      const flight = element.animate([{ transform: position(current) }, { transform: position(next) }], {
-        duration: Math.max(500, distance / 0.18),
-        easing: "ease-in-out",
-        fill: "forwards",
-      });
-      activeFlight.current = flight;
+    function fly(trackElement: HTMLDivElement) {
+      const choices = previous ? remaining.filter((action) => action !== previous) : flightActions;
+      const action = choices[Math.floor(Math.random() * choices.length)];
+      remaining = remaining.filter((candidate) => candidate !== action);
+      if (remaining.length === 0) remaining = actions;
+      const { next, frames, duration } = maneuver(action, current, trackElement.offsetWidth);
+      previous = action;
       current = next;
+      const flight = trackElement.animate(frames, { duration, easing: "ease-in-out", fill: "forwards" });
+      animation = flight;
       flight.onfinish = () => {
-        // Keep the endpoint as the base position before replacing the finished animation.
-        element.style.transform = position(next);
+        trackElement.style.transform = frame(next).transform;
         flight.cancel();
-        fly(element);
+        animation = undefined;
+        syncMotion();
       };
     }
 
-    fly(element);
+    function syncMotion() {
+      if (preference.matches) animation?.pause();
+      else if (animation) animation.play();
+      else if (element) fly(element);
+    }
+
+    syncMotion();
+    preference.addEventListener("change", syncMotion);
     return () => {
-      const flight = activeFlight.current;
-      if (flight) {
-        flight.onfinish = null;
-        flight.cancel();
-        activeFlight.current = null;
+      preference.removeEventListener("change", syncMotion);
+      if (animation) {
+        animation.onfinish = null;
+        animation.cancel();
       }
+      element.style.transform = "";
     };
   }, [visible]);
-
-  useEffect(() => {
-    if (moving) activeFlight.current?.play();
-    else activeFlight.current?.pause();
-  }, [visible, moving]);
 
   if (docked) return null;
 
   return (
-    <div className={styles.rail}>
-      {visible && <>
-        <div className={styles.airspace} aria-hidden="true">
-          <div className={styles.track} ref={track}>
-            <Image className={styles.robot} src="/illustrations/chat-robot.webp"
-              width={48} height={48} alt="" unoptimized />
-          </div>
-        </div>
-        <button type="button" className={styles.motionButton}
-          onClick={() => setMotionChoice(!moving)}>
-          {moving ? "Dừng robot" : "Cho robot bay"}
-        </button>
-      </>}
+    <div className={styles.rail} aria-hidden="true">
+      {visible && <div className={styles.track} ref={track}>
+        <Image className={styles.robot} src="/illustrations/chat-robot.webp"
+          width={48} height={48} alt="" unoptimized />
+      </div>}
     </div>
   );
 }
