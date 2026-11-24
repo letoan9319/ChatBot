@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
 import { chatModes, MAX_FILE_SIZE, statuses, subjects, type ChatMode, type Subject } from "@/core/validation";
@@ -35,6 +36,7 @@ import { useStudyPreferences } from "./use-study-preferences";
 import { shouldSendQuestion } from "@/core/study-preferences";
 import styles from "./study-workspace.module.css";
 import "@fontsource-variable/google-sans-flex";
+import "@fontsource/pixelify-sans/latin-700.css";
 
 async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   const options = {
@@ -597,20 +599,22 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
           <Brand workspace onWorkspaceHome={() => setView("overview")} />
         </div>
         <nav aria-label="Điều hướng góc học tập">
-          <button className={styles.newChatButton} onClick={() => openConversation(null)}>
-            <PixelNavigationIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
-          </button>
-          {([["overview", "Tổng quan"], ["study", "Học tập"], ["plans", "Kế hoạch"], ["documents", "Kho tài liệu"], ["groups", "Nhóm học"], ["history", "Lịch sử"]] as const).map(([key, label]) => (
-            <button key={key} aria-current={(view === key || (view === "library" && (key === "documents" ? libraryView !== "history" : key === "history" && libraryView === "history"))) ? "page" : undefined}
-              data-destination={key}
-              onClick={() => {
-                if (key === "overview") setView("overview");
-                else if (key === "study") goToStudy();
-                else if (key === "plans") showPlans();
-                else if (key === "groups") setView("groups");
-                else showLibrary(key === "documents" ? "knowledge" : key);
-              }} title={label}><PixelNavigationIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
-          ))}
+          <div className={styles.navigationLinks}>
+            <button className={styles.newChatButton} onClick={() => openConversation(null)}>
+              <PixelNavigationIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
+            </button>
+            {([["overview", "Tổng quan"], ["study", "Học tập"], ["plans", "Kế hoạch"], ["documents", "Kho tài liệu"], ["groups", "Nhóm học"], ["history", "Lịch sử"]] as const).map(([key, label]) => (
+              <button key={key} aria-current={(view === key || (view === "library" && (key === "documents" ? libraryView !== "history" : key === "history" && libraryView === "history"))) ? "page" : undefined}
+                data-destination={key}
+                onClick={() => {
+                  if (key === "overview") setView("overview");
+                  else if (key === "study") goToStudy();
+                  else if (key === "plans") showPlans();
+                  else if (key === "groups") setView("groups");
+                  else showLibrary(key === "documents" ? "knowledge" : key);
+                }} title={label}><PixelNavigationIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
+            ))}
+          </div>
           <section className={styles.sidebarRecent} aria-label="Hội thoại gần đây">
             <h2>Gần đây</h2>
             <label className="sr-only" htmlFor="sidebar-history-search">Tìm trong tên phiên học</label>
@@ -619,12 +623,14 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
               <input id="sidebar-history-search" type="search" placeholder="Tìm phiên học…" value={historyQuery}
                 onChange={(event) => setHistoryQuery(event.target.value)} />
             </div>
-            {loading ? <p>Đang tải…</p> : conversations.filter((item) => item.title.toLocaleLowerCase("vi-VN").includes(historyQuery.trim().toLocaleLowerCase("vi-VN"))).slice(0, 8).map((item) => (
-              <button className={styles.recentConversation} key={item.id} title={item.title}
-                aria-current={view === "study" && item.id === conversationId ? "true" : undefined}
-                onClick={() => openConversation(item.id)}>{item.title}</button>
-            ))}
-            {!loading && conversations.length === 0 && <p>Phiên học mới sẽ xuất hiện ở đây.</p>}
+            <div className={styles.sidebarSessions}>
+              {loading ? <p>Đang tải…</p> : conversations.filter((item) => item.title.toLocaleLowerCase("vi-VN").includes(historyQuery.trim().toLocaleLowerCase("vi-VN"))).slice(0, 8).map((item) => (
+                <button className={styles.recentConversation} key={item.id} title={item.title}
+                  aria-current={view === "study" && item.id === conversationId ? "true" : undefined}
+                  onClick={() => openConversation(item.id)}>{item.title}</button>
+              ))}
+              {!loading && conversations.length === 0 && <p>Phiên học mới sẽ xuất hiện ở đây.</p>}
+            </div>
           </section>
           <button className={styles.navigationSettings} aria-current={view === "settings" ? "page" : undefined}
             onClick={() => setView("settings")} title="Cài đặt">
@@ -811,6 +817,12 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
             </div>
             <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
+              {!docked && <div className={styles.chatMascotRail} aria-hidden="true">
+                {!busy && <div className={styles.chatMascotTravel}>
+                  <Image className={styles.chatMascot} src="/stickers/hello.webp"
+                    width={40} height={40} alt="" unoptimized />
+                </div>}
+              </div>}
               <ChatPromptBox inactive={activeChatHere ? stopping
                 : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
                 label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")

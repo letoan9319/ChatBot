@@ -12,16 +12,23 @@
 .navigationBrand { padding-inline: 6px; }
 .mainColumn[data-view="plans"] .pageHeading { font-family: "Inter Variable", var(--font-body); }
 .mainColumn[data-view="plans"] .pageHeading p { font-weight: 500; }
-.navigationBrand :global(.brand) { font-size: 24px; }
+.navigationBrand :global(.brand) {
+  font-family: "Pixelify Sans", var(--font-body);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
 .navigationBrand :global(.brand span) { display: none; }
-.appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; overflow-y: auto; scrollbar-width: thin; }
+.appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; }
+.navigationLinks { display: flex; flex: none; flex-direction: column; gap: inherit; }
 .appNavigation nav button { display: flex; flex-shrink: 0; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; color: var(--text); text-align: left; font-size: 13px; font-weight: 700; }
 .appNavigation nav button[aria-current="page"] { background: var(--primary-soft); color: var(--primary-edge); border-color: var(--green-line); }
 .navigationIcon { display: block; width: 20px; height: 20px; flex-shrink: 0; image-rendering: pixelated; }
-.appNavigation nav .navigationSettings { margin-top: auto; }
 .appNavigation nav .newChatButton { margin-bottom: 10px; border-color: var(--green-line); background: var(--primary-soft); color: var(--primary-ink); }
 .appNavigation nav [data-destination="documents"] { margin-top: 8px; }
-.sidebarRecent { flex-shrink: 0; margin: 10px 0 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sidebarRecent { display: flex; flex: 1; flex-direction: column; min-height: 0; margin: 10px 0 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sidebarRecent h2, .sidebarSearch { flex-shrink: 0; }
+.sidebarSessions { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; }
 .sidebarRecent h2 { margin: 0 10px 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .sidebarSearch { position: relative; margin-bottom: 8px; }
 .sidebarSearch > .navigationIcon { position: absolute; top: 8px; left: 8px; pointer-events: none; }
@@ -29,6 +36,25 @@
 .sidebarRecent p { margin: 8px 10px; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .appNavigation nav .recentConversation { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 500; }
 .recentConversation[aria-current="true"] { background: var(--primary-soft); color: var(--primary-edge); }
+@media (min-width: 761px) and (max-height: 640px) {
+  .appNavigation { padding-block: 12px 8px; }
+  .appNavigation nav { gap: 2px; margin-top: 10px; }
+  .appNavigation nav button { min-height: 34px; padding-block: 5px; }
+  .appNavigation nav .newChatButton { margin-bottom: 3px; }
+  .appNavigation nav [data-destination="documents"] { margin-top: 0; }
+  .sidebarRecent { margin-block: 5px; padding-top: 6px; }
+}
+@media (min-width: 761px) and (max-height: 480px) {
+  .appNavigation { padding-block: 8px 5px; }
+  .appNavigation nav { margin-top: 5px; }
+  .navigationBrand :global(.brand) { font-size: 20px; }
+  .navigationLinks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .appNavigation nav .newChatButton { grid-column: 1 / -1; margin-bottom: 0; }
+  .appNavigation nav .navigationLinks button { min-height: 28px; gap: 4px; padding: 3px 4px; font-size: 11px; }
+  .navigationLinks .navigationIcon { width: 16px; height: 16px; }
+  .sidebarRecent { margin-block: 3px; padding-top: 4px; }
+  .sidebarRecent h2, .sidebarSearch { margin-bottom: 4px; }
+}
 .mainColumn { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
 .pageHeading { min-width: 0; -webkit-user-select: none; user-select: none; }
 .pageHeading h1 { margin: 0; font-size: 26px; line-height: 1.25; }
@@ -269,6 +295,39 @@
 .citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .citations :is(button, a) { max-width: 100%; padding: 5px 8px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 7px; background: var(--secondary-soft); color: var(--secondary-ink); text-align: left; font-size: 11px; }
 .composer { flex-shrink: 0; padding: 10px 24px 16px; background: var(--surface); }
+.chatMascotRail {
+  --mascot-size: 40px;
+  width: min(100%, 820px);
+  height: var(--mascot-size);
+  margin-inline: auto;
+  padding-inline: 16px;
+  pointer-events: none;
+}
+.chatMascotTravel {
+  display: flex;
+  align-items: end;
+  width: calc(100% - var(--mascot-size));
+  height: 100%;
+  animation: chat-mascot-travel 11s ease-in-out infinite alternate;
+}
+.chatMascot {
+  display: block;
+  width: var(--mascot-size);
+  height: var(--mascot-size);
+  flex: none;
+  image-rendering: pixelated;
+  animation: chat-mascot-hop 780ms infinite;
+}
+@keyframes chat-mascot-travel {
+  to { transform: translateX(100%); }
+}
+@keyframes chat-mascot-hop {
+  0%, 100% { transform: translateY(2px) scaleY(.94); }
+  40% { transform: translateY(-9px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chatMascotTravel, .chatMascot { animation: none; }
+}
 .documentMenu { position: relative; }
 .documentMenu > summary {
   display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 42px; min-height: 42px;
@@ -352,11 +411,11 @@
   .mainColumn { grid-column: 1; grid-row: 1; }
   .appNavigation { grid-column: 1; grid-row: 2; padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px)); border-right: 0; border-top: 1px solid var(--line); }
   .navigationBrand { display: none; }
-  .appNavigation nav { flex-direction: row; gap: 3px; margin: 0; overflow: visible; }
+  .appNavigation nav { flex-direction: row; gap: 3px; margin: 0; }
+  .navigationLinks { display: contents; }
   .appNavigation nav button { flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; min-height: 50px; padding: 5px 2px; text-align: center; font-size: 11px; border-radius: 8px; }
   .appNavigation nav button span { white-space: nowrap; }
   .appNavigation nav [data-destination="documents"] { margin-top: 0; }
-  .appNavigation nav .navigationSettings { margin-top: 0; }
   .appNavigation nav .newChatButton, .appNavigation nav [data-destination="history"], .sidebarRecent { display: none; }
   .topbar { align-items: center; min-height: 64px; padding: 10px 16px; gap: 8px; }
   .pageHeading h1 { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
