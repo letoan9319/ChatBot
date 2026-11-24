@@ -19,7 +19,7 @@ import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
 import { ChatPromptBox } from "./chat-prompt-box";
-import { ThinkingProgress } from "./thinking-progress";
+import { readApproach, ThinkingProgress } from "./thinking-progress";
 import { StreamingAnswer } from "./streaming-answer";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
@@ -743,9 +743,17 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
                   {message.role === "assistant" && (message.thinking_started_at || message.status === "generating" ||
-                    (index === messages.length - 1 && message.status === "completed")) &&
+                    (message.status === "completed" && (index === messages.length - 1 || readApproach(message.content)))) &&
                     <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)}
-                      duration={message.thinking_ms} content={message.content} provider={message.generation_provider} />}
+                      duration={message.thinking_ms} content={message.content} provider={message.generation_provider}
+                      sources={[
+                        ...(message.web_sources ?? []).filter(source => source.kind !== "image"),
+                        ...message.message_sources.map(source => ({
+                          label: source.label,
+                          title: source.document_name,
+                          url: `/study/documents/${source.document_id}?${new URLSearchParams({ chunk: source.chunk_id ?? "00000000-0000-0000-0000-000000000000" })}`,
+                        })),
+                      ]} />}
                   {message.role === "assistant"
                     ? <StreamingAnswer content={message.content} status={message.status}
                         onReveal={index === messages.length - 1 ? followStream : ignoreReveal} />
@@ -756,10 +764,27 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                       <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
                     ))}</div>
                   )}
-                  {message.status === "completed" && Boolean(message.web_sources?.length) && (
-                    <div className={styles.citations}>{message.web_sources?.map(item => (
+                  {message.status === "completed" && Boolean(message.web_sources?.some(item => item.kind !== "image")) && (
+                    <div className={styles.citations}>{message.web_sources?.filter(item => item.kind !== "image").map(item => (
                       <a key={item.label} href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}{item.kind === "article" ? " · Bài báo" : ""}</a>
                     ))}</div>
+                  )}
+                  {message.status === "completed" && message.web_sources?.some(item => item.kind === "image") && (
+                    <div className={styles.chatImages} aria-label="Ảnh minh họa từ kết quả tìm kiếm">
+                      {message.web_sources.filter(item => item.kind === "image" &&
+                        /^https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//.test(item.thumbnail ?? "")).map(item => (
+                        <figure key={item.label}>
+                          <a href={item.url} target="_blank" rel="noopener noreferrer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={item.thumbnail} alt={item.title} loading="lazy" referrerPolicy="no-referrer" />
+                          </a>
+                          <figcaption>
+                            <a href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}</a>
+                            <small>{item.creator} · <a href={item.license_url} target="_blank" rel="noopener noreferrer">{item.license_name}</a></small>
+                          </figcaption>
+                        </figure>
+                      ))}
+                    </div>
                   )}
                   {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
                   {message.content && <div className={styles.messageTools}>

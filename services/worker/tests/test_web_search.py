@@ -70,3 +70,36 @@ def test_research_uses_explicit_topic_and_discards_irrelevant_papers(monkeypatch
         "Physics-informed neural networks: cơ chế hoạt động, kết quả thực nghiệm và giới hạn", "research",
     )
     assert [source["url"] for source in sources] == ["https://doi.org/10.1234/pinn"]
+
+
+def test_search_images_keep_attribution_and_reject_external_thumbnails(monkeypatch):
+    def respond(request):
+        if request.url.host == "vi.wikipedia.org":
+            return httpx.Response(200, json={})
+        assert request.url.host == "commons.wikimedia.org"
+        assert request.url.params["gsrsearch"] == "gradient"
+        metadata = {
+            "Artist": {"value": "<b>Example author</b>"},
+            "LicenseShortName": {"value": "CC BY-SA 4.0"},
+            "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+        }
+        return httpx.Response(200, json={"query": {"pages": [
+            {"pageid": 1, "title": "File:Gradient.svg", "imageinfo": [
+                {"thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Gradient.svg/500px-Gradient.svg.png?utm_source=example",
+                 "extmetadata": metadata},
+            ]},
+            {"pageid": 2, "title": "File:Gradient.png", "imageinfo": [
+                {"thumburl": "https://example.net/image.png", "extmetadata": metadata},
+            ]},
+        ]}})
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    sources, _ = web_search.search_web("gradient Giải tích", "search", image_question="Giải thích giúp mình khái niệm về gradient")
+    assert len(sources) == 1
+    assert sources[0]["creator"] == "Example author"
+    assert sources[0]["kind"] == "image"
+    assert "?" not in sources[0]["thumbnail"]
+
+    prompt, _ = build_prompt("Gradient là gì?", [], [], len, "search", reasoning=True)
+    assert "nhãn trích dẫn đã được cấp" in prompt[-1]["content"]

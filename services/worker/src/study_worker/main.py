@@ -525,16 +525,21 @@ class Pipeline:
             candidates = image_chunks + [item for item in candidates if item["id"] not in image_ids]
         external_search = mode in ("search", "research")
         notices = []
+        illustrations = []
         if external_search:
             terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
-            web, notices = search_web(terms, mode, self.settings.searxng_url)
+            results, notices = search_web(
+                terms, mode, self.settings.searxng_url, image_question=question if mode == "search" else "",
+            )
+            illustrations = [source for source in results if source["kind"] == "image"]
+            web = [source for source in results if source["kind"] != "image"]
             candidates = candidates[:2] + web[:4] + candidates[2:] + web[4:]
         guard(self.conn, job)
         self.chat_documents(job)
         reason = should_reason(query, mode, has_image=bool(image_versions))
         prompt, selected = build_prompt(
             question, history, candidates, self.models.count, mode, subject=subject,
-            reasoning=reason and not image_versions,
+            reasoning=(reason or external_search) and not image_versions,
         )
         answer, used = NO_EVIDENCE, []
         if external_search and not selected:
@@ -633,7 +638,7 @@ class Pipeline:
                     for item in used if "url" in item
                 ]
                 self.conn.execute("update public.messages set web_sources=%s where id=%s",
-                                  (Jsonb(web_sources), job["message_id"]))
+                                  (Jsonb(web_sources + illustrations), job["message_id"]))
             for item in used:
                 if "url" in item:
                     continue

@@ -322,6 +322,12 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
                 "Khi người dùng yêu cầu các ý ma trận, trị riêng và vectơ riêng, dùng đúng ba ý đó làm ba nhánh riêng."
             )
 
+    if reasoning and mode in ("search", "research"):
+        tutoring_question += (
+            " Trong đoạn **Cách tiếp cận:**, tóm tắt cách dùng nguồn liên quan và chèn nhãn "
+            "trích dẫn đã được cấp ngay sau ý được nguồn hỗ trợ."
+        )
+
     def render_context(items):
         references = [
             {"label": item["label"], "text": item["content"], **(

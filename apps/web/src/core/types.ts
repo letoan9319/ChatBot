@@ -46,7 +46,7 @@ export type Message = {
   thinking_ms?: number | null;
   generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
-  web_sources?: { label: string; title: string; url: string; kind?: "web" | "article" | "wikipedia" | null }[];
+  web_sources?: { label: string; title: string; url: string; kind?: "web" | "article" | "wikipedia" | "image" | null; thumbnail?: string; creator?: string; license_name?: string; license_url?: string }[];
 };
 export type SourceDetail = Source & {
   available: boolean;

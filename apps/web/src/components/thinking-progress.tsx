@@ -11,12 +11,13 @@ export function readApproach(content: string): string | null {
   return approach && approach.length <= 480 ? approach : null;
 }
 
-export function ThinkingProgress({ status, started, duration, content, provider }: {
+export function ThinkingProgress({ status, started, duration, content, provider, sources = [] }: {
   status: string;
   started: boolean;
   duration?: number | null;
   content: string;
   provider?: string | null;
+  sources?: { label: string; title: string; url: string }[];
 }) {
   const id = useId();
   const star = useRef<SVGSVGElement>(null);
@@ -30,6 +31,11 @@ export function ThinkingProgress({ status, started, duration, content, provider 
     ? status === "stopped" ? "Đã dừng suy luận" : "Suy luận bị gián đoạn"
     : status === "generating" ? "Đang sinh câu trả lời…" : "Không ghi nhận suy luận riêng");
   const approach = status === "completed" ? readApproach(content) : null;
+  const approachSources = approach
+    ? sources.filter(source => approach.includes("[" + source.label + "]"))
+    : [];
+  const citedSources = approachSources.length ? approachSources
+    : sources.filter(source => status === "completed" && content.includes("[" + source.label + "]"));
   const steps = [
     started && "Worker đã nhận tín hiệu suy luận từ model.",
     recorded && "Thời gian được đo từ tín hiệu suy luận đầu tiên đến khi model bắt đầu xuất câu trả lời hoặc kết thúc lượt sinh.",
@@ -85,7 +91,7 @@ export function ThinkingProgress({ status, started, duration, content, provider 
         </span>
         <svg className={styles.u453Chevron} viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
       </button>
-      <div className={styles.u453Panel} id={id} aria-hidden={!open}>
+      <div className={styles.u453Panel} id={id} aria-hidden={!open} inert={!open}>
         <div className={styles.u453Inner}>
           <div className={styles.u453List}>
             {steps.filter(Boolean).map((step, index) => <p key={index} className={styles.u453Line + (step ? " " + styles.visible : "")}>
@@ -95,6 +101,11 @@ export function ThinkingProgress({ status, started, duration, content, provider 
               <strong>Tóm tắt cách tiếp cận</strong>
               <Markdown content={approach} chatMath />
             </div>}
+            {citedSources.length > 0 && <ul aria-label={approachSources.length ? "Nguồn trong tóm tắt" : "Nguồn đã trích trong câu trả lời"}>
+              {citedSources.map(source => <li key={source.label}>
+                <a href={source.url} target="_blank" rel="noopener noreferrer">[{source.label}] {source.title}</a>
+              </li>)}
+            </ul>}
           </div>
         </div>
       </div>

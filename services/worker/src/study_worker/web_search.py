@@ -99,7 +99,50 @@ def _query_terms(text):
     return " ".join(re.findall(r"[^\W_]+", text, re.UNICODE)[:32])[:350]
 
 
-def search_web(question, mode, searxng_url=""):
+def _commons_images(http, terms):
+    result = http.get("https://commons.wikimedia.org/w/api.php", params={
+        "action": "query", "format": "json", "formatversion": 2,
+        "generator": "search", "gsrsearch": terms, "gsrnamespace": 6, "gsrlimit": 8,
+        "prop": "imageinfo", "iiprop": "url|extmetadata", "iiurlwidth": 480,
+        "iiextmetadatafilter": "Artist|LicenseShortName|LicenseUrl",
+    }, timeout=5)
+    result.raise_for_status()
+    images = []
+    keywords = set(terms.casefold().split()) - {"diagram", "image", "illustration", "hình", "ảnh", "minh", "họa", "là", "gì"}
+    for page in sorted(result.json().get("query", {}).get("pages", []), key=lambda item: item.get("index", 0)):
+        info = next(iter(page.get("imageinfo", [])), {})
+        metadata = info.get("extmetadata", {})
+        title = _plain(page.get("title")).removeprefix("File:").rsplit(".", 1)[0]
+        title_words = set(_query_terms(title).casefold().split())
+        if keywords and not (keywords & title_words):
+            continue
+        if (title_words & {"background", "wallpaper", "texture"}) - keywords:
+            continue
+        creator = _plain(metadata.get("Artist", {}).get("value"))
+        license_name = _plain(metadata.get("LicenseShortName", {}).get("value"))
+        license_url = metadata.get("LicenseUrl", {}).get("value", "")
+        if license_url.startswith("http://creativecommons.org/"):
+            license_url = "https://" + license_url.removeprefix("http://")
+        thumbnail = info.get("thumburl", "").partition("?")[0]
+        page_id = page.get("pageid")
+        if not (title and creator and license_name and isinstance(page_id, int) and page_id > 0):
+            continue
+        if not re.fullmatch(r"https://creativecommons\.org/(?:licenses/by(?:-sa)?/[0-9.]+(?:/[a-z-]+)?|publicdomain/(?:zero|mark)/1\.0)/?", license_url):
+            continue
+        if not re.fullmatch(r"https://(?:upload|thumb)\.wikimedia\.org/wikipedia/commons/[\w%./~+(),@&;-]+\.(?:png|jpe?g|webp)", thumbnail, re.I):
+            continue
+        images.append({
+            "kind": "image", "label": f"I{len(images) + 1}", "title": title[:180],
+            "url": f"https://commons.wikimedia.org/?curid={page_id}",
+            "thumbnail": thumbnail, "creator": creator[:250],
+            "license_name": license_name[:50], "license_url": license_url,
+        })
+        if len(images) == 2:
+            break
+    return images
+
+
+def search_web(question, mode, searxng_url="", *, image_question=""):
     # Keep an explicit topic before ":" separate from instructions about the report.
     topic, separator, _ = question.partition(":")
     focused = _query_terms(topic) if separator and mode == "research" else ""
@@ -107,10 +150,16 @@ def search_web(question, mode, searxng_url=""):
     if not terms:
         return [], []
     research = mode == "research"
-    web, articles, notices = [], [], []
+    web, articles, images, notices = [], [], [], []
     with httpx.Client(timeout=8, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}) as http:
         with ThreadPoolExecutor(max_workers=2) as pool:
             academic = pool.submit(_crossref, http, terms) if research else None
+            image_terms = _query_terms(re.sub(
+                r"^(?:hãy )?(?:giải thích|cho (?:mình|tôi) biết|tìm hiểu) "
+                r"(?:(?:giúp )?(?:mình|tôi) )?(?:(?:khái niệm )?về )?",
+                "", image_question.strip(), flags=re.I,
+            ))
+            illustrations = pool.submit(_commons_images, http, image_terms) if image_terms else None
             if searxng_url:
                 try:
                     web = _searxng(http, searxng_url, terms, research)
@@ -131,6 +180,9 @@ def search_web(question, mode, searxng_url=""):
                 else:
                     if not articles:
                         notices.append("Chưa tìm thấy bài báo có tóm tắt cho truy vấn này.")
+            if illustrations:
+                with suppress(httpx.HTTPError, ValueError, TypeError, AttributeError):
+                    images = illustrations.result()
     if focused and articles:
         keywords = {word for word in focused.casefold().split() if len(word) >= 3}
         if len(keywords) >= 3:
@@ -145,4 +197,4 @@ def search_web(question, mode, searxng_url=""):
     unique = {}
     for item in sources:
         unique.setdefault(item["url"], item)
-    return list(unique.values()), notices
+    return list(unique.values()) + images, notices

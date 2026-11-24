@@ -484,3 +484,9 @@
 .questionAttachment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 12px; font-size: 13px; overflow-wrap: anywhere; }
 
 .questionAttachment button { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+
+.chatImages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 10px; max-width: 540px; margin-top: 14px; }
+.chatImages figure { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-alt); }
+.chatImages img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; }
+.chatImages figcaption { display: grid; gap: 4px; padding: 8px 10px; font-size: 12px; overflow-wrap: anywhere; }
+.chatImages small { color: var(--muted); }

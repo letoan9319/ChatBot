@@ -1,7 +1,9 @@
+// Lucian UX/UI Prompt #086 · MIT License (c) 2026 Seokwoooo · https://lucianlabs.dev/uxui-prompt/#086
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { Markdown } from "./markdown";
+import styles from "./streaming-answer.module.css";
 
 const graphemes = typeof Intl.Segmenter === "function"
   ? new Intl.Segmenter("vi", { granularity: "grapheme" })
@@ -38,7 +40,7 @@ export function StreamingAnswer({ content, status, onReveal }: {
     const prefix = content.startsWith(rendered.current) ? rendered.current : "";
     if (!prefix && rendered.current) show("");
     const suffix = revealSegments(content.slice(prefix.length));
-    const milliseconds = Math.min(live ? 1500 : 650, suffix.length * 19);
+    const milliseconds = Math.min(live ? 1500 : 650, suffix.length * 24);
     const started = performance.now();
     let frame = 0;
     let lastPaint = -Infinity;
@@ -47,7 +49,7 @@ export function StreamingAnswer({ content, status, onReveal }: {
 
     function reveal(now: number) {
       const due = Math.min(suffix.length, Math.floor((now - started) * suffix.length / milliseconds) + 1);
-      if (due > count && (now - lastPaint >= 32 || due === suffix.length)) {
+      if (due > count && (now - lastPaint >= 24 || due === suffix.length)) {
         next += suffix.slice(count, due).join("");
         count = due;
         lastPaint = now;
@@ -63,9 +65,11 @@ export function StreamingAnswer({ content, status, onReveal }: {
     onReveal();
   }, [visible, onReveal]);
 
-  if (!visible) return null;
+  if (!visible) return live && status === "generating" ? (
+    <span className={styles.dots} aria-hidden="true"><i /><i /><i /></span>
+  ) : null;
   const streaming = live || visible !== content;
-  return <div aria-live={streaming ? "off" : undefined}>
+  return <div className={streaming ? styles.streaming : undefined} aria-live={streaming ? "off" : undefined}>
     <Markdown content={visible} chatMath visuals={status === "completed" && !streaming} streaming={streaming} />
   </div>;
 }
