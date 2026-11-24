@@ -1,4 +1,14 @@
+import Image from "next/image";
+
 export type SidebarDestination = "overview" | "study" | "plans" | "documents" | "history" | "groups" | "settings" | "new" | "search";
+
+export function PixelNavigationIcon({ name, className }: {
+  name: SidebarDestination | "bell" | "moon" | "sun" | "temporary" | "sources" | "send";
+  className?: string;
+}) {
+  return <Image src={`/illustrations/navigation/${name}.png`} alt="" width={20} height={20}
+    className={className} unoptimized />;
+}
 
 export function SidebarIcon({ name, className }: { name: SidebarDestination | "attach" | "smile" | "signout"; className?: string }) {
   return (

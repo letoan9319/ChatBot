@@ -58,7 +58,7 @@ export function StudyToolbar({ username, canManageKnowledge, online, loading, pr
 
   return (
     <header className={styles.topbar} ref={header}>
-      <div className={styles.pageHeading}><h1>{title}</h1><p>{subtitle}</p></div>
+      <div className={styles.pageHeading}><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
       <div className={styles.toolbarActions}>
         <button className={styles.statusButton} id="toolbar-status"
           aria-label={`Trạng thái trợ giảng: ${status}`} aria-expanded={panel === "status"}

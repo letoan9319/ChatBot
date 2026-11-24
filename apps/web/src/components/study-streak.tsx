@@ -1,3 +1,5 @@
+import Image from "next/image";
+import type { ReactNode } from "react";
 import type { StudyStreak } from "@/core/types";
 
 const weekday = new Intl.DateTimeFormat("vi-VN", { weekday: "short", timeZone: "Asia/Ho_Chi_Minh" });
@@ -6,20 +8,23 @@ const fullDate = new Intl.DateTimeFormat("vi-VN", { dateStyle: "full", timeZone:
 export function StreakFlame({ days, compact = false }: { days: number; compact?: boolean }) {
   const growth = Math.sqrt(Math.min(30, Math.max(0, days)) / 30);
   const height = compact ? 16 + Math.round(16 * growth) : 22 + Math.round(26 * growth);
+  const width = Math.round(height * 20 / 24);
+  const active = days > 0;
   return (
-    <svg className={`streak-flame${days === 0 ? " is-idle" : ""}`}
-      width={Math.round(height * 0.8)} height={height}
-      viewBox="0 0 32 40" fill="none" aria-hidden="true" focusable="false">
-      <path className="streak-flame-outer"
-        d="M18 2c1 8 10 12 10 22a12 12 0 0 1-24 0c0-6 3-11 7-15-1 5 1 9 4 10-1-7 1-12 3-17Z"
-        strokeWidth="1.5" strokeLinejoin="round" />
-      <path className="streak-flame-inner"
-        d="M17 20c0 4 5 6 5 11a6 6 0 0 1-12 0c0-4 3-7 7-11Z" />
-    </svg>
+    <span className="streak-flame" style={{ width, height }} aria-hidden="true">
+      <Image src={active ? "/illustrations/streak-fire.png" : "/illustrations/streak-idle.png"}
+        className={active ? "streak-flame-frames" : undefined}
+        alt="" width={active ? width * 3 : width} height={height} unoptimized />
+    </span>
   );
 }
 
-export function StudyStreakCard({ data, error = "" }: { data: StudyStreak | null; error?: string }) {
+export function StudyStreakCard({ data, error = "", compact = false, summaryIllustration }: {
+  data: StudyStreak | null;
+  error?: string;
+  compact?: boolean;
+  summaryIllustration?: ReactNode;
+}) {
   if (error || !data) {
     return (
       <section className="study-streak streak-placeholder" aria-label="Chuỗi ngày học">
@@ -41,9 +46,9 @@ export function StudyStreakCard({ data, error = "" }: { data: StudyStreak | null
     <section className="study-streak" aria-label="Chuỗi ngày học">
       <div className="streak-summary">
         <div className="streak-count" aria-label={`${data.current} ngày liên tiếp`}>
-          <span className="streak-flame-slot" aria-hidden="true">
+          {compact ? <StreakFlame days={data.current} compact /> : <span className="streak-flame-slot" aria-hidden="true">
             <StreakFlame days={data.current} />
-          </span>
+          </span>}
           <span className="streak-value">
             <strong>{data.current}</strong>
             <span>ngày</span>
@@ -61,6 +66,7 @@ export function StudyStreakCard({ data, error = "" }: { data: StudyStreak | null
             </details>
           </div>
         </div>
+        {summaryIllustration}
       </div>
       <ol className="streak-week" aria-label="7 ngày gần nhất">
         {data.week.map((day) => {

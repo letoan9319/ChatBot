@@ -1172,23 +1172,24 @@ label {
   height: 48px;
 }
 .streak-flame {
-  overflow: visible;
-  transition: width var(--motion-enter) var(--ease-out),
-    height var(--motion-enter) var(--ease-out);
+  display: block;
+  flex: none;
+  overflow: hidden;
 }
-.streak-flame-outer {
-  fill: #ff9600;
-  stroke: #d56a00;
+.streak-flame img {
+  display: block;
+  max-width: none;
+  height: 100%;
+  image-rendering: pixelated;
 }
-.streak-flame-inner {
-  fill: #ffe179;
+.streak-flame-frames { width: 300%; }
+@media (prefers-reduced-motion: no-preference) {
+  .streak-flame-frames { animation: streak-fire 660ms steps(1, end) 3; }
 }
-.streak-flame.is-idle .streak-flame-outer {
-  fill: var(--line);
-  stroke: var(--control-line);
-}
-.streak-flame.is-idle .streak-flame-inner {
-  fill: var(--surface);
+@keyframes streak-fire {
+  33.33% { transform: translateX(-33.3333%); }
+  66.66% { transform: translateX(-66.6667%); }
+  100% { transform: none; }
 }
 .streak-value {
   display: grid;
@@ -1774,19 +1775,11 @@ label {
     border-color var(--motion-fast) ease,
     transform var(--motion-fast) var(--ease-out);
 }
-.theme-moon {
-  transition:
-    transform var(--motion-enter) var(--ease-out),
-    fill var(--motion-fast) ease;
-}
+.theme-pixel-icon { image-rendering: pixelated; }
 :root[data-theme="dark"] .theme-toggle {
   color: var(--primary-edge);
   background: var(--primary-soft);
   border-color: var(--green-line);
-}
-:root[data-theme="dark"] .theme-moon {
-  fill: currentColor;
-  transform: rotate(-15deg);
 }
 .theme-toggle:hover {
   color: var(--primary-edge);

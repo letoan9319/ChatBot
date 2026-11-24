@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { PixelNavigationIcon } from "./sidebar-icon";
 import styles from "./notification-center.module.css";
 
 type Notification = {
@@ -159,10 +160,7 @@ export function NotificationCenter({ onOpenConversation, onOpenGroup }: {
         aria-label={`Thông báo${unread === undefined ? "" : unread > 0 ? `, ${unread} chưa đọc` : ", đã đọc tất cả"}`}
         title="Thông báo" aria-expanded={open} aria-haspopup="dialog" aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((current) => !current)}>
-        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
-          <path d="M10 21h4" />
-        </svg>
+        <PixelNavigationIcon name="bell" className={styles.bell} />
         {unread !== undefined && unread > 0 && <span className={styles.badge} aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}
       </button>
       {open && <div id={panelId} ref={panel} tabIndex={-1} role="dialog" aria-labelledby={titleId} className={styles.panel}>

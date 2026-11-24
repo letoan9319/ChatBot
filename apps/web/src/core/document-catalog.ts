@@ -42,7 +42,7 @@ export function partLabel(part: DocumentPart): string {
   return part.firstPage === part.lastPage ? "Trang " + part.firstPage : "Trang " + part.firstPage + "–" + part.lastPage;
 }
 
-const normalizeSearch = (text: string) => text.normalize("NFD").toLowerCase()
+export const normalizeSearch = (text: string) => text.normalize("NFD").toLowerCase()
   .replace(/\p{M}/gu, "").replace(/đ/g, "d")
   .replace(/([\p{L}])(\d)/gu, "$1 $2").replace(/(\d)([\p{L}])/gu, "$1 $2")
   .replace(/[^\p{L}\p{N}]+/gu, " ").trim();

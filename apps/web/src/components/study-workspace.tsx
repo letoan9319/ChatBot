@@ -23,7 +23,7 @@ import { readApproach, ThinkingProgress } from "./thinking-progress";
 import { StreamingAnswer } from "./streaming-answer";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
-import { SidebarIcon } from "./sidebar-icon";
+import { PixelNavigationIcon } from "./sidebar-icon";
 import { chatImageToPdf, validateChatImage } from "@/core/chat-image";
 import { ChatDocumentMenu } from "./chat-document-menu";
 import { SelectField } from "./select-field";
@@ -542,11 +542,15 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
   const allWebSources = messages.filter(message => message.status === "completed")
     .flatMap(message => (message.web_sources ?? []).map(source => ({ ...source, id: `${message.id}-${source.label}` })));
 
-  function showDocuments() {
+  function showLibrary(section: "knowledge" | "documents" | "history") {
     setView("library");
-    setLibraryView("knowledge");
+    setLibraryView(section);
     setTab("documents");
     setSourcesOpen(false);
+  }
+  function showPlans() {
+    setPlansOpened(true);
+    setView("plans");
   }
   function goToStudy() {
     setView("study");
@@ -590,7 +594,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
         </div>
         <nav aria-label="Điều hướng góc học tập">
           <button className={styles.newChatButton} onClick={() => openConversation(null)}>
-            <SidebarIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
+            <PixelNavigationIcon name="new" className={styles.navigationIcon} /><span>Trò chuyện mới</span>
           </button>
           {([["overview", "Tổng quan"], ["study", "Học tập"], ["plans", "Kế hoạch"], ["documents", "Kho tài liệu"], ["groups", "Nhóm học"], ["history", "Lịch sử"]] as const).map(([key, label]) => (
             <button key={key} aria-current={(view === key || (view === "library" && (key === "documents" ? libraryView !== "history" : key === "history" && libraryView === "history"))) ? "page" : undefined}
@@ -598,21 +602,16 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
               onClick={() => {
                 if (key === "overview") setView("overview");
                 else if (key === "study") goToStudy();
-                else if (key === "plans") { setPlansOpened(true); setView("plans"); }
+                else if (key === "plans") showPlans();
                 else if (key === "groups") setView("groups");
-                else {
-                  setView("library");
-                  setLibraryView(key === "documents" ? "knowledge" : key);
-                  setTab("documents");
-                  setSourcesOpen(false);
-                }
-              }} title={label}><SidebarIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
+                else showLibrary(key === "documents" ? "knowledge" : key);
+              }} title={label}><PixelNavigationIcon name={key} className={styles.navigationIcon} /><span>{label}</span></button>
           ))}
           <section className={styles.sidebarRecent} aria-label="Hội thoại gần đây">
             <h2>Gần đây</h2>
             <label className="sr-only" htmlFor="sidebar-history-search">Tìm trong tên phiên học</label>
             <div className={styles.sidebarSearch}>
-              <SidebarIcon name="search" className={styles.navigationIcon} />
+              <PixelNavigationIcon name="search" className={styles.navigationIcon} />
               <input id="sidebar-history-search" type="search" placeholder="Tìm phiên học…" value={historyQuery}
                 onChange={(event) => setHistoryQuery(event.target.value)} />
             </div>
@@ -625,7 +624,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           </section>
           <button className={styles.navigationSettings} aria-current={view === "settings" ? "page" : undefined}
             onClick={() => setView("settings")} title="Cài đặt">
-            <SidebarIcon name="settings" className={styles.navigationIcon} /><span>Cài đặt</span>
+            <PixelNavigationIcon name="settings" className={styles.navigationIcon} /><span>Cài đặt</span>
           </button>
         </nav>
       </aside>
@@ -635,8 +634,8 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
           streak={streak} streakError={streakError} onSignOut={signOut}
           onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")}
           showStreak={view !== "overview"}
-          title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan học tập" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
-          subtitle={view === "plans" ? "Đặt mục tiêu, chọn tài liệu và theo dõi tiến độ của bạn." : view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "Mỗi ngày một bước, hiểu thêm một chút." : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
+          title={view === "plans" ? "Kế hoạch học tập" : view === "groups" ? "Nhóm học tập" : view === "settings" ? "Cài đặt" : view === "overview" ? "Tổng quan" : view === "study" ? "Trợ giảng LearnStep" : libraryView === "history" ? "Lịch sử học tập" : "Kho tài liệu"}
+          subtitle={view === "plans" ? "Đặt mục tiêu, chọn tài liệu và theo dõi tiến độ của bạn." : view === "groups" ? "Thảo luận cùng người học cùng môn." : view === "settings" ? "Tùy chỉnh góc học tập theo cách của bạn." : view === "overview" ? "" : view === "study" ? "Đặt câu hỏi, đọc lời giải và đối chiếu với nguồn." : "Tài liệu và các phiên học được lưu riêng cho bạn."} />
         {notice && (
           <div className={styles.notice} role="status">
             <span>{notice}</span>
@@ -645,7 +644,9 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
         )}
         {view === "overview" && <StudyOverview username={username} documents={documents} conversations={conversations}
           streak={streak} streakError={streakError} loading={loading} unavailable={Boolean(dataError)}
-          onStudy={goToStudy} onNewConversation={() => openConversation(null)} onLibrary={showDocuments} onConversation={openConversation} />}
+          onNewConversation={() => openConversation(null)} onLibrary={() => showLibrary("knowledge")}
+          onPersonalLibrary={() => showLibrary("documents")} onHistory={() => showLibrary("history")}
+          onPlans={showPlans} onConversation={openConversation} />}
         {view === "settings" && <StudySettings preferences={preferences} onChange={updatePreferences} storageAvailable={storageAvailable} />}
         {view === "groups" && <StudyGroups username={username} initialGroupId={groupToOpen} onSelectGroup={setGroupToOpen} />}
         {plansOpened && <div className="learning-plans-panel" hidden={view !== "plans"}>
@@ -708,14 +709,23 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 {temporary && <p>Cuộc trò chuyện này sẽ mất khi bạn tải lại hoặc đóng tab.</p>}
               </div>
               <div className={styles.chatHeadingActions}>
-              <button className={`${styles.quietButton} ${styles.mobileNewChat}`} type="button" aria-label="Phiên học mới" onClick={() => openConversation(null)}>Mới</button>
-              {!conversationId && <button className={styles.quietButton} type="button" aria-pressed={temporary}
-                onClick={() => openConversation(null, !temporary)}>Chat tạm thời</button>}
-              <button id="show-sources" className={styles.quietButton} aria-controls="panel-sources" aria-expanded={sourcesOpen}
-                onClick={() => {
-                  if (sourcesOpen) closeSources();
-                  else { setSourcesOpen(true); setTab("sources"); }
-                }}>Nguồn <span className={styles.sourceCount}>{allSources.length + allWebSources.length}</span></button>
+                <button className={styles.quietButton} type="button" aria-label="Phiên học mới"
+                  onClick={() => openConversation(null)}>
+                  <PixelNavigationIcon name="new" className={styles.chatActionIcon} /> Mới
+                </button>
+                {!conversationId && <button className={styles.quietButton} type="button" aria-pressed={temporary}
+                  onClick={() => openConversation(null, !temporary)}>
+                  <PixelNavigationIcon name="temporary" className={styles.chatActionIcon} /> Chat tạm thời
+                </button>}
+                <button id="show-sources" className={styles.quietButton} type="button"
+                  aria-controls="panel-sources" aria-expanded={sourcesOpen}
+                  onClick={() => {
+                    if (sourcesOpen) closeSources();
+                    else { setSourcesOpen(true); setTab("sources"); }
+                  }}>
+                  <PixelNavigationIcon name="sources" className={styles.chatActionIcon} />
+                  Nguồn <span className={styles.sourceCount}>{allSources.length + allWebSources.length}</span>
+                </button>
               </div>
             </div>
             {worker.activeChat && worker.activeChat.conversation_id !== conversationId && (
@@ -803,7 +813,7 @@ export function StudyWorkspace({ username, canManageKnowledge, initialConversati
                 onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
                 tools={<>
                   <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
-                    onChoose={showDocuments} onUpload={file => upload(file, chatSubject || "calculus")} />
+                    onChoose={() => showLibrary("knowledge")} onUpload={file => upload(file, chatSubject || "calculus")} />
                 <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
                   options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
                   onChange={value => setChatMode(value as ChatMode)} />

@@ -17,14 +17,14 @@
 .appNavigation nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 5px; margin-top: 24px; overflow-y: auto; scrollbar-width: thin; }
 .appNavigation nav button { display: flex; flex-shrink: 0; align-items: center; gap: 10px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px; color: var(--text); text-align: left; font-size: 13px; font-weight: 700; }
 .appNavigation nav button[aria-current="page"] { background: var(--primary-soft); color: var(--primary-edge); border-color: var(--green-line); }
-.navigationIcon { width: 20px; height: 20px; flex-shrink: 0; color: var(--primary-edge); }
+.navigationIcon { display: block; width: 20px; height: 20px; flex-shrink: 0; image-rendering: pixelated; }
 .appNavigation nav .navigationSettings { margin-top: auto; }
 .appNavigation nav .newChatButton { margin-bottom: 10px; border-color: var(--green-line); background: var(--primary-soft); color: var(--primary-ink); }
 .appNavigation nav [data-destination="documents"] { margin-top: 8px; }
 .sidebarRecent { flex-shrink: 0; margin: 10px 0 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .sidebarRecent h2 { margin: 0 10px 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .sidebarSearch { position: relative; margin-bottom: 8px; }
-.sidebarSearch > svg { position: absolute; top: 10px; left: 10px; width: 16px; height: 16px; pointer-events: none; color: var(--muted); }
+.sidebarSearch > .navigationIcon { position: absolute; top: 8px; left: 8px; pointer-events: none; }
 .sidebarRecent input { width: 100%; min-height: 36px; padding: 6px 9px 6px 32px; border-width: 1px; border-radius: 9px; background: var(--surface); font-size: 12px; }
 .sidebarRecent p { margin: 8px 10px; font-size: 11px; line-height: 1.6; color: var(--muted); }
 .appNavigation nav .recentConversation { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 8px; font-size: 12px; font-weight: 500; }
@@ -242,7 +242,7 @@
 .chatHeading, .sourceHeading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; min-height: 66px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .sessionTitle { min-width: 0; }
 .chatHeadingActions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
-.mobileNewChat { display: none; }
+.chatActionIcon { width: 20px; height: 20px; flex: none; image-rendering: pixelated; }
 .sessionTitle h2 { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; }
 .sessionTitle > button { display: block; max-width: 100%; min-height: 24px; margin-top: 1px; padding: 0; color: var(--muted); text-align: left; font-size: 11px; }
 .quietButton { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
@@ -378,7 +378,6 @@
   .uploadRow [data-select-trigger] { font-size: 14px; }
   .documentSelect strong, .historyItem strong { font-size: 13px; }
   .chatHeading { min-height: 60px; padding: 10px 14px; }
-  .mobileNewChat { display: inline-flex; }
   .chatScroll { padding: 16px; }
   .welcome { padding-block: 4px; }
   .welcome h2 { font-size: 24px; }
@@ -462,7 +461,7 @@
   color: var(--muted);
   font-size: .8rem;
 }
-.chatHeadingActions button[aria-pressed="true"] {
+.chatHeadingActions button:is([aria-pressed="true"], [aria-expanded="true"]) {
   background: var(--primary-soft);
   border-color: var(--green-line);
 }
@@ -477,7 +476,9 @@
   min-width: 0;
 }
 @media (max-width: 560px) {
-  .chatHeadingActions { flex-wrap: wrap; justify-content: flex-end; }
+  .chatHeading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .chatHeadingActions { flex-wrap: wrap; }
+  .chatHeadingActions button { min-height: 40px; padding-inline: 8px; }
   .chatPanel[data-docked="false"] .examples button { max-width: 100%; }
 }
 

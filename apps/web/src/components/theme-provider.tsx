@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { savedTheme, THEME_STORAGE_KEY, type Theme, type ThemePreference } from "@/core/theme";
+import { PixelNavigationIcon } from "./sidebar-icon";
 
 const ThemeContext = createContext<{
   theme: Theme;
@@ -84,21 +85,7 @@ export function ThemeToggle() {
       title={theme === "dark" ? "Chuyển sang chế độ sáng" : "Chuyển sang chế độ tối"}
       onClick={toggle}
     >
-      <svg
-        className="theme-moon"
-        viewBox="0 0 24 24"
-        width="22"
-        height="22"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79Z" />
-      </svg>
+      <PixelNavigationIcon name={theme === "dark" ? "sun" : "moon"} className="theme-pixel-icon" />
     </button>
   );
 }
