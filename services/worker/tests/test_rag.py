@@ -191,7 +191,7 @@ def test_plain_json_tag_becomes_visual_only_for_visual_requests():
     assert close_visual_block(response, "Vẽ sơ đồ").startswith(fence + "learnstep-visual\n")
 
 
-def test_gradient_concept_enables_reasoning_and_a_line_plot_without_changing_exercise_prompt():
+def test_gradient_concept_gets_a_contour_illustration_without_changing_exercise_prompt():
     from study_worker.rag import add_gradient_example, should_reason
 
     question = "Giải thích giúp mình khái niệm về gradient"
@@ -199,9 +199,10 @@ def test_gradient_concept_enables_reasoning_and_a_line_plot_without_changing_exe
     prompt, _ = build_prompt(question, [], [], lambda text: len(text.split()), mode="library")
     assert "vectơ các đạo hàm riêng" in prompt[-1]["content"]
     answer = add_gradient_example("Định nghĩa gradient.", question)
-    assert '"type": "line"' in answer
-    assert '"x": -2, "y": -4' in answer
-    assert '"x": 2, "y": 4' in answer
+    assert '"type": "gradient-contours"' in answer
+    assert r"$\nabla f(P)=(2,2)$" in answer
+    assert "hàm hai biến" in prompt[-1]["content"]
+    assert "Không tiết lộ giá trị cuối" not in prompt[0]["content"]
     assert add_gradient_example("Giải thích.", "Gradient nhiệt độ là gì?") == "Giải thích."
 
     exercise = "Giải thích từng bước cách đạo hàm ẩn hạng tử xy^3"
@@ -230,3 +231,31 @@ def test_explicit_reasoning_requests_use_a_public_approach_summary():
     assert "**Cách tiếp cận:**" in messages[-1]["content"]
     assert "không kể lại quá trình suy nghĩ riêng" in messages[-1]["content"]
     assert not should_reason("Công thức quy tắc tích là gì?", "library")
+
+
+def test_concept_explanations_include_worked_examples_but_mixed_exercises_keep_hints():
+    from study_worker.rag import concept_request
+
+    question = "Không gian riêng là gì? Minh họa bằng sơ đồ khái niệm."
+    prompt, _ = build_prompt(question, [], [], len, "library")
+    assert "ví dụ minh họa có kết quả đầy đủ" in prompt[0]["content"]
+    assert '"type":"concept"' in prompt[0]["content"]
+    assert "bắt buộc dùng type concept" in prompt[-1]["content"]
+    assert "Không tiết lộ giá trị cuối" not in prompt[0]["content"]
+    assert concept_request("Giải thích kỹ hơn", [{"role": "user", "content": question}])
+    exercise = "Giải thích khái niệm và tính đạo hàm của hàm số sau"
+    assert not concept_request(exercise)
+    prompt, _ = build_prompt(exercise, [], [], len, "library")
+    assert "Không tiết lộ giá trị cuối" in prompt[0]["content"]
+
+
+def test_explicit_eigenspace_diagram_has_three_verified_relationships():
+    from study_worker.rag import add_eigenspace_diagram
+
+    question = "Không gian riêng là gì? Minh họa bằng sơ đồ khái niệm với ma trận, trị riêng và vectơ riêng."
+    prompt, _ = build_prompt(question, [], [], len, "library")
+    assert "Hệ thống sẽ dựng sơ đồ" in prompt[-1]["content"]
+    diagram = add_eigenspace_diagram("Giải thích.", question)
+    assert diagram.count('"label"') == 3
+    assert "Các vectơ khác không" in diagram
+    assert add_eigenspace_diagram("Giải thích.", "Tìm vectơ riêng của ma trận.") == "Giải thích."

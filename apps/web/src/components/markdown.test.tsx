@@ -108,6 +108,26 @@ describe("chat visuals", () => {
     })} />)).toContain("<pre>");
   });
 
+  it("renders a labeled contour illustration with an accessible description", () => {
+    const html = renderToStaticMarkup(<Markdown visuals content={block({
+      type: "gradient-contours", title: "Gradient và đường đồng mức",
+    })} />);
+    expect(html).toContain('role="img"');
+    expect(html).toContain('data-level="2"');
+    expect(html).toContain("hướng tăng nhanh nhất");
+    expect(html).toContain("Tiếp tuyến");
+    expect(html).not.toContain("<table");
+  });
+
+  it("renders concept branches as text and rejects incomplete relationships", () => {
+    const data = {type: "concept", title: "Đường đồng mức", center: "Gradient",
+      items: [{label: "Hướng", detail: "<img src=x>"}, {label: "Độ lớn", detail: "Tốc độ tăng"}]};
+    const html = renderToStaticMarkup(<Markdown visuals content={block(data)} />);
+    expect(html).toContain("&lt;img src=x&gt;");
+    expect(html).not.toContain("<img");
+    expect(renderToStaticMarkup(<Markdown visuals content={block({...data, items:[{label:"Hướng"}]})} />)).toContain("<pre>");
+  });
+
   it("renders ordered flows and falls back to code for unsupported data", () => {
     expect(renderToStaticMarkup(<Markdown visuals content={block({
       type: "flow", title: "Cách làm", steps: ["Đọc đề", "Chọn quy tắc"],

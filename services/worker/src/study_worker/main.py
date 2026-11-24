@@ -17,7 +17,7 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image, ollama_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, SUBJECTS, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
+from .rag import NO_EVIDENCE, SUBJECTS, add_eigenspace_diagram, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, concept_request, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -585,11 +585,12 @@ class Pipeline:
                 except OutputLimit:
                     truncated = True
                     LOG.info("chat_output_limit job_id=%s", job["id"])
-                if image_documents:
+                if image_documents and not concept_request(question, history):
                     answer = first_image_hint(answer)
                 answer = close_visual_block(answer, question)
                 if answer.strip() and allow_uncited and not image_versions:
                     answer = add_gradient_example(answer, question, subject=subject)
+                    answer = add_eigenspace_diagram(answer, question)
                 answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
                 if answer != NO_EVIDENCE:
                     if truncated:
