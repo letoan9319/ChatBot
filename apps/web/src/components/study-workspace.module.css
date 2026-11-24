@@ -295,39 +295,6 @@
 .citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .citations :is(button, a) { max-width: 100%; padding: 5px 8px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 7px; background: var(--secondary-soft); color: var(--secondary-ink); text-align: left; font-size: 11px; }
 .composer { flex-shrink: 0; padding: 10px 24px 16px; background: var(--surface); }
-.chatMascotRail {
-  --mascot-size: 40px;
-  width: min(100%, 820px);
-  height: var(--mascot-size);
-  margin-inline: auto;
-  padding-inline: 16px;
-  pointer-events: none;
-}
-.chatMascotTravel {
-  display: flex;
-  align-items: end;
-  width: calc(100% - var(--mascot-size));
-  height: 100%;
-  animation: chat-mascot-travel 11s ease-in-out infinite alternate;
-}
-.chatMascot {
-  display: block;
-  width: var(--mascot-size);
-  height: var(--mascot-size);
-  flex: none;
-  image-rendering: pixelated;
-  animation: chat-mascot-hop 780ms infinite;
-}
-@keyframes chat-mascot-travel {
-  to { transform: translateX(100%); }
-}
-@keyframes chat-mascot-hop {
-  0%, 100% { transform: translateY(2px) scaleY(.94); }
-  40% { transform: translateY(-9px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .chatMascotTravel, .chatMascot { animation: none; }
-}
 .documentMenu { position: relative; }
 .documentMenu > summary {
   display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 42px; min-height: 42px;

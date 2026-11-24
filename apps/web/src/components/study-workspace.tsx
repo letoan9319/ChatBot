@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
 import { chatModes, MAX_FILE_SIZE, statuses, subjects, type ChatMode, type Subject } from "@/core/validation";
@@ -20,6 +19,7 @@ import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
 import { Brand } from "./brand";
 import { ChatPromptBox } from "./chat-prompt-box";
+import { ChatMascot } from "./chat-mascot";
 import { readApproach, ThinkingProgress } from "./thinking-progress";
 import { StreamingAnswer } from "./streaming-answer";
 import { catalogEntries } from "@/core/document-catalog";
@@ -817,12 +817,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
             </div>
             <form ref={composer} className={styles.composer} onSubmit={send}>
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
-              {!docked && <div className={styles.chatMascotRail} aria-hidden="true">
-                {!busy && <div className={styles.chatMascotTravel}>
-                  <Image className={styles.chatMascot} src="/stickers/hello.webp"
-                    width={40} height={40} alt="" unoptimized />
-                </div>}
-              </div>}
+              <ChatMascot docked={docked} sending={busy} />
               <ChatPromptBox inactive={activeChatHere ? stopping
                 : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
                 label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
