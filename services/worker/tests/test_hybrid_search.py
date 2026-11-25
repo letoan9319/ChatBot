@@ -2,6 +2,7 @@ import threading
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from study_worker import main as worker_main
 from study_worker import web_search
@@ -366,4 +367,216 @@ def test_library_prompt_citations_normalize_and_review():
     reviewed = review_missing_citations("Đạo hàm là gì?", draft, sources, fake_models)
     assert reviewed.splitlines()[0].endswith("[S1]")
     assert "[S1]" not in reviewed.splitlines()[2]
+
+
+def _make_search_pipeline(monkeypatch, *, history_rows=None, tokens=None, guard_rows=None, web_results=None):
+    executed = []
+    history_rows = history_rows or []
+    tokens = tokens or ["Theo giáo trình [S1]."]
+    guard_iter = iter(guard_rows or [])
+
+    class FakeTransaction:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    class FakeConn:
+        def transaction(self):
+            return FakeTransaction()
+
+        def execute(self, sql, params=()):
+            executed.append((sql, params))
+            if "from public.jobs where id=%s for update" in sql:
+                row = next(guard_iter, {"lease_token": "lease-1", "status": "running", "error": None})
+                return SimpleNamespace(fetchone=lambda r=row: r)
+            if "from public.knowledge_documents k" in sql and "vector_collection=%s" in sql:
+                return SimpleNamespace(fetchall=lambda: [{
+                    "id": "doc-1", "user_id": "publisher-1", "index_version": 2,
+                }])
+            if "join public.knowledge_documents k" in sql and "order by d.id for share" in sql:
+                return SimpleNamespace(fetchall=lambda: [{"id": "doc-1", "index_version": 2}])
+            if "select role,content" in sql:
+                return SimpleNamespace(fetchall=lambda: list(reversed(history_rows)))
+            if "from public.document_chunks c" in sql:
+                return SimpleNamespace(fetchone=lambda: {
+                    "id": "chunk-1",
+                    "document_id": "doc-1",
+                    "user_id": "publisher-1",
+                    "document_name": "Tap1.pdf",
+                    "subject": "physics",
+                    "page": 12,
+                    "section": "Chuong 1",
+                    "paragraph": 1,
+                    "content": "Thứ nguyên biểu thị bản chất vật lý của một đại lượng đo được.",
+                })
+            return SimpleNamespace(fetchone=lambda: None, fetchall=lambda: [])
+
+    pipeline = worker_main.Pipeline.__new__(worker_main.Pipeline)
+    pipeline.conn = FakeConn()
+    pipeline.settings = SimpleNamespace(embedding_profile="ollama:bge-m3", ai_provider="ollama", searxng_url="")
+    pipeline.heartbeat = SimpleNamespace(lost=threading.Event())
+    pipeline.vectors = SimpleNamespace(
+        collection="study_bge_m3_v1",
+        search=lambda *_args: [SimpleNamespace(payload={
+            "chunk_id": "chunk-1", "document_id": "doc-1", "user_id": "publisher-1",
+        })],
+    )
+    pipeline.models = SimpleNamespace(
+        count=lambda text: len(text.split()),
+        embed=lambda texts, query=False: [[0.1] * 4 for _ in texts],
+        rerank=lambda _q, items: items,
+        generate=lambda _prompt, on_reset=None: (x for x in tokens),
+        last_generation_provider="ollama",
+        supports_thinking_progress=False,
+        supports_question_vision=False,
+    )
+
+    search_calls = []
+
+    def fake_search_web(terms, mode, searxng_url="", image_question=""):
+        search_calls.append((terms, mode, image_question))
+        items = web_results if web_results is not None else [{
+            "url": "https://vi.wikipedia.org/wiki/Thu_nguyen",
+            "title": "Thứ nguyên",
+            "content": "Khái niệm thứ nguyên trong vật lý.",
+            "kind": "wikipedia",
+            "provider": "Wikipedia",
+        }]
+        return items, []
+
+    monkeypatch.setattr(worker_main, "search_web", fake_search_web)
+    return pipeline, executed, search_calls
+
+
+def test_pipeline_chat_search_mode_persists_selected_web_sources_when_only_curriculum_cited(monkeypatch):
+    pipeline, executed, _ = _make_search_pipeline(
+        monkeypatch,
+        tokens=["Theo giáo trình [S1], thứ nguyên thể hiện bản chất vật lý."],
+        web_results=[
+            {
+                "url": "https://vi.wikipedia.org/wiki/Thu_nguyen",
+                "title": "Thứ nguyên",
+                "content": "Khái niệm thứ nguyên trong vật lý.",
+                "kind": "wikipedia",
+                "provider": "Wikipedia",
+            },
+            {
+                "url": "https://api.openalex.org/works/2",
+                "title": "Dimensional analysis",
+                "content": "Overview of physical dimensions.",
+                "kind": "article",
+                "provider": "OpenAlex",
+            },
+        ],
+    )
+    job = {
+        "id": "job-1",
+        "queue_id": 1,
+        "kind": "chat",
+        "user_id": "student-1",
+        "message_id": "msg-1",
+        "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1",
+            "user_message_id": "user-msg-1",
+            "question": "Thứ nguyên là gì?",
+            "document_ids": [],
+            "versions": {},
+            "mode": "search",
+            "subject": "physics",
+        },
+    }
+    pipeline.chat(job)
+
+    web_updates = [params for sql, params in executed if "set web_sources=%s" in sql]
+    assert len(web_updates) == 1
+    saved_web = web_updates[0][0].obj
+    assert [item["url"] for item in saved_web] == [
+        "https://vi.wikipedia.org/wiki/Thu_nguyen",
+        "https://api.openalex.org/works/2",
+    ]
+    source_inserts = [params for sql, params in executed if "insert into public.message_sources" in sql]
+    assert len(source_inserts) == 1
+    assert source_inserts[0][4] == "S1"
+
+
+def test_pipeline_chat_search_mode_followup_contextualizes_search_web_terms(monkeypatch):
+    history_rows = [
+        {"id": "u0", "role": "user", "content": "Thứ nguyên trong vật lý là gì?", "status": "completed"},
+        {"id": "a0", "role": "assistant", "content": "Thứ nguyên mô tả bản chất vật lý của đại lượng.", "status": "completed"},
+    ]
+    pipeline, _, search_calls = _make_search_pipeline(
+        monkeypatch,
+        history_rows=history_rows,
+        tokens=["Giải thích thêm về thứ nguyên [S1]."],
+    )
+    job = {
+        "id": "job-2",
+        "queue_id": 2,
+        "kind": "chat",
+        "user_id": "student-1",
+        "message_id": "msg-2",
+        "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1",
+            "user_message_id": "user-msg-2",
+            "question": "Giải thích rõ hơn",
+            "document_ids": [],
+            "versions": {},
+            "mode": "search",
+            "subject": "physics",
+        },
+    }
+    pipeline.chat(job)
+
+    assert len(search_calls) == 1
+    terms, mode, _ = search_calls[0]
+    assert mode == "search"
+    assert "nguyên" in terms.lower()
+    assert "Vật lý đại cương" in terms
+
+
+def test_pipeline_chat_stopped_flushes_buffered_answer(monkeypatch):
+    guard_rows = [
+        {"lease_token": "lease-1", "status": "running", "error": None},
+        {"lease_token": "lease-1", "status": "running", "error": None},
+        {"lease_token": "lease-1", "status": "running", "error": None},
+        {"lease_token": "lease-1", "status": "running", "error": "USER_STOPPED"},
+    ]
+    pipeline, executed, _ = _make_search_pipeline(
+        monkeypatch,
+        tokens=["Thứ nguyên ", "đang được giải thích"],
+        guard_rows=guard_rows,
+    )
+    ticks = iter([100.0, 100.6, 101.2])
+    monkeypatch.setattr(worker_main.time, "monotonic", lambda: next(ticks, 102.0))
+
+    job = {
+        "id": "job-3",
+        "queue_id": 3,
+        "kind": "chat",
+        "user_id": "student-1",
+        "message_id": "msg-3",
+        "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1",
+            "user_message_id": "user-msg-3",
+            "question": "Thứ nguyên là gì?",
+            "document_ids": [],
+            "versions": {},
+            "mode": "search",
+            "subject": "physics",
+        },
+    }
+    with pytest.raises(worker_main.ChatStopped):
+        pipeline.chat(job)
+
+    stopped_updates = [
+        params for sql, params in executed
+        if "update public.messages set content=%s where id=%s and user_id=%s and status=%s" in sql
+    ]
+    assert stopped_updates == [("Thứ nguyên ", "msg-3", "student-1", "stopped")]
+
 

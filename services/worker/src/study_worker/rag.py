@@ -38,12 +38,21 @@ def allows_general_knowledge(mode):
 
 
 FOLLOW_UP = re.compile(
-    r"^(?:vậy |thế |còn )?(?:(?:bạn )?có thể |bạn |hãy )?(?:"
-    r"(?:giải thích|nói|trình bày|phân tích|làm)\s+(?:lại|rõ hơn|kỹ hơn|kĩ hơn|chi tiết hơn|thêm|tiếp)\b"
-    r"|(?:bước (?:tiếp theo|\d+)|tiếp theo|tiếp tục|giờ làm gì|sau đó)\b"
-    r"|(?:tại sao|vì sao|sao)\s+(?:lại|phải|cần|ở bước|nhân|chia|đổi|bỏ|thêm|dùng|như vậy)\b"
-    r"|(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài)\s+(?:này|đó|ấy|trên|vừa rồi)\b"
-    r"|(?:giải thích|tại sao|vì sao).{0,60}\bbước\s+\d+\b)",
+    r"(?:"
+    r"^\s*(?:(?:vậy|thế|còn|rồi|bạn|hãy|mình|xin|làm ơn)\s+)*tiếp(?:\s+(?:đi|nữa|nhé|nha|ạ))?[?!., ]*$"
+    r"|\b(?:giải thích|nói|trình bày|phân tích|làm|viết|trả lời|giải|tính|hỏi|kể|đọc|xem)\s+"
+    r"(?:lại|rõ hơn|kỹ hơn|kĩ hơn|chi tiết hơn|cụ thể hơn|dễ hiểu hơn|ngắn gọn hơn|đơn giản hơn|sâu hơn|thêm|tiếp)\b"
+    r"|\b(?:chưa hiểu|không hiểu|khó hiểu|mơ hồ|rõ hơn|chi tiết hơn|cụ thể hơn|kỹ hơn|kĩ hơn|"
+    r"dễ hiểu hơn|ngắn gọn hơn|đơn giản hơn|làm rõ)\b"
+    r"|\b(?:nói sâu|đi sâu|phân tích sâu|sâu hơn|cho thêm ví dụ|thêm ví dụ|ví dụ khác|"
+    r"ví dụ thực tế|minh họa thêm|thế còn|vậy còn|ở trên|vừa rồi|vừa nêu)\b"
+    r"|\bcòn\b.{0,80}\bthì sao\b"
+    r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|giờ làm gì|sau đó|"
+    r"viết tiếp|nói tiếp|làm tiếp|trả lời tiếp|giải tiếp|hoàn thành nốt|đang dở|nốt đi)\b"
+    r"|\bbước\s+(?:tiếp theo|\d+)\b"
+    r"|\b(?:tại sao|vì sao|sao)\s+(?:lại|phải|cần|ở bước|nhân|chia|đổi|bỏ|thêm|dùng|như vậy)\b"
+    r"|\b(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài|ý)\s+(?:này|đó|ấy|trên|vừa rồi|vừa nêu)\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -85,8 +94,12 @@ def concept_request(question, history=()):
         return False
     if introductory_gradient(question) or CONCEPT_QUESTION.search(question.strip()):
         return True
-    return bool(history and FOLLOW_UP.search(question.strip()) and history[0]["role"] == "user"
-                and concept_request(history[0]["content"]))
+    active_history = follow_up_history(question, history) if history else []
+    return bool(
+        active_history
+        and active_history[0]["role"] == "user"
+        and concept_request(active_history[0]["content"])
+    )
 
 
 def introductory_gradient(question):
@@ -119,10 +132,47 @@ def should_reason(question, mode, *, has_image=False):
             or (has_image and not image_transcription(question)))
 
 
+STOPPED_PARTIAL_MARKER = "\n\n[Phản hồi này đã bị dừng giữa chừng]"
+STOPPED_EMPTY_MARKER = "[Phản hồi trước đã bị dừng khi đang suy nghĩ]"
+
+
+RESUME_REQUEST = re.compile(
+    r"(?:^\s*(?:(?:vậy|thế|còn|rồi|bạn|hãy|mình|xin|làm ơn)\s+)*tiếp(?:\s+(?:đi|nữa|nhé|nha|ạ))?[?!., ]*$"
+    r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|(?:viết|nói|làm|trả lời|giải|giải thích|trình bày|phân tích)\s+(?:tiếp|nốt)|"
+    r"hoàn thành nốt|đang dở|nốt đi)\b)",
+    re.IGNORECASE,
+)
+
+
+def _stopped_partial_tail(history):
+    for message in reversed(history):
+        if message.get("role") != "assistant":
+            continue
+        raw = (message.get("content") or "").strip()
+        is_stopped = (
+            message.get("status") in ("stopped", "interrupted")
+            or STOPPED_PARTIAL_MARKER.strip() in raw
+        )
+        if is_stopped and raw:
+            cleaned = raw.replace(STOPPED_PARTIAL_MARKER.strip(), "").strip()
+            cleaned = re.sub(r"[ \t]*\[S\d+\]", "", cleaned).strip()
+            if cleaned:
+                return cleaned[-140:].lstrip() if len(cleaned) > 140 else cleaned
+        if raw or message.get("status") in ("stopped", "interrupted"):
+            break
+    return ""
+
+
 def follow_up_history(question, history):
     """Keep turns back to the most recent standalone question."""
-    if not FOLLOW_UP.search(question.strip()):
+    if not history:
         return []
+    stripped = question.strip()
+    last = history[-1]
+    interrupted_tail = last.get("status") in ("stopped", "interrupted") or last.get("role") == "user"
+    if not FOLLOW_UP.search(stripped):
+        if not (interrupted_tail and not EXERCISE_REQUEST.search(stripped)):
+            return []
     for index in range(len(history) - 1, -1, -1):
         message = history[index]
         if message["role"] == "user" and not FOLLOW_UP.search(message["content"].strip()):
@@ -154,7 +204,7 @@ def follow_up_query(question, history, count):
     if not history or history[0]["role"] != "user":
         return question
     previous_answer = next(
-        (message["content"] for message in reversed(history) if message["role"] == "assistant"),
+        ((message.get("content") or "") for message in reversed(history) if message["role"] == "assistant"),
         "",
     )
     step = _history_excerpt(previous_answer, 120, count, question)
@@ -174,7 +224,30 @@ def _prompt_history(question, history, count, budget):
             available = min(available, budget // 2)
         if available <= 0:
             break
-        content = _history_excerpt(message["content"], available, count, question)
+        raw_content = message.get("content") or ""
+        is_stopped_assistant = (
+            message.get("role") == "assistant"
+            and message.get("status") in ("stopped", "interrupted")
+        )
+        if is_stopped_assistant:
+            if raw_content.strip():
+                marker_budget = count(STOPPED_PARTIAL_MARKER)
+                excerpt_budget = available - marker_budget
+                excerpt = _history_excerpt(raw_content, excerpt_budget, count, question) if excerpt_budget > 0 else ""
+                if excerpt:
+                    content = excerpt + STOPPED_PARTIAL_MARKER
+                    if count(content) > available:
+                        overflow = count(content) - available
+                        excerpt = _history_excerpt(raw_content, max(0, excerpt_budget - overflow), count, question)
+                        content = excerpt + STOPPED_PARTIAL_MARKER if excerpt else ""
+                else:
+                    content = ""
+                if not content and count(STOPPED_EMPTY_MARKER) <= available:
+                    content = STOPPED_EMPTY_MARKER
+            else:
+                content = STOPPED_EMPTY_MARKER if count(STOPPED_EMPTY_MARKER) <= available else ""
+        else:
+            content = _history_excerpt(raw_content, available, count, question)
         if content:
             recent[index] = {"role": message["role"], "content": content}
             budget -= count(content) + 8
@@ -202,6 +275,15 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
             "Đặt nhãn [S1], [S2] ngay sau từng nhận định lấy từ nguồn tương ứng. "
             "Chỉ dùng nhãn có trong danh sách; không gộp nhiều nhãn vào một ngoặc như [S1, S2].\n"
         )
+    if mode == "search":
+        has_curriculum = any(not item.get("question_image") and "url" not in item for item in candidates)
+        has_web = any(not item.get("question_image") and "url" in item for item in candidates)
+        if has_curriculum and has_web:
+            system += (
+                "Ở chế độ Tìm kiếm, hãy dùng học liệu trường (curriculum) làm chuẩn cho định nghĩa/ký hiệu "
+                "và kết hợp thêm thông tin, ví dụ hoặc góc nhìn bổ trợ từ nguồn web (web_supplement), "
+                "gắn nhãn trích dẫn [Sn] cho cả hai nhóm nguồn khi sử dụng.\n"
+            )
     if mode == "research":
         system += (
             "Viết bài tổng hợp chi tiết bằng tiếng Việt, chia mục theo câu hỏi. "
@@ -209,7 +291,7 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
             "Ưu tiên bài báo có tóm tắt phù hợp. Phân biệt bài báo với nguồn web và tóm tắt với toàn văn. "
             "Chỉ khẳng định đã đối chiếu khi thật sự có nhiều nguồn liên quan.\n"
         )
-    input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else 2900
+    input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else (3600 if mode == "search" else 2900)
     max_sources = 10 if mode == "research" else 5
     fixed_example = allows_general_knowledge(mode) and subject != "physics" and introductory_gradient(question)
     fixed_eigenspace = allows_general_knowledge(mode) and eigenspace_diagram_requested(question)
@@ -232,6 +314,25 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
         )
     transcription = image_transcription(question)
     follow_up = bool(history)
+    last_partial_tail = _stopped_partial_tail(history) if follow_up else ""
+    last_assistant = next((item for item in reversed(history) if item.get("role") == "assistant"), None) if follow_up else None
+    last_stopped_empty = bool(
+        last_assistant
+        and (
+            (last_assistant.get("status") in ("stopped", "interrupted") and not (last_assistant.get("content") or "").strip())
+            or STOPPED_EMPTY_MARKER in (last_assistant.get("content") or "")
+        )
+    )
+    is_resume = bool(RESUME_REQUEST.search(question.strip()))
+    has_stopped = bool(last_partial_tail or last_stopped_empty)
+    if follow_up and last_partial_tail and is_resume:
+        system += "Lượt trước đã bị dừng giữa chừng: bỏ qua bước mở đầu hay định nghĩa lại từ đầu, nối tiếp trực tiếp từ phần cuối đang dở.\n"
+    stopped_guidance = (
+        " Nếu lượt trước bị dừng giữa chừng ('[Phản hồi này đã bị dừng giữa chừng]' hoặc "
+        "'[Phản hồi trước đã bị dừng khi đang suy nghĩ]') và người học yêu cầu tiếp tục, "
+        "hãy nối tiếp mạch giải thích ngay từ chỗ đang dở, không lặp lại từ đầu."
+        if has_stopped else ""
+    )
     if transcription:
         tutoring_question = (
             "Chép trực tiếp và chính xác chữ, số hoặc công thức người dùng hỏi trong ảnh. "
@@ -254,10 +355,43 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
             "và vectơ riêng. Viết câu trả lời trong tối đa ba đoạn, dùng LaTeX cho công thức.\n\n"
             f"{question}"
         )
+    elif follow_up and last_partial_tail and is_resume:
+        if mode != "research":
+            system += "Nối tiếp mạch giải thích ngay từ chỗ đang dở trong phần còn lại.\n"
+        tutoring_question = (
+            f'Lượt trả lời trước đã bị dừng giữa chừng (\'[Phản hồi này đã bị dừng giữa chừng]\') tại đoạn: "{last_partial_tail}". '
+            "Người học đang yêu cầu tiếp tục. Hãy nối tiếp mạch giải thích ngay từ chỗ đang dở, "
+            "viết tiếp ngay phần còn lại sau đoạn cuối trên để hoàn chỉnh câu hoặc ý đang bỏ dở. "
+            "Không định nghĩa lại từ đầu và không lặp lại những ý đã viết ở lượt trước."
+            + (
+                " Với bài tập, vẫn chỉ gợi ý bước tiếp theo, không tiết lộ đáp án cuối."
+                if not concept else ""
+            )
+            + f"\n\nYêu cầu tiếp nối của người học:\n{question}"
+        )
+    elif follow_up and last_stopped_empty and is_resume:
+        if mode != "research" and not concept:
+            system += "Trả lời câu hỏi tiếp nối trong vài đoạn và kết thúc bằng tối đa một bước thực hành.\n"
+        tutoring_question = (
+            "Lượt trả lời trước đã bị dừng khi đang suy nghĩ ('[Phản hồi trước đã bị dừng khi đang suy nghĩ]') "
+            "nên chưa có nội dung. Hãy trả lời trực tiếp và đầy đủ câu hỏi trước đó của người học."
+            + (
+                " Với bài tập, chỉ nêu quy tắc và gợi ý bước đầu, không tiết lộ đáp án cuối."
+                if not concept else ""
+            )
+            + f"\n\nYêu cầu tiếp nối của người học:\n{question}"
+        )
     elif concept:
+        follow_up_concept_note = (
+            stopped_guidance
+            + (
+                " Nếu người học nói chưa hiểu, yêu cầu nói sâu hơn hoặc chi tiết hơn, hãy đào sâu và làm rõ đúng điểm vừa được hỏi."
+                if follow_up else ""
+            )
+        )
         tutoring_question = (
             "Đây là câu hỏi khái niệm. Trả lời trực tiếp bằng trực giác, định nghĩa và ví dụ nhất quán. "
-            "Với câu tiếp nối, tập trung làm rõ ý vừa được hỏi. Có thể giải trọn ví dụ minh họa và nhận xét kết quả. "
+            "Với câu tiếp nối, tập trung làm rõ ý vừa được hỏi." + follow_up_concept_note + " Có thể giải trọn ví dụ minh họa và nhận xét kết quả. "
             "Nếu cần hình, ưu tiên sơ đồ cho quan hệ giữa các ý, hình theo trình tự cho cơ chế, "
             "hoặc đồ thị khi trục và số liệu thật sự giúp hiểu. Khi dùng hình, giải thích điểm cần chú ý trong hình. "
             "Nếu người học yêu cầu một kiểu hình cụ thể, ưu tiên kiểu đó trong các kiểu hỗ trợ. "
@@ -276,8 +410,8 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
         if mode != "research":
             system += "Trả lời câu hỏi tiếp nối trong vài đoạn và kết thúc bằng tối đa một bước thực hành.\n"
         tutoring_question = (
-            "Tiếp tục từ đề bài và phần người học vừa xem. Nếu họ hỏi kỹ hơn hoặc hỏi vì sao, "
-            "giải thích đúng bước được nhắc tới bằng phép biến đổi cụ thể và lý do. "
+            "Tiếp tục từ đề bài và phần người học vừa xem." + stopped_guidance + " "
+            "Nếu họ nói chưa hiểu, hỏi sâu/chi tiết hơn hoặc hỏi vì sao, hãy đào sâu đúng điểm được nhắc tới bằng phép biến đổi cụ thể và lý do. "
             "Nếu hỏi tiếp, đưa ra một bước mới sát với bước vừa làm. "
             "Đi thẳng vào bước đang hỏi, tránh lặp lại đề và các bước đã giải thích. "
             "Nếu lời giải trước có sai sót, sửa ngay tại bước đó. "

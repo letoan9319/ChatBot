@@ -259,3 +259,112 @@ def test_explicit_eigenspace_diagram_has_three_verified_relationships():
     assert diagram.count('"label"') == 3
     assert "Các vectơ khác không" in diagram
     assert add_eigenspace_diagram("Giải thích.", "Tìm vectơ riêng của ma trận.") == "Giải thích."
+
+
+def test_follow_up_detects_natural_vietnamese_clarifications_and_deep_dives():
+    history = [
+        {"role": "user", "content": "Thứ nguyên là gì?", "status": "completed"},
+        {"role": "assistant", "content": "Thứ nguyên biểu diễn bản chất vật lý của đại lượng.", "status": "completed"},
+    ]
+    follow_up_questions = [
+        "Mình vẫn chưa hiểu chỗ khác nhau giữa đơn vị và thứ nguyên, nói sâu hơn đi",
+        "Phần giải thích ở trên hơi mơ hồ, bạn làm rõ giúp mình",
+        "Có thể giải thích dễ hiểu hơn và đơn giản hơn không?",
+        "Tóm tắt ngắn gọn hơn, cụ thể hơn và chi tiết hơn đi",
+        "Cho thêm ví dụ thực tế hoặc ví dụ khác đi",
+        "Đi sâu và phân tích sâu hơn ý này với minh họa thêm",
+        "Còn trường hợp đại lượng không thứ nguyên thì sao?",
+        "Thế còn đơn vị dẫn xuất vừa nêu thì sao?",
+        "Vậy còn đoạn đó và chỗ này hiểu như thế nào?",
+        "Giải thích kỹ hơn phần vừa rồi ở bước 2",
+    ]
+    for q in follow_up_questions:
+        assert follow_up_history(q, history) == history, f"Expected follow-up for: {q}"
+
+    standalone_questions = [
+        "Giải hệ phương trình x+y=2, x-y=0",
+        "Phương trình tiếp tuyến của đồ thị hàm số y = x^2 tại x = 1",
+    ]
+    for q in standalone_questions:
+        assert follow_up_history(q, history) == [], f"Expected standalone for: {q}"
+
+
+def test_stop_and_continue_history_and_role_alternation():
+    from study_worker.rag import concept_request
+
+    partial_history = [
+        {"role": "user", "content": "Thứ nguyên là gì?"},
+        {
+            "role": "assistant",
+            "content": "Thứ nguyên mô tả bản chất vật lý của đại lượng. Ví dụ với vận tốc,",
+            "status": "stopped",
+        },
+    ]
+    kept = follow_up_history("Tiếp tục đi", partial_history)
+    assert kept == partial_history
+    assert follow_up_history("Nói thêm về vận tốc", partial_history) == partial_history
+    assert follow_up_history("Giải hệ phương trình x+y=2, x-y=0", partial_history) == []
+    assert concept_request("Tiếp tục đi", kept)
+
+    prompt, _ = build_prompt("Tiếp tục đi", kept, [], len, "library")
+    assert [m["role"] for m in prompt] == ["system", "user", "assistant", "user"]
+    assert prompt[2]["content"].endswith("\n\n[Phản hồi này đã bị dừng giữa chừng]")
+    assert "nối tiếp mạch giải thích ngay từ chỗ đang dở" in prompt[-1]["content"]
+    assert "Không định nghĩa lại từ đầu" in prompt[-1]["content"]
+    assert "Ví dụ với vận tốc," in prompt[-1]["content"]
+    assert "Đây là câu hỏi khái niệm" not in prompt[-1]["content"]
+
+    empty_stopped_history = [
+        {"role": "user", "content": "Đạo hàm là gì?"},
+        {"role": "assistant", "content": "   ", "status": "interrupted"},
+    ]
+    kept_empty = follow_up_history("Trả lời tiếp đi", empty_stopped_history)
+    assert kept_empty == empty_stopped_history
+    prompt_empty, _ = build_prompt("Trả lời tiếp đi", kept_empty, [], len, "library")
+    assert [m["role"] for m in prompt_empty] == ["system", "user", "assistant", "user"]
+    assert prompt_empty[2]["content"] == "[Phản hồi trước đã bị dừng khi đang suy nghĩ]"
+
+    user_only_history = [{"role": "user", "content": "Thứ nguyên là gì?"}]
+    assert follow_up_history("Ý mình là trong cơ học", user_only_history) == user_only_history
+    assert follow_up_history("Tính đạo hàm của x^2", user_only_history) == []
+
+    exercise_stopped_history = [
+        {"role": "user", "content": "Giải phương trình x^2 - 5x + 6 = 0"},
+        {"role": "assistant", "content": "Ta có thể phân tích đa thức thành nhân tử.", "status": "stopped"},
+    ]
+    assert not concept_request("Làm tiếp đi", exercise_stopped_history)
+    exercise_resume, _ = build_prompt("Làm tiếp đi", exercise_stopped_history, [], len, "library")
+    assert "nối tiếp mạch giải thích ngay từ chỗ đang dở" in exercise_resume[-1]["content"]
+    assert "không tiết lộ đáp án cuối" in exercise_resume[-1]["content"]
+    exercise_clarify, _ = build_prompt("Giải thích kỹ hơn chỗ này", exercise_stopped_history, [], len, "library")
+    assert "nối tiếp mạch giải thích ngay từ chỗ đang dở" in exercise_clarify[-1]["content"]
+    assert "đào sâu đúng điểm được nhắc tới" in exercise_clarify[-1]["content"]
+
+
+def test_search_mode_uses_3600_budget_and_hybrid_guidance():
+    candidates = [
+        {"id": str(i), "document_name": f"Doc_{i}.pdf", "content": f"chunk{i} " * 550}
+        for i in range(6)
+    ]
+    def word_count(text):
+        return len(text.split())
+    search_messages, search_selected = build_prompt("Đạo hàm là gì?", [], candidates, word_count, "search")
+    lib_messages, _ = build_prompt("Đạo hàm là gì?", [], candidates, word_count, "library")
+    search_total = sum(word_count(m["content"]) for m in search_messages)
+    lib_total = sum(word_count(m["content"]) for m in lib_messages)
+    assert 2900 < search_total <= 3600
+    assert lib_total <= 2900
+    assert len(search_selected) >= 5
+
+    hybrid_candidates = [
+        {"id": "1", "document_name": "Vat_ly.pdf", "content": "Thứ nguyên theo giáo trình."},
+        {"url": "https://vi.wikipedia.org/wiki/Thu_nguyen", "kind": "wikipedia", "title": "Thứ nguyên", "content": "Bổ sung web."},
+    ]
+    hybrid_messages, _ = build_prompt("Thứ nguyên là gì?", [], hybrid_candidates, word_count, "search")
+    assert "Ở chế độ Tìm kiếm, hãy dùng học liệu trường (curriculum) làm chuẩn cho định nghĩa/ký hiệu" in hybrid_messages[0]["content"]
+    assert "web_supplement" in hybrid_messages[0]["content"]
+
+    curriculum_only, _ = build_prompt("Thứ nguyên là gì?", [], [hybrid_candidates[0]], word_count, "search")
+    web_only, _ = build_prompt("Thứ nguyên là gì?", [], [hybrid_candidates[1]], word_count, "search")
+    assert "Ở chế độ Tìm kiếm, hãy dùng học liệu trường" not in curriculum_only[0]["content"]
+    assert "Ở chế độ Tìm kiếm, hãy dùng học liệu trường" not in web_only[0]["content"]

@@ -4,11 +4,93 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from html import unescape
 import re
+import unicodedata
 from urllib.parse import quote, urlsplit
 
 import httpx
 
 USER_AGENT = "LearnStep/1.0 (+https://github.com/letoan9319/ChatBot)"
+
+_LOW_VALUE_DOMAINS = (
+    "scribd.com",
+    "studocu.com",
+    "studocu.vn",
+    "123docz.net",
+    "tailieu.vn",
+    "doc.edu.vn",
+    "slideshare.net",
+)
+
+_ENCYCLOPEDIC_DOMAINS = (
+    "wikipedia.org",
+    "britannica.com",
+    "scholarpedia.org",
+    "wikibooks.org",
+    "libretexts.org",
+    "khanacademy.org",
+    "openstax.org",
+    "encyclopedia.com",
+    "mathworld.wolfram.com",
+)
+
+_VN_CONVERSATIONAL_FILLERS = (
+    "hãy giải thích giúp mình",
+    "hãy giải thích giúp tôi",
+    "hãy giải thích giúp em",
+    "giải thích giúp mình",
+    "giải thích giúp tôi",
+    "giải thích giúp em",
+    "giải thích cho mình",
+    "giải thích cho tôi",
+    "giải thích cho em",
+    "giải thích giúp",
+    "hãy giải thích về",
+    "hãy giải thích",
+    "giải thích về",
+    "giải thích",
+    "cho mình hỏi",
+    "cho tôi hỏi",
+    "cho em hỏi",
+    "cho hỏi",
+    "hãy cho mình biết",
+    "hãy cho tôi biết",
+    "hãy cho em biết",
+    "hãy cho biết",
+    "cho mình biết",
+    "cho tôi biết",
+    "cho em biết",
+    "cho biết",
+    "giúp mình hiểu",
+    "giúp tôi hiểu",
+    "giúp em hiểu",
+    "giúp mình",
+    "giúp tôi",
+    "giúp em",
+    "tìm hiểu về",
+    "tìm hiểu",
+    "khái niệm về",
+    "định nghĩa về",
+    "có nghĩa là gì",
+    "nghĩa là gì",
+    "là như thế nào",
+    "như thế nào",
+    "là cái gì",
+    "là gì",
+    "là sao",
+    "ra sao",
+    "thế nào là",
+    "vậy ạ",
+)
+
+_VN_SUBJECT_FILLERS = (
+    r"vật l[ýí] đại cương(?:\s+(?:[123]|i{1,3}))?",
+    r"đại số tuyến tính(?:\s+(?:[12]|i{1,2}))?",
+    r"xác suất thống kê",
+    r"hóa học đại cương(?:\s+(?:[12]|i{1,2}))?",
+    r"hóa đại cương(?:\s+(?:[12]|i{1,2}))?",
+    r"tin học đại cương",
+    r"giải tích(?:\s+(?:[123]|i{1,3}))?",
+)
 
 
 def _plain(value):
@@ -31,6 +113,27 @@ def _source(url, title, content, kind, provider=None):
     return item
 
 
+def _matches_domain(host, domain):
+    return host == domain or host.endswith("." + domain)
+
+
+def _searxng_rank(source):
+    host = (urlsplit(source["url"]).hostname or "").removeprefix("www.").casefold()
+    # Check upload stubs first because domains like doc.edu.vn also match .edu.vn.
+    if any(_matches_domain(host, domain) for domain in _LOW_VALUE_DOMAINS):
+        tier = 2
+    elif (
+        any(_matches_domain(host, domain) for domain in _ENCYCLOPEDIC_DOMAINS)
+        or re.search(r"\.(?:edu|gov)(?:\.[a-z]{2,})?$", host)
+        or re.search(r"\.ac\.[a-z]{2,}$", host)
+    ):
+        tier = 0
+    else:
+        tier = 1
+    substantive = 0 if len(source["content"]) >= 120 else 1
+    return (tier, substantive)
+
+
 def _searxng(http, base_url, terms, research):
     result = http.get(base_url + "/search", params={
         "q": terms, "format": "json", "categories": "general", "safesearch": 1,
@@ -43,14 +146,13 @@ def _searxng(http, base_url, terms, research):
         source = _source(item.get("url"), _plain(item.get("title")), _plain(item.get("content")), "web")
         if not source:
             continue
-        domain = urlsplit(source["url"]).hostname.removeprefix("www.")
+        domain = (urlsplit(source["url"]).hostname or "").removeprefix("www.").casefold()
         if domains.get(domain, 0) >= 2:
             continue
         domains[domain] = domains.get(domain, 0) + 1
         sources.append(source)
-        if len(sources) == limit:
-            break
-    return sources
+    sources.sort(key=_searxng_rank)
+    return sources[:limit]
 
 
 def _crossref(http, terms):
@@ -154,6 +256,30 @@ def _query_terms(text):
     return " ".join(re.findall(r"[^\W_]+", text, re.UNICODE)[:32])[:350]
 
 
+def _core_keyword_count(text):
+    return len(re.findall(r"[^\W_]+", text, re.UNICODE))
+
+
+def _strip_phrase(text, pattern):
+    updated = re.sub(rf"(?<!\w)(?:{pattern})(?!\w)[\s?!.,;:-]*", " ", text, flags=re.I)
+    return " ".join(updated.strip(" ?!.,;:-").split())
+
+
+def _strip_vn_question_filler(text):
+    current = " ".join(unicodedata.normalize("NFC", text or "").strip(" ?!.,;:-").split())
+    if not current:
+        return ""
+    for phrase in _VN_CONVERSATIONAL_FILLERS:
+        candidate = _strip_phrase(current, re.escape(phrase))
+        if candidate != current and _core_keyword_count(candidate) >= 2:
+            current = candidate
+    for pattern in _VN_SUBJECT_FILLERS:
+        candidate = _strip_phrase(current, pattern)
+        if candidate != current and _core_keyword_count(candidate) >= 2:
+            current = candidate
+    return current
+
+
 def _commons_images(http, terms):
     result = http.get("https://commons.wikimedia.org/w/api.php", params={
         "action": "query", "format": "json", "formatversion": 2,
@@ -228,6 +354,11 @@ def search_web(question, mode, searxng_url="", *, image_question=""):
                     web = _wikipedia(http, terms)
                 except (httpx.HTTPError, ValueError):
                     wiki_failed = True
+                if not web and not wiki_failed and len(terms.split()) >= 3 and focused != terms:
+                    stripped = _strip_vn_question_filler(terms)
+                    if stripped and stripped != terms:
+                        with suppress(httpx.HTTPError, ValueError):
+                            web = _wikipedia(http, stripped)
                 if wiki_failed:
                     with suppress(httpx.HTTPError, ValueError):
                         web = _wikipedia(http, terms, host="https://en.wikipedia.org")

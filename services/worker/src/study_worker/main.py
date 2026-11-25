@@ -4,7 +4,7 @@ import re
 import signal
 import threading
 import time
-from contextlib import closing
+from contextlib import closing, suppress
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -478,10 +478,10 @@ class Pipeline:
             versions = {str(row["id"]): row["index_version"] for row in catalog}
             owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
         history = self.conn.execute(
-            """select role,content,id from public.messages
+            """select role,content,id,status from public.messages
             where conversation_id=%s and user_id=%s
             and subject is not distinct from %s
-            and (status='completed' or (status='stopped' and content<>'')) and sequence <
+            and status in ('completed','stopped','interrupted') and sequence <
             (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
             order by sequence desc limit 24""",
             (payload["conversation_id"], job["user_id"], subject, payload["user_message_id"],
@@ -587,7 +587,12 @@ class Pipeline:
         notices = []
         illustrations = []
         if external_search:
-            terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
+            base_question = (
+                " ".join(extract_search_terms(search_query)[:10]) or question
+                if history
+                else question
+            )
+            terms = f"{base_question} {SUBJECTS[subject]}" if subject in SUBJECTS else base_question
             results, notices = search_web(
                 terms, mode, self.settings.searxng_url, image_question=question if mode == "search" else "",
             )
@@ -663,60 +668,69 @@ class Pipeline:
                 images = self.question_vision(job, image_versions)
                 if images:
                     options["question_images"] = images
-            for attempt in range(2 if external_search else 1):
-                truncated = False
-                if attempt:
-                    reset_answer()
-                    prompt[-1]["content"] += (
-                        "\n\nViết lại câu trả lời. Gắn trích dẫn đúng nhãn từ danh sách nguồn ngay sau "
-                        "nhận định được hỗ trợ. Dùng nguồn có liên quan và bỏ các nhận định thiếu cơ sở."
-                    )
-                try:
-                    with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
-                        for token in tokens:
-                            if self.heartbeat.lost.is_set():
-                                guard(self.conn, job)
-                                raise LostLease()
-                            answer += token
-                            if time.monotonic() - last_flush >= 1:
-                                if token and not image_documents:
-                                    self.save_partial(job, answer)
-                                else:
+            try:
+                for attempt in range(2 if external_search else 1):
+                    truncated = False
+                    if attempt:
+                        reset_answer()
+                        prompt[-1]["content"] += (
+                            "\n\nViết lại câu trả lời. Gắn trích dẫn đúng nhãn từ danh sách nguồn ngay sau "
+                            "nhận định được hỗ trợ. Dùng nguồn có liên quan và bỏ các nhận định thiếu cơ sở."
+                        )
+                    try:
+                        with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
+                            for token in tokens:
+                                if self.heartbeat.lost.is_set():
                                     guard(self.conn, job)
-                                last_flush = time.monotonic()
-                except OutputLimit:
-                    truncated = True
-                    LOG.info("chat_output_limit job_id=%s", job["id"])
-                if image_documents and not concept_request(question, history):
-                    answer = first_image_hint(answer)
-                answer = close_visual_block(answer, question)
-                if answer.strip() and allow_uncited and not image_versions:
-                    answer = add_gradient_example(answer, question, subject=subject)
-                    answer = add_eigenspace_diagram(answer, question)
-                answer = normalize_citation_marks(answer)
-                has_text_sources = any(not item.get("question_image") for item in selected)
-                if answer.strip() and has_text_sources and not re.search(r"\[S\d+\]", answer):
-                    last_review_check = time.monotonic()
+                                    raise LostLease()
+                                answer += token
+                                if time.monotonic() - last_flush >= 0.5:
+                                    if token and not image_documents:
+                                        self.save_partial(job, answer)
+                                    else:
+                                        guard(self.conn, job)
+                                    last_flush = time.monotonic()
+                    except OutputLimit:
+                        truncated = True
+                        LOG.info("chat_output_limit job_id=%s", job["id"])
+                    if image_documents and not concept_request(question, history):
+                        answer = first_image_hint(answer)
+                    answer = close_visual_block(answer, question)
+                    if answer.strip() and allow_uncited and not image_versions:
+                        answer = add_gradient_example(answer, question, subject=subject)
+                        answer = add_eigenspace_diagram(answer, question)
+                    answer = normalize_citation_marks(answer)
+                    has_text_sources = any(not item.get("question_image") for item in selected)
+                    if answer.strip() and has_text_sources and not re.search(r"\[S\d+\]", answer):
+                        last_review_check = time.monotonic()
 
-                    def check_review_active():
-                        nonlocal last_review_check
-                        now = time.monotonic()
-                        if self.heartbeat.lost.is_set() or now - last_review_check >= 1:
-                            guard(self.conn, job)
-                            last_review_check = now
+                        def check_review_active():
+                            nonlocal last_review_check
+                            now = time.monotonic()
+                            if self.heartbeat.lost.is_set() or now - last_review_check >= 1:
+                                guard(self.conn, job)
+                                last_review_check = now
 
-                    answer = review_missing_citations(
-                        question,
-                        answer,
-                        selected,
-                        self.models,
-                        check_review_active,
-                    )
-                answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
-                if answer != NO_EVIDENCE:
-                    if truncated:
-                        answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
-                    break
+                        answer = review_missing_citations(
+                            question,
+                            answer,
+                            selected,
+                            self.models,
+                            check_review_active,
+                        )
+                    answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
+                    if answer != NO_EVIDENCE:
+                        if truncated:
+                            answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"
+                        break
+            except ChatStopped:
+                if answer.strip() and not image_documents:
+                    with suppress(Exception):
+                        self.conn.execute(
+                            "update public.messages set content=%s where id=%s and user_id=%s and status=%s",
+                            (answer, job["message_id"], job["user_id"], "stopped"),
+                        )
+                raise
             if external_search and answer == NO_EVIDENCE:
                 answer = "Mình tìm thấy nguồn nhưng chưa tổng hợp được câu trả lời có trích dẫn hợp lệ."
                 used = [source for source in selected if "url" in source]
@@ -752,13 +766,16 @@ class Pipeline:
                 (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if generated else None,
                  job["message_id"]),
             )
+            used_web = [item for item in used if "url" in item]
+            if mode == "search" and generated and answer != NO_EVIDENCE and not used_web:
+                used_web = [item for item in selected if "url" in item][:2]
             web_sources = [
                 {
                     **{key: item[key] for key in ("label", "title", "url")},
                     "kind": item.get("kind"),
                     **({"provider": item["provider"]} if item.get("provider") else {}),
                 }
-                for item in used if "url" in item
+                for item in used_web
             ]
             if web_sources or illustrations or mode in ("search", "research"):
                 self.conn.execute(
