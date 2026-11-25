@@ -5,7 +5,7 @@ import { pastedChatMath } from "./chat-math";
 import { Markdown } from "./markdown";
 import { revealSegments } from "./streaming-answer";
 import { parseStudyCard } from "./study-card";
-import { readApproach } from "./thinking-progress";
+import { readApproach, ThinkingProgress } from "./thinking-progress";
 
 describe("untrusted chat content", () => {
   it("does not render script tags, raw event handlers or tracking images", () => {
@@ -159,6 +159,33 @@ describe("stream display and reasoning details", () => {
     expect(readApproach("**Cách tiếp cận**: Lấy đạo hàm riêng.\n\nVí dụ"))
       .toEqual("Lấy đạo hàm riêng.");
     expect(readApproach("Một đoạn giải thích không có tóm tắt.")).toBeNull();
+  });
+
+  it("auto-expands live thinking stream during generation and collapses once completed", () => {
+    const liveHtml = renderToStaticMarkup(
+      <ThinkingProgress
+        status="generating"
+        started
+        thinking="Đang xét định nghĩa đạo hàm $f'(x)$"
+        content=""
+      />,
+    );
+    expect(liveHtml).toContain('aria-expanded="true"');
+    expect(liveHtml).toContain("Luồng suy luận trực tiếp");
+    expect(liveHtml).toContain('class="katex"');
+
+    const doneHtml = renderToStaticMarkup(
+      <ThinkingProgress
+        status="completed"
+        started
+        duration={2400}
+        thinking="Đang xét định nghĩa đạo hàm"
+        content="Câu trả lời chính"
+      />,
+    );
+    expect(doneHtml).toContain('aria-expanded="false"');
+    expect(doneHtml).toContain("Đã suy luận trong 2 giây");
+    expect(doneHtml).toContain("Nội dung suy luận");
   });
 });
 

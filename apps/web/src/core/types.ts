@@ -55,6 +55,7 @@ export type Message = {
   sequence: number;
   thinking_started_at?: string | null;
   thinking_ms?: number | null;
+  thinking_content?: string | null;
   generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
   web_sources?: WebSource[];

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import signal
 import threading
 import time
@@ -17,7 +18,8 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image, ollama_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, SUBJECTS, add_eigenspace_diagram, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, concept_request, first_image_hint, follow_up_history, follow_up_query, should_reason, validate_citations
+from .rag import NO_EVIDENCE, SUBJECTS, add_eigenspace_diagram, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, concept_request, first_image_hint, follow_up_history, follow_up_query, normalize_citation_marks, review_missing_citations, should_reason, validate_citations
+from .retrieval import clean_retrieval_query, expand_stub_chunks, extract_search_terms, is_meta_document_query, lexical_search_chunks, rerank_curriculum_candidates
 from .web_search import search_web
 
 LOG = logging.getLogger("study_worker")
@@ -136,7 +138,7 @@ def claim(conn, *, mineru_available=False):
             conn.execute("delete from public.message_sources where message_id=%s", (job["message_id"],))
             conn.execute(
                 """update public.messages set content='',status='generating',generation_provider=null,
-                   thinking_started_at=null,thinking_ms=null where id=%s and user_id=%s""",
+                   thinking_started_at=null,thinking_ms=null,thinking_content=null where id=%s and user_id=%s""",
                 (job["message_id"], job["user_id"]),
             )
         job["queue_id"] = message["msg_id"]
@@ -381,27 +383,34 @@ class Pipeline:
             self.conn.execute(
                 """update public.messages set content=%s,status='generating',
                    thinking_started_at=case when %s then null else thinking_started_at end,
-                   thinking_ms=case when %s then null else thinking_ms end
+                   thinking_ms=case when %s then null else thinking_ms end,
+                   thinking_content=case when %s then null else thinking_content end
                    where id=%s and user_id=%s""",
-                (content, not content, not content, job["message_id"], job["user_id"]),
+                (content, not content, not content, not content, job["message_id"], job["user_id"]),
             )
 
-    def save_thinking(self, job, elapsed):
+    def save_thinking(self, job, elapsed, content=None):
+        clipped = content[:32000] if content else None
         with self.conn.transaction():
             guard(self.conn, job)
             self.chat_documents(job, lock=True)
             if elapsed is None:
                 self.conn.execute(
-                    """update public.messages set thinking_started_at=clock_timestamp(),thinking_ms=null
+                    """update public.messages
+                       set thinking_started_at=coalesce(thinking_started_at, clock_timestamp()),
+                           thinking_ms=null,
+                           thinking_content=coalesce(%s, thinking_content)
                        where id=%s and user_id=%s and role='assistant' and status='generating'""",
-                    (job["message_id"], job["user_id"]),
+                    (clipped, job["message_id"], job["user_id"]),
                 )
             else:
                 self.conn.execute(
-                    """update public.messages set thinking_ms=%s
+                    """update public.messages
+                       set thinking_ms=%s,
+                           thinking_content=coalesce(%s, thinking_content)
                        where id=%s and user_id=%s and role='assistant' and status='generating'
-                       and thinking_started_at is not null""",
-                    (max(0, elapsed), job["message_id"], job["user_id"]),
+                         and thinking_started_at is not null""",
+                    (max(0, elapsed), clipped, job["message_id"], job["user_id"]),
                 )
 
     def follow_up_images(self, job, user_message_id):
@@ -482,18 +491,20 @@ class Pipeline:
         anchor = history[0] if history and history[0]["role"] == "user" else None
         prior_images = self.follow_up_images(job, anchor["id"]) if anchor else {}
         query = follow_up_query(question, history, self.models.count)
+        search_query = clean_retrieval_query(query) or query
         hits = []
         if document_ids:
-            vector = self.models.embed([query], query=True)[0]
+            vector = self.models.embed([search_query], query=True)[0]
             hits = self.vectors.search(job["user_id"], document_ids, versions, vector, owners)
         candidates = []
+        vector_scores = {}
         for hit in hits:
             point = hit.payload or {}
             # Verify vector payload against the canonical owner, document and version in Postgres.
             if point.get("document_id") not in owners or point.get("user_id") != owners[point["document_id"]]:
                 continue
             row = self.conn.execute(
-                """select c.*,d.name as document_name from public.document_chunks c
+                """select c.*,d.name as document_name,d.subject from public.document_chunks c
                 join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
                 and c.document_id=%s and d.user_id=%s and d.status='ready'
                 and c.index_version=d.index_version and c.index_version=%s
@@ -511,11 +522,45 @@ class Pipeline:
                 ),
             ).fetchone()
             if row:
+                hit_score = getattr(hit, "score", None)
+                key = (str(row.get("document_id") or ""), str(row.get("id") or ""))
+                vector_scores[key] = float(hit_score) if isinstance(hit_score, (int, float)) else 0.65
                 candidates.append(row)
+        if document_ids:
+            lexical_hits = lexical_search_chunks(
+                self.conn,
+                job["user_id"],
+                document_ids,
+                subject,
+                using_shared_catalog,
+                owners,
+                versions,
+                search_query,
+                limit=12,
+            )
+            candidates.extend(lexical_hits)
         guard(self.conn, job)
         self.chat_documents(job)
         if candidates:
-            candidates = self.models.rerank(query, candidates)
+            candidates = expand_stub_chunks(
+                self.conn, candidates, using_shared_catalog, job["user_id"], owners, versions
+            )
+            candidates = rerank_curriculum_candidates(
+                search_query,
+                candidates,
+                subject=subject,
+                min_score=getattr(self.settings, "min_score", 0.35),
+                vector_scores=vector_scores,
+            )
+            if candidates:
+                candidates = self.models.rerank(search_query, candidates[:12])
+                candidates = rerank_curriculum_candidates(
+                    search_query,
+                    candidates,
+                    subject=subject,
+                    min_score=getattr(self.settings, "min_score", 0.35),
+                    vector_scores=vector_scores,
+                )
         image_versions = prior_images or {
             doc_id: payload["versions"][doc_id] for doc_id in image_documents or ()
         }
@@ -548,7 +593,13 @@ class Pipeline:
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
             candidates = merge_curriculum_and_web(candidates, web, mode)
-        elif not candidates and not image_versions:
+        elif (
+            mode == "library"
+            and not candidates
+            and not image_versions
+            and not is_meta_document_query(question)
+            and extract_search_terms(search_query)
+        ):
             terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
             results, _ = search_web(terms, "search", self.settings.searxng_url)
             web = [source for source in results if source["kind"] != "image"]
@@ -571,17 +622,42 @@ class Pipeline:
             generated = False
         if generated:
             answer = ""
+            thinking_text = ""
+            last_thinking_flush = 0.0
             last_flush = time.monotonic()
 
             def reset_answer():
-                nonlocal answer, last_flush
+                nonlocal answer, thinking_text, last_thinking_flush, last_flush
                 answer = ""
+                thinking_text = ""
+                last_thinking_flush = 0.0
                 self.save_partial(job, answer)
                 last_flush = time.monotonic()
 
             options = {"research": True} if mode == "research" else {}
             if reason and getattr(self.models, "supports_thinking_progress", False):
-                options["on_thinking"] = lambda elapsed: self.save_thinking(job, elapsed)
+                def on_thinking(elapsed):
+                    nonlocal last_thinking_flush
+                    self.save_thinking(job, elapsed, thinking_text or None)
+                    last_thinking_flush = time.monotonic()
+
+                options["on_thinking"] = on_thinking
+                if getattr(self.models, "supports_thinking_stream", False):
+                    def on_thinking_token(piece):
+                        nonlocal thinking_text, last_thinking_flush
+                        if not piece or len(thinking_text) >= 32000:
+                            return
+                        was_empty = not thinking_text
+                        thinking_text = (thinking_text + piece)[:32000]
+                        now = time.monotonic()
+                        if was_empty or now - last_thinking_flush >= 0.7:
+                            if self.heartbeat.lost.is_set():
+                                guard(self.conn, job)
+                                raise LostLease()
+                            self.save_thinking(job, None, thinking_text)
+                            last_thinking_flush = now
+
+                    options["on_thinking_token"] = on_thinking_token
             if image_versions and getattr(self.models, "supports_question_vision", False):
                 images = self.question_vision(job, image_versions)
                 if images:
@@ -616,6 +692,25 @@ class Pipeline:
                 if answer.strip() and allow_uncited and not image_versions:
                     answer = add_gradient_example(answer, question, subject=subject)
                     answer = add_eigenspace_diagram(answer, question)
+                answer = normalize_citation_marks(answer)
+                has_text_sources = any(not item.get("question_image") for item in selected)
+                if answer.strip() and has_text_sources and not re.search(r"\[S\d+\]", answer):
+                    last_review_check = time.monotonic()
+
+                    def check_review_active():
+                        nonlocal last_review_check
+                        now = time.monotonic()
+                        if self.heartbeat.lost.is_set() or now - last_review_check >= 1:
+                            guard(self.conn, job)
+                            last_review_check = now
+
+                    answer = review_missing_citations(
+                        question,
+                        answer,
+                        selected,
+                        self.models,
+                        check_review_active,
+                    )
                 answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
                 if answer != NO_EVIDENCE:
                     if truncated:
@@ -713,7 +808,7 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
         conn.execute("select embedding_profile,vector_collection from public.documents limit 0")
         conn.execute("select document_id from public.knowledge_documents limit 0")
         conn.execute("select ai_provider,chat_fallback_enabled from public.worker_heartbeats limit 0")
-        conn.execute("select generation_provider,thinking_started_at,thinking_ms from public.messages limit 0")
+        conn.execute("select generation_provider,thinking_started_at,thinking_ms,thinking_content from public.messages limit 0")
         models = create_models(settings)
         try:
             models.prepare()

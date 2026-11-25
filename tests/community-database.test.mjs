@@ -44,6 +44,8 @@ before(async () => {
     "202611240003_group_management.sql",
     "202611250001_group_moderation.sql",
     "202611250002_pixel_packs.sql",
+    "202611250003_chat_thinking_stream.sql",
+    "202611250004_streak_on_question.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -56,12 +58,20 @@ test("external chat modes allow zero sources and participate in idempotency", as
   const user = await learner();
   await db.query("insert into worker_heartbeats(id) values($1)", [randomUUID()]);
   const conversation = await rpc(user, "app_create_conversation", [randomUUID()]);
+  const beforeAsk = await rpc(user, "app_get_streak");
+  assert.equal(beforeAsk.today_completed, false);
+  assert.equal(beforeAsk.current, 0);
   const args = [conversation, "Định luật Newton là gì?", [], randomUUID()];
   await assert.rejects(rpc(user, "app_send_message", args), /INVALID_QUESTION/);
   await assert.rejects(rpc(user, "app_send_message", [...args, "invalid"]), /INVALID_QUESTION/);
   const job = await rpc(user, "app_send_message", [...args, "research"]);
   assert.equal(job.payload.mode, "research");
+  const afterAsk = await rpc(user, "app_get_streak");
+  assert.equal(afterAsk.today_completed, true);
+  assert.equal(afterAsk.current, 1);
+  assert.equal(afterAsk.total_days, 1);
   assert.equal((await rpc(user, "app_send_message", [...args, "research"])).id, job.id);
+  assert.equal((await rpc(user, "app_get_streak")).total_days, 1);
   await assert.rejects(rpc(user, "app_send_message", [...args, "library"]), /IDEMPOTENCY_CONFLICT/);
   const other = await learner();
   const otherConversation = await rpc(other, "app_create_conversation", [randomUUID()]);
@@ -615,13 +625,21 @@ test("chat lifecycle protects ownership, retains partial answers, and expires te
   const running = await rpc(owner, "app_send_message", [temporary, "Câu tạm", [], randomUUID(), "library"]);
   assert.equal(running.payload.temporary, true);
   await db.query("update jobs set status='running',lease_token=$2 where id=$1", [running.id, randomUUID()]);
-  await db.query("update messages set status='generating',content='Một phần',thinking_started_at=now(),thinking_ms=4100 where id=$1",
-    [running.message_id]);
-  const readThinking = () => db.query("select thinking_ms from messages where id=$1", [running.message_id]);
-  assert.deepEqual((await asUser(owner, readThinking)).rows, [{ thinking_ms: 4100 }]);
+  await db.query(
+    "update messages set status='generating',content='Một phần',thinking_started_at=now(),thinking_ms=4100,thinking_content='Bước 1: phân tích đề' where id=$1",
+    [running.message_id],
+  );
+  const readThinking = () => db.query("select thinking_ms, thinking_content from messages where id=$1", [running.message_id]);
+  assert.deepEqual((await asUser(owner, readThinking)).rows, [{
+    thinking_ms: 4100,
+    thinking_content: "Bước 1: phân tích đề",
+  }]);
   assert.deepEqual((await asUser(outsider, readThinking)).rows, []);
   await asUser(owner, () => assert.rejects(
     db.query("update messages set thinking_ms=0 where id=$1", [running.message_id]), /permission denied/,
+  ));
+  await asUser(owner, () => assert.rejects(
+    db.query("update messages set thinking_content='forged' where id=$1", [running.message_id]), /permission denied/,
   ));
   assert.equal(await rpc(owner, "app_stop_chat", [running.id]), "stopped");
   assert.deepEqual((await db.query("select content,status from messages where id=$1", [running.message_id])).rows,

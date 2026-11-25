@@ -105,3 +105,28 @@ def test_qwen_vision_attaches_image_only_to_the_local_request():
     assert list(value.generate(messages, question_images=["image-data"])) == ["description"]
     assert "images" not in messages[0]
     value.http.close()
+
+
+def test_thinking_tokens_stream_via_callback_and_reset_on_budget_fallback():
+    def handler(request):
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        payload = json.loads(request.content)
+        if payload["think"]:
+            return httpx.Response(200, content=(
+                b'{"message":{"thinking":"Buoc 1: "}}\n'
+                b'{"message":{"thinking":"phan tich de."},"done":true,"done_reason":"length"}\n'
+            ))
+        return httpx.Response(200, content=b'{"message":{"content":"ket qua cuoi"},"done":true,"done_reason":"stop"}\n')
+
+    value = mocked(handler)
+    value.settings.thinking_model = "thinking-model"
+    tokens = []
+    resets = []
+    answer = "".join(
+        value.generate([], on_reset=lambda: resets.append(True), on_thinking=lambda _: None, on_thinking_token=tokens.append)
+    )
+    assert tokens == ["Buoc 1: ", "phan tich de."]
+    assert resets == [True]
+    assert answer == "ket qua cuoi"
+    value.http.close()

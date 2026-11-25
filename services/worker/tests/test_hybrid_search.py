@@ -5,7 +5,15 @@ import httpx
 
 from study_worker import main as worker_main
 from study_worker import web_search
-from study_worker.rag import build_prompt, validate_citations
+from study_worker.rag import build_prompt, normalize_citation_marks, review_missing_citations, validate_citations
+from study_worker.retrieval import (
+    clean_retrieval_query,
+    expand_stub_chunks,
+    extract_search_terms,
+    infer_subject_hint,
+    is_meta_document_query,
+    rerank_curriculum_candidates,
+)
 
 
 def test_openalex_fallback_and_url_safety(monkeypatch):
@@ -197,3 +205,165 @@ def test_pipeline_chat_search_mode_queries_shared_library_and_saves_provider(mon
     source_inserts = [params for sql, params in executed if "insert into public.message_sources" in sql]
     assert len(source_inserts) == 1
     assert source_inserts[0][4] == "S1"
+
+
+def test_retrieval_query_cleaning_terms_and_subject_hints():
+    cleaned = clean_retrieval_query("Bài tập: > **Đạo hàm** của `hàm ẩn` là gì?")
+    assert cleaned == "**Đạo hàm** của hàm ẩn là gì?"
+    terms = extract_search_terms("Đạo hàm của hàm ẩn là gì?")
+    assert "đạo" in terms and "hàm" in terms and "ẩn" in terms
+    poiseuille_q = (
+        "Độ chênh lệch áp suất giữa hai đầu của một ống dẫn tròn nằm ngang bán kính R = 1 cm, "
+        "dài l = 100 cm là Δp = 200 Pa. Hệ số nhớt của chất lỏng là η = 10^-2 Pa.s. "
+        "Tìm lưu lượng chất lỏng chảy qua ống theo định luật Poiseuille."
+    )
+    assert "poiseuille" in extract_search_terms(poiseuille_q)[:3]
+    assert infer_subject_hint("Tính đạo hàm hàm ẩn f(x, y)") == "calculus"
+    assert infer_subject_hint("Tìm trị riêng và vectơ riêng của ma trận") == "linear-algebra"
+    assert infer_subject_hint("Áp dụng định luật Poiseuille cho chất lưu có độ nhớt") == "physics"
+    assert is_meta_document_query("Tóm tắt nội dung chính của tài liệu này") is True
+    assert is_meta_document_query("Đạo hàm là gì?") is False
+
+
+def test_rerank_curriculum_candidates_dedup_stub_noise_and_subject():
+    candidates = [
+        {
+            "id": "c-stub",
+            "document_id": "d-1",
+            "document_name": "Dao ham - Vi phan (1).pdf",
+            "subject": "calculus",
+            "content": "## I. Đạo hàm",
+            "vector_score": 0.85,
+        },
+        {
+            "id": "c-dup-1",
+            "document_id": "d-1",
+            "document_name": "Dao ham - Vi phan (1).pdf",
+            "subject": "calculus",
+            "content": (
+                "Định nghĩa đạo hàm: Đạo hàm của hàm số f tại điểm x0 là giới hạn hữu hạn của tỉ số "
+                "số gia hàm số và số gia đối số khi delta x tiến tới 0, dùng để đo tốc độ biến thiên tức thời."
+            ),
+            "vector_score": 0.78,
+        },
+        {
+            "id": "c-dup-2",
+            "document_id": "d-2",
+            "document_name": "Dao ham - Vi phan (2).pdf",
+            "subject": "calculus",
+            "content": (
+                "Định nghĩa đạo hàm: Đạo hàm của hàm số f tại điểm x0 là giới hạn hữu hạn của tỉ số "
+                "số gia hàm số và số gia đối số khi delta x tiến tới 0, dùng để đo tốc độ biến thiên tức thời."
+            ),
+            "vector_score": 0.79,
+        },
+        {
+            "id": "c-phys",
+            "document_id": "d-3",
+            "document_name": "Tap1.pdf",
+            "subject": "physics",
+            "content": "Trong cơ học, vận tốc là đạo hàm theo thời gian của tọa độ chất điểm trên quỹ đạo thẳng.",
+            "vector_score": 0.76,
+        },
+    ]
+    ranked = rerank_curriculum_candidates("Đạo hàm là gì?", candidates)
+    assert len(ranked) == 3
+    assert ranked[0]["document_name"].startswith("Dao ham - Vi phan")
+    assert len(ranked[0]["content"]) >= 90
+    assert sum(1 for item in ranked if "Định nghĩa đạo hàm:" in item["content"]) == 1
+
+    off_topic = rerank_curriculum_candidates(
+        "hôm nay trời bao nhiêu độ",
+        [{
+            "id": "noise-1",
+            "document_id": "d-9",
+            "document_name": "Giai tich 1.pdf",
+            "subject": "calculus",
+            "content": "Không gian mêtric và sự hội tụ của dãy Cauchy trong trường số thực.",
+            "vector_score": 0.49,
+        }],
+    )
+    assert off_topic == []
+
+    meta_kept = rerank_curriculum_candidates(
+        "Tóm tắt tài liệu này",
+        [{
+            "id": "meta-1",
+            "document_id": "d-9",
+            "document_name": "Giai tich 1.pdf",
+            "subject": "calculus",
+            "content": "Chương 1 giới thiệu giới hạn, đạo hàm và ứng dụng của phép tính vi phân.",
+            "vector_score": 0.44,
+        }],
+    )
+    assert len(meta_kept) == 1
+
+
+def test_expand_stub_chunks_merges_neighbors():
+    class StubConn:
+        def execute(self, sql, params):
+            return SimpleNamespace(fetchall=lambda: [{
+                "id": "c-2",
+                "document_id": "d-1",
+                "user_id": "owner-1",
+                "index_version": 1,
+                "ordinal": 2,
+                "document_name": "Dao ham.pdf",
+                "subject": "calculus",
+                "section": "1. Định nghĩa",
+                "content": "Đạo hàm tại x0 biểu thị hệ số góc tiếp tuyến và tốc độ biến thiên tức thời của hàm số.",
+            }])
+
+    expanded = expand_stub_chunks(
+        StubConn(),
+        [{
+            "id": "c-1",
+            "document_id": "d-1",
+            "user_id": "owner-1",
+            "index_version": 1,
+            "ordinal": 1,
+            "document_name": "Dao ham.pdf",
+            "subject": "calculus",
+            "content": "## I. Đạo hàm",
+        }],
+        using_shared_catalog=True,
+        user_id="student-1",
+        owners={"d-1": "owner-1"},
+        versions={"d-1": 1},
+    )
+    assert len(expanded) == 1
+    assert "tiếp tuyến" in expanded[0]["content"]
+    assert expanded[0]["section"] == "1. Định nghĩa"
+
+
+def test_library_prompt_citations_normalize_and_review():
+    sources = [{
+        "label": "S1",
+        "document_name": "Giai tich 1.pdf",
+        "content": "Đạo hàm biểu thị tốc độ biến thiên tức thời.",
+        "excerpt": "Đạo hàm biểu thị tốc độ biến thiên tức thời.",
+        "page": 12,
+    }]
+    messages, selected = build_prompt("Đạo hàm là gì?", [], sources, lambda text: len(text.split()), mode="library")
+    assert "[S1], [S2]" in messages[0]["content"]
+    assert len(selected) == 1
+
+    normalized = normalize_citation_marks("Đoạn này [S1, S2]\n$$\nx [S1, S2]\n$$\n")
+    assert normalized == "Đoạn này [S1] [S2]\n$$\nx [S1, S2]\n$$\n"
+
+    valid, used = validate_citations("Kết quả là đạo hàm [S1].\n$$\nf'(x) [S1]\n$$", sources)
+    assert "$$\nf'(x)\n$$\n\n[S1]" in valid
+    assert len(used) == 1
+
+    fake_models = SimpleNamespace(
+        count=lambda text: len(text) // 4,
+        generate=lambda messages: (x for x in ['[[1, "S1:0"], [3, "S1:0"]]']),
+    )
+    draft = (
+        "Đạo hàm biểu thị tốc độ biến thiên tức thời.\n"
+        "$$\nf'(x) = \\lim_{h \\to 0} \\frac{f(x+h)-f(x)}{h}\n$$\n"
+    )
+    reviewed = review_missing_citations("Đạo hàm là gì?", draft, sources, fake_models)
+    assert reviewed.splitlines()[0].endswith("[S1]")
+    assert "[S1]" not in reviewed.splitlines()[2]
+

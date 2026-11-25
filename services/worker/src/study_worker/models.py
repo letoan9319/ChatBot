@@ -12,6 +12,7 @@ from .openrouter import OutputLimit
 
 class LocalModels:
     supports_thinking_progress = True
+    supports_thinking_stream = True
 
     @property
     def supports_question_vision(self):
@@ -68,15 +69,27 @@ class LocalModels:
             raise ValueError("Expected BGE-M3 dense embeddings of dimension 1024")
         return vectors
 
-    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None, question_images=()):
+    def generate(
+        self,
+        messages,
+        *,
+        on_reset=None,
+        research=False,
+        on_thinking=None,
+        on_thinking_token=None,
+        question_images=(),
+    ):
         self.unload(self.settings.embed_model)
-        thinking_model = self.settings.thinking_model if on_thinking is not None else ""
+        use_thinking = on_thinking is not None or on_thinking_token is not None
+        thinking_model = self.settings.thinking_model if use_thinking else ""
         if thinking_model:
             if thinking_model != self.settings.chat_model:
                 self.unload(self.settings.chat_model)
             emitted_answer = False
             try:
-                for content in self._stream_chat(messages, thinking_model, research, on_thinking, question_images):
+                for content in self._stream_chat(
+                    messages, thinking_model, research, on_thinking, on_thinking_token, question_images
+                ):
                     emitted_answer = emitted_answer or bool(content)
                     yield content
                 if emitted_answer:
@@ -87,11 +100,14 @@ class LocalModels:
             except httpx.HTTPStatusError as error:
                 if emitted_answer or error.response.status_code not in (400, 404):
                     raise
+            if on_reset is not None:
+                on_reset()
             if thinking_model != self.settings.chat_model:
                 self.unload(thinking_model)
-        yield from self._stream_chat(messages, self.settings.chat_model, research, None, question_images)
+        yield from self._stream_chat(messages, self.settings.chat_model, research, None, None, question_images)
 
-    def _stream_chat(self, messages, model, research, on_thinking, question_images):
+    def _stream_chat(self, messages, model, research, on_thinking, on_thinking_token, question_images):
+        use_thinking = on_thinking is not None or on_thinking_token is not None
         if question_images and model.startswith("qwen3.5:"):
             messages = [*messages[:-1], {**messages[-1], "images": list(question_images)}]
         with self.http.stream(
@@ -100,12 +116,12 @@ class LocalModels:
             json={
                 "model": model,
                 "messages": messages,
-                "think": on_thinking is not None,
+                "think": use_thinking,
                 "stream": True,
                 "keep_alive": "5m",
                 "options": {
-                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research or on_thinking else 7168,
-                    "num_predict": RESEARCH_OUTPUT_TOKENS if research or on_thinking else 3584,
+                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research or use_thinking else 7168,
+                    "num_predict": RESEARCH_OUTPUT_TOKENS if research or use_thinking else 3584,
                     "temperature": 0.2,
                 },
             },
@@ -122,15 +138,21 @@ class LocalModels:
                     if event.get("error"):
                         raise RuntimeError("Ollama generation failed")
                     message = event.get("message", {})
-                    if on_thinking is not None and message.get("thinking") and not answered and started is None:
-                        started = time.monotonic()
-                        on_thinking(None)
+                    thinking_piece = message.get("thinking") or ""
+                    if use_thinking and thinking_piece and not answered:
+                        if started is None:
+                            started = time.monotonic()
+                            if on_thinking is not None:
+                                on_thinking(None)
+                        if on_thinking_token is not None:
+                            on_thinking_token(thinking_piece)
                     content = message.get("content", "")
                     if content:
                         if started is not None:
                             elapsed = round((time.monotonic() - started) * 1000)
                             started = None
-                            on_thinking(elapsed)
+                            if on_thinking is not None:
+                                on_thinking(elapsed)
                         answered = True
                         yield content
                     elif started is not None:
@@ -140,7 +162,7 @@ class LocalModels:
                             raise OutputLimit()
                         completed = True
             finally:
-                if started is not None:
+                if started is not None and on_thinking is not None:
                     on_thinking(round((time.monotonic() - started) * 1000))
             if not completed:
                 raise RuntimeError("Ollama stream ended before completion")
@@ -260,12 +282,12 @@ class VectorStore:
             wait=True,
         )
 
-    def search(self, user_id, document_ids, versions, vector, owners=None):
+    def search(self, user_id, document_ids, versions, vector, owners=None, limit=24):
         return self.client.query_points(
             self.collection,
             query=vector,
             query_filter=self.filters(user_id, document_ids, versions, owners),
-            limit=8,
+            limit=limit,
             score_threshold=self.settings.min_score,
             with_payload=True,
         ).points

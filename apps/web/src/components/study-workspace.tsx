@@ -258,7 +258,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
       if (document.visibilityState === "visible") {
         void refresh({ documents: pendingDocuments, chat: pendingChat });
       }
-    }, 2000);
+    }, pendingChat ? 1000 : 2000);
     return () => clearInterval(timer);
   }, [refresh, pendingDocuments, pendingChat]);
   const followStream = useCallback(() => {
@@ -797,10 +797,10 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
                       : message.role === "assistant" && message.generation_provider === "deploy" ? "Trả lời qua Deploy.com"
                         : message.role === "assistant" && message.generation_provider === "openrouter" ? "Trả lời qua OpenRouter" : ""}</span>
                   </div>
-                  {message.role === "assistant" && (message.thinking_started_at || message.status === "generating" ||
+                  {message.role === "assistant" && (message.thinking_started_at || message.thinking_content || message.status === "generating" ||
                     (message.status === "completed" && (index === messages.length - 1 || readApproach(message.content)))) &&
                     <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)}
-                      duration={message.thinking_ms} content={message.content} provider={message.generation_provider}
+                      duration={message.thinking_ms} thinking={message.thinking_content} content={message.content} provider={message.generation_provider}
                       sources={[
                         ...(message.web_sources ?? []).filter(source => source.kind !== "image"),
                         ...message.message_sources.map(source => ({

@@ -26,6 +26,10 @@ class ChatFallbackModels:
     def supports_question_vision(self):
         return self.primary.supports_question_vision
 
+    @property
+    def supports_thinking_stream(self):
+        return getattr(self.primary, "supports_thinking_stream", False)
+
     def prepare(self):
         # Missing Qwen is allowed; BGE and the Ollama server are still required.
         self.primary.prepare(require_chat=False)
@@ -39,7 +43,7 @@ class ChatFallbackModels:
     def rerank(self, query, candidates):
         return candidates
 
-    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None, question_images=()):
+    def generate(self, messages, *, on_reset=None, research=False, on_thinking=None, on_thinking_token=None, question_images=()):
         self.last_generation_provider = "ollama"
         # Callers that cannot reset their output (evaluation/benchmark) receive
         # local content only after the whole primary attempt succeeds.
@@ -50,6 +54,8 @@ class ChatFallbackModels:
             local_options = dict(options)
             if on_thinking is not None:
                 local_options["on_thinking"] = on_thinking
+            if on_thinking_token is not None and self.supports_thinking_stream:
+                local_options["on_thinking_token"] = on_thinking_token
             if question_images:
                 local_options["question_images"] = question_images
             for token in self.primary.generate(messages, **local_options):

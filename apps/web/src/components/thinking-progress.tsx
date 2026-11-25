@@ -11,10 +11,11 @@ export function readApproach(content: string): string | null {
   return approach && approach.length <= 480 ? approach : null;
 }
 
-export function ThinkingProgress({ status, started, duration, content, provider, sources = [] }: {
+export function ThinkingProgress({ status, started, duration, thinking, content, provider, sources = [] }: {
   status: string;
   started: boolean;
   duration?: number | null;
+  thinking?: string | null;
   content: string;
   provider?: string | null;
   sources?: { label: string; title: string; url: string }[];
@@ -22,8 +23,11 @@ export function ThinkingProgress({ status, started, duration, content, provider,
   const id = useId();
   const star = useRef<SVGSVGElement>(null);
   const rotation = useRef<number | null>(null);
-  const [open, setOpen] = useState(false);
+  const streamBox = useRef<HTMLDivElement>(null);
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const active = status === "generating" && !content && duration == null;
+  const liveThinking = thinking?.trim() ?? "";
+  const open = userOpen ?? (active && Boolean(liveThinking));
   const activeLabel = started ? "Đang suy luận…" : "Đang chuẩn bị câu trả lời…";
   const recorded = duration == null ? "" : duration < 1000
     ? "Đã suy luận dưới 1 giây" : "Đã suy luận trong " + Math.round(duration / 1000) + " giây";
@@ -36,14 +40,19 @@ export function ThinkingProgress({ status, started, duration, content, provider,
     : [];
   const citedSources = approachSources.length ? approachSources
     : sources.filter(source => status === "completed" && content.includes("[" + source.label + "]"));
-  const steps = [
+  const steps = !liveThinking ? [
     started && "Worker đã nhận tín hiệu suy luận từ model.",
     recorded && "Thời gian được đo từ tín hiệu suy luận đầu tiên đến khi model bắt đầu xuất câu trả lời hoặc kết thúc lượt sinh.",
     !started && status === "completed" && (provider === "deploy" || provider === "openrouter"
       ? "Lượt trả lời qua nhà cung cấp dự phòng chưa có dữ liệu tiến độ suy luận trong LearnStep."
       : "LearnStep chỉ báo đã suy luận khi nhận được tín hiệu riêng từ model."),
     !started && status === "generating" && "Worker đang chuẩn bị ngữ cảnh hoặc bắt đầu sinh câu trả lời.",
-  ];
+  ] : [];
+
+  useEffect(() => {
+    if (!active || !open || !liveThinking || !streamBox.current) return;
+    streamBox.current.scrollTop = streamBox.current.scrollHeight;
+  }, [active, open, liveThinking]);
 
   useEffect(() => {
     const icon = star.current;
@@ -71,15 +80,15 @@ export function ThinkingProgress({ status, started, duration, content, provider,
     return () => settle.cancel();
   }, [active]);
 
-  return <div className={styles.u453 + (active ? "" : " " + styles.done)}>
+  return <div className={styles.u453 + (active ? "" : " " + styles.done) + (liveThinking ? " " + styles.withStream : "")}>
     <div className={styles.u453Wrap}>
       <button type="button" className={styles.u453Toggle} aria-expanded={open} aria-controls={id}
-        onClick={() => setOpen(!open)}
+        onClick={() => setUserOpen(!open)}
         onKeyDown={(event) => {
           if (event.key === "Escape" && open) {
             event.preventDefault();
             event.stopPropagation();
-            setOpen(false);
+            setUserOpen(false);
           }
         }}>
         <span className={styles.u453Icon} aria-hidden="true">
@@ -94,6 +103,12 @@ export function ThinkingProgress({ status, started, duration, content, provider,
       <div className={styles.u453Panel} id={id} aria-hidden={!open} inert={!open}>
         <div className={styles.u453Inner}>
           <div className={styles.u453List}>
+            {liveThinking && <div className={styles.thoughtStream}>
+              <strong className={styles.thoughtTitle}>{active ? "Luồng suy luận trực tiếp" : "Nội dung suy luận"}</strong>
+              <div ref={streamBox} className={styles.thoughtBody}>
+                <Markdown content={liveThinking} chatMath streaming={active} />
+              </div>
+            </div>}
             {steps.filter(Boolean).map((step, index) => <p key={index} className={styles.u453Line + (step ? " " + styles.visible : "")}>
               <span><span>{step || ""}</span></span>
             </p>)}

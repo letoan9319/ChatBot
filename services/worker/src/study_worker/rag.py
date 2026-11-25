@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 import re
 
@@ -195,8 +196,12 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
         system += GENERAL_GUIDANCE
     else:
         system += "Chỉ trả lời dựa trên nguồn. Nếu thiếu bằng chứng, nói rõ chưa tìm thấy thông tin phù hợp.\n"
-    if mode in ("search", "research"):
-        system += "Đặt nhãn [S1], [S2] ngay sau từng nhận định lấy từ nguồn tương ứng. Chỉ dùng nhãn có trong danh sách.\n"
+    has_text_sources = any(not item.get("question_image") for item in candidates)
+    if mode in ("search", "research") or has_text_sources:
+        system += (
+            "Đặt nhãn [S1], [S2] ngay sau từng nhận định lấy từ nguồn tương ứng. "
+            "Chỉ dùng nhãn có trong danh sách; không gộp nhiều nhãn vào một ngoặc như [S1, S2].\n"
+        )
     if mode == "research":
         system += (
             "Viết bài tổng hợp chi tiết bằng tiếng Việt, chia mục theo câu hỏi. "
@@ -327,7 +332,7 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
                 "Khi người dùng yêu cầu các ý ma trận, trị riêng và vectơ riêng, dùng đúng ba ý đó làm ba nhánh riêng."
             )
 
-    if reasoning and mode in ("search", "research"):
+    if reasoning and (mode in ("search", "research") or has_text_sources):
         tutoring_question += (
             " Trong đoạn **Cách tiếp cận:**, tóm tắt cách dùng nguồn liên quan và chèn nhãn "
             "trích dẫn đã được cấp ngay sau ý được nguồn hỗ trợ."
@@ -481,8 +486,161 @@ def first_image_hint(answer):
     return answer[:heading.start()].rstrip() + "\n\n**Gợi ý:** " + first_sentence.strip()
 
 
+def _fenced_line_numbers(lines):
+    """Return 1-based line numbers inside code fences or $$ display math blocks."""
+    fenced = set()
+    active_fence = None
+    in_math = False
+    for index, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not in_math:
+            fence_match = re.match(r"^(`{3,}|~{3,})", stripped)
+            if fence_match:
+                marker = fence_match.group(1)
+                if active_fence is None:
+                    active_fence = marker[0]
+                    fenced.add(index)
+                    continue
+                if stripped.startswith(active_fence * 3):
+                    fenced.add(index)
+                    active_fence = None
+                    continue
+        if active_fence is not None:
+            fenced.add(index)
+            continue
+        if stripped == "$$":
+            fenced.add(index)
+            in_math = not in_math
+            continue
+        if in_math or (stripped.startswith("$$") and stripped.endswith("$$") and len(stripped) > 4):
+            fenced.add(index)
+    return fenced
+
+
+def normalize_citation_marks(answer):
+    """Expand grouped citations like [S1, S2] outside fenced/math blocks into [S1] [S2]."""
+    lines = answer.splitlines()
+    fenced = _fenced_line_numbers(lines)
+    grouped_re = re.compile(r"\[(S\d+(?:\s*[,;]\s*S\d+)+)\]")
+    updated = []
+    for index, line in enumerate(lines, start=1):
+        if index in fenced:
+            updated.append(line)
+            continue
+        updated.append(
+            grouped_re.sub(
+                lambda m: " ".join(f"[{part.strip()}]" for part in re.split(r"[,;]", m.group(1)) if part.strip()),
+                line,
+            )
+        )
+    trailing_newline = "\n" if answer.endswith("\n") else ""
+    return "\n".join(updated) + trailing_newline
+
+
+def review_missing_citations(question, answer, sources, models, check_active=None):
+    """Ask the model to attach [Sn] tags when a grounded draft omitted inline citations."""
+    if not answer.strip() or not sources or models is None or not hasattr(models, "generate"):
+        return answer
+    text_sources = [item for item in sources if not item.get("question_image")]
+    if not text_sources:
+        return answer
+    if re.search(r"\[S\d+\]", answer):
+        return answer
+
+    lines = answer.splitlines()
+    fenced = _fenced_line_numbers(lines)
+    candidate_lines = {}
+    numbered_lines = []
+    for index, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if (
+            index in fenced
+            or not stripped
+            or stripped.startswith("#")
+            or re.fullmatch(r"[-*_` ]+", stripped)
+        ):
+            continue
+        candidate_lines[index] = line
+        numbered_lines.append(f"{index}: {line}")
+    if not numbered_lines:
+        return answer
+
+    source_lines = []
+    permitted = set()
+    for item in text_sources:
+        label = item["label"]
+        permitted.add(label)
+        snippet = re.sub(r"\s+", " ", (item.get("excerpt") or item.get("content") or "")).strip()[:1400]
+        title = item.get("document_name") or item.get("title") or label
+        source_lines.append(f"[{label}] {title}: {snippet}")
+
+    prompt = (
+        f"Câu hỏi: {question}\n\n"
+        f"Các nguồn tài liệu:\n" + "\n".join(source_lines) + "\n\n"
+        "Các dòng trong câu trả lời cần gắn nhãn trích dẫn (chỉ chọn dòng thực sự dựa vào nguồn):\n"
+        + "\n".join(numbered_lines)
+        + "\n\nTrả về duy nhất JSON array gồm các cặp [line_no, \"S1:0\"], ví dụ [[2, \"S1:0\"]]. "
+        "Nếu không có dòng nào được nguồn hỗ trợ, trả về []."
+    )
+    if hasattr(models, "count") and models.count(prompt) > 5000:
+        return answer
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Bạn là bộ kiểm tra trích dẫn. Chỉ trả về JSON array hợp lệ [[line_no, \"Sn:0\"]].",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    raw_chunks = []
+    with closing(models.generate(messages)) as stream:
+        for chunk in stream:
+            if check_active is not None:
+                check_active()
+            if chunk:
+                raw_chunks.append(chunk)
+    raw = "".join(raw_chunks).strip()
+    match = re.search(r"\[[\s\S]*\]", raw)
+    if not match:
+        return answer
+    try:
+        pairs = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return answer
+    if not isinstance(pairs, list):
+        return answer
+
+    annotations = {}
+    for entry in pairs:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            continue
+        line_no, ref = entry
+        if isinstance(line_no, bool) or not isinstance(line_no, int) or line_no not in candidate_lines:
+            continue
+        ref_match = re.match(r"^(S\d+)(?::\d+)?$", str(ref).strip())
+        if not ref_match:
+            continue
+        label = ref_match.group(1)
+        if label not in permitted:
+            continue
+        existing = annotations.setdefault(line_no, [])
+        if label not in existing and len(existing) < 2:
+            existing.append(label)
+
+    if not annotations:
+        return answer
+
+    updated = list(lines)
+    for line_no, labels in annotations.items():
+        tags = " ".join(f"[{label}]" for label in labels)
+        updated[line_no - 1] = updated[line_no - 1].rstrip() + f" {tags}"
+    trailing_newline = "\n" if answer.endswith("\n") else ""
+    return "\n".join(updated) + trailing_newline
+
+
 def validate_citations(answer, sources, *, allow_uncited=False):
     """Return only references that exist in the retrieved, authorized context."""
+    answer = normalize_citation_marks(answer)
     if allow_uncited and not sources:
         answer = re.sub(r"[ \t]*\[S\d+\]", "", answer)
     labels = set(re.findall(r"\[(S\d+)\]", answer))
@@ -499,6 +657,7 @@ def validate_citations(answer, sources, *, allow_uncited=False):
         return cleaned + "\n\n" + " ".join(dict.fromkeys(marks))
 
     answer = re.sub(r"```(?:learnstep-visual|study-card)[^\n]*\n[\s\S]*?```", move_card_citations, answer)
+    answer = re.sub(r"\$\$[\s\S]*?\$\$", move_card_citations, answer)
     used = [item for item in sources if item["label"] in labels]
     attached = [item for item in sources if item.get("question_image") and item["label"] not in labels]
     if attached and answer.strip():

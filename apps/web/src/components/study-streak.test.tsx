@@ -20,6 +20,7 @@ describe("learning streak", () => {
     expect(html.match(/>Đã học</g)).toHaveLength(3);
     expect(html).toContain('aria-current="date"');
     expect(html).toContain("UTC+7");
+    expect(html).toContain("Đặt ít nhất một câu hỏi học tập mỗi ngày");
   });
   it("distinguishes a completed goal, first day, and a broken streak", () => {
     expect(renderToStaticMarkup(<StudyStreakCard data={{ ...streak, today_completed: true }} />))

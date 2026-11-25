@@ -61,7 +61,7 @@ export function StudyStreakCard({ data, error = "", compact = false, summaryIllu
             <small>Kỷ lục {data.longest} ngày · Tổng {data.total_days} ngày học</small>
             <details className="streak-help">
               <summary>Cách giữ chuỗi</summary>
-              <p>Hoàn thành ít nhất một câu hỏi có câu trả lời kèm nguồn mỗi ngày. Mỗi ngày chỉ tính một lần,
+              <p>Đặt ít nhất một câu hỏi học tập mỗi ngày. Mỗi ngày chỉ tính một lần,
                 theo giờ Việt Nam (UTC+7). Bỏ trọn một ngày sẽ bắt đầu lại chuỗi; kỷ lục vẫn được giữ.</p>
             </details>
           </div>
