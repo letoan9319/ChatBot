@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Source, WebSource } from "@/core/types";
 import { Markdown } from "./markdown";
 import styles from "./streaming-answer.module.css";
 
@@ -15,9 +16,12 @@ export function revealSegments(text: string): string[] {
     : Array.from(text);
 }
 
-export function StreamingAnswer({ content, status, onReveal }: {
+export function StreamingAnswer({ content, status, sources, webSources, onOpenSource, onReveal }: {
   content: string;
   status: string;
+  sources?: Source[];
+  webSources?: WebSource[];
+  onOpenSource?: (source: Source) => void;
   onReveal: () => void;
 }) {
   const live = status === "queued" || status === "generating";
@@ -70,6 +74,14 @@ export function StreamingAnswer({ content, status, onReveal }: {
   ) : null;
   const streaming = live || visible !== content;
   return <div className={streaming ? styles.streaming : undefined} aria-live={streaming ? "off" : undefined}>
-    <Markdown content={visible} chatMath visuals={status === "completed" && !streaming} streaming={streaming} />
+    <Markdown
+      content={visible}
+      chatMath
+      visuals={status === "completed" && !streaming}
+      streaming={streaming}
+      sources={status === "completed" && !streaming ? sources : undefined}
+      webSources={status === "completed" && !streaming ? webSources : undefined}
+      onOpenSource={onOpenSource}
+    />
   </div>;
 }

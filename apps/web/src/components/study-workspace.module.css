@@ -318,7 +318,9 @@
 .shell[data-answer-font-size="large"] .message :global(.markdown),
 .shell[data-answer-font-size="large"] .sourceExcerpt { font-size: 16px; }
 .citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.citations :is(button, a) { max-width: 100%; padding: 5px 8px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 7px; background: var(--secondary-soft); color: var(--secondary-ink); text-align: left; font-size: 11px; }
+.citations :is(button, a, span) { max-width: 100%; padding: 5px 8px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 7px; background: var(--secondary-soft); color: var(--secondary-ink); text-align: left; font-size: 11px; }
+.citations [data-authority="curriculum"] { border-color: var(--green-line); background: var(--primary-soft); color: var(--primary-ink); }
+.citations [data-authority="web"] { border-color: var(--line-strong); background: var(--surface-alt); color: var(--muted); }
 .composer { flex-shrink: 0; padding: 10px 24px 16px; background: var(--surface); }
 .documentMenu { position: relative; }
 .documentMenu > summary {

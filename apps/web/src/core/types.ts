@@ -36,6 +36,17 @@ export type Source = {
   paragraph: number | null;
   chunk_id: string | null;
 };
+export type WebSource = {
+  label: string;
+  title: string;
+  url: string;
+  kind?: "web" | "article" | "wikipedia" | "image" | null;
+  provider?: string;
+  thumbnail?: string;
+  creator?: string;
+  license_name?: string;
+  license_url?: string;
+};
 export type Message = {
   id: string;
   role: "user" | "assistant";
@@ -46,7 +57,7 @@ export type Message = {
   thinking_ms?: number | null;
   generation_provider: "ollama" | "openrouter" | "deploy" | null;
   message_sources: Source[];
-  web_sources?: { label: string; title: string; url: string; kind?: "web" | "article" | "wikipedia" | "image" | null; thumbnail?: string; creator?: string; license_name?: string; license_url?: string }[];
+  web_sources?: WebSource[];
 };
 export type SourceDetail = Source & {
   available: boolean;

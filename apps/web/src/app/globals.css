@@ -15,6 +15,9 @@
   --warning: #ffc800;
   --warning-soft: #fff8db;
   --warning-ink: #715000;
+  --info-soft: #eef5fc;
+  --info-line: #bfd6ee;
+  --info-ink: #1d4f82;
   --danger: #ff4b4b;
   --danger-soft: #fff0f0;
   --danger-ink: #a02424;
@@ -78,6 +81,9 @@
   --secondary-ink: #e8c4ff;
   --warning-soft: #382f17;
   --warning-ink: #ffe29a;
+  --info-soft: #1b2a38;
+  --info-line: #3a5a78;
+  --info-ink: #cbe4ff;
   --danger-soft: #3c2225;
   --danger-ink: #ffaaaa;
   --danger-line: #965358;

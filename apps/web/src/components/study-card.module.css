@@ -1,0 +1,243 @@
+.card {
+  margin: 16px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.cardTitle {
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pipelineStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.stepBox,
+.nodeBox {
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  color: var(--text);
+}
+
+.nodeBox {
+  max-width: 560px;
+  text-align: center;
+}
+
+.stepBox[data-tone="info"],
+.nodeBox[data-tone="info"] {
+  background: var(--info-soft);
+  border-color: var(--info-line);
+}
+
+.stepBox[data-tone="accent"],
+.nodeBox[data-tone="accent"] {
+  background: var(--primary-soft);
+  border-color: var(--green-line);
+}
+
+.stepBox[data-tone="warn"],
+.nodeBox[data-tone="warn"] {
+  background: var(--warning-soft);
+  border-color: var(--yellow-line);
+}
+
+.stepTitle,
+.nodeTitle {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.stepBox[data-tone="info"] .stepTitle,
+.nodeBox[data-tone="info"] .nodeTitle {
+  color: var(--info-ink);
+}
+
+.stepBox[data-tone="accent"] .stepTitle,
+.nodeBox[data-tone="accent"] .nodeTitle {
+  color: var(--primary-ink);
+}
+
+.stepBox[data-tone="warn"] .stepTitle,
+.nodeBox[data-tone="warn"] .nodeTitle {
+  color: var(--warning-ink);
+}
+
+.stepBody,
+.nodeSubtitle {
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.nodeSubtitle {
+  color: var(--muted);
+}
+
+.connector {
+  display: flex;
+  justify-content: center;
+  color: var(--muted);
+  line-height: 0;
+}
+
+.loopNote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.compareGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 18px 24px;
+}
+
+.compareColumn {
+  min-width: 0;
+}
+
+.compareHeader {
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.compareItems {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compareRow {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.compareRowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.compareLabel {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.compareValue {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.barTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-alt);
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--control-line);
+}
+
+.compareColumn[data-tone="accent"] .barFill {
+  background: var(--primary-edge);
+}
+
+.compareColumn[data-tone="info"] .barFill {
+  background: var(--info-ink);
+}
+
+.caption {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.loadingCard {
+  margin: 16px 0;
+  padding: 16px 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.loadingBars {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.loadingBars span {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.loadingBars span:nth-child(1) {
+  width: 72%;
+}
+
+.loadingBars span:nth-child(2) {
+  width: 92%;
+}
+
+.loadingBars span:nth-child(3) {
+  width: 54%;
+}
+
+@media (max-width: 560px) {
+  .card {
+    padding: 14px;
+  }
+
+  .compareGrid {
+    grid-template-columns: 1fr;
+  }
+}

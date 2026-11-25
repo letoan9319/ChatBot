@@ -16,7 +16,7 @@ def _plain(value):
     return " ".join(text.split())
 
 
-def _source(url, title, content, kind):
+def _source(url, title, content, kind, provider=None):
     if not url or not title or len(content) < 40:
         return None
     try:
@@ -25,7 +25,10 @@ def _source(url, title, content, kind):
             return None
     except ValueError:
         return None
-    return {"url": url, "title": title[:180], "content": content[:2200], "kind": kind}
+    item = {"url": url, "title": title[:180], "content": content[:2200], "kind": kind}
+    if provider:
+        item["provider"] = provider
+    return item
 
 
 def _searxng(http, base_url, terms, research):
@@ -70,12 +73,64 @@ def _crossref(http, terms):
             title += f" ({date[0][0]})"
         abstract = _plain(item.get("abstract"))
         if len(abstract) >= 80:
-            sources.append(_source("https://doi.org/" + quote(doi, safe="/"), title, abstract, "article"))
+            sources.append(_source("https://doi.org/" + quote(doi, safe="/"), title, abstract, "article", "Crossref"))
     return [item for item in sources if item]
 
 
-def _wikipedia(http, terms):
-    response = http.get("https://vi.wikipedia.org/w/api.php", params={
+def _reconstruct_openalex_abstract(inverted):
+    if not isinstance(inverted, dict) or not inverted:
+        return ""
+    tokens = {}
+    for word, positions in inverted.items():
+        if not isinstance(word, str) or not isinstance(positions, list):
+            continue
+        for pos in positions:
+            if isinstance(pos, int) and not isinstance(pos, bool) and 0 <= pos <= 2000:
+                tokens[pos] = word
+    return " ".join(tokens[pos] for pos in sorted(tokens)) if tokens else ""
+
+
+def _resolve_openalex_url(work):
+    doi = work.get("doi")
+    if isinstance(doi, str) and doi.startswith("https://doi.org/"):
+        return doi
+    primary = work.get("primary_location")
+    if isinstance(primary, dict):
+        landing = primary.get("landing_page_url")
+        if isinstance(landing, str) and landing.startswith("https://"):
+            return landing
+    work_id = work.get("id")
+    if isinstance(work_id, str) and work_id.startswith("https://openalex.org/"):
+        return work_id
+    return None
+
+
+def _openalex(http, terms):
+    response = http.get("https://api.openalex.org/works", params={
+        "search": terms,
+        "per-page": 4,
+        "select": "id,display_name,doi,primary_location,abstract_inverted_index,publication_year",
+    })
+    response.raise_for_status()
+    sources = []
+    for work in response.json().get("results", []):
+        if not isinstance(work, dict):
+            continue
+        title = _plain(work.get("display_name"))
+        year = work.get("publication_year")
+        if title and isinstance(year, int) and not isinstance(year, bool):
+            title += f" ({year})"
+        abstract = _reconstruct_openalex_abstract(work.get("abstract_inverted_index"))
+        url = _resolve_openalex_url(work)
+        if url and len(abstract) >= 80:
+            source = _source(url, title, abstract, "article", "OpenAlex")
+            if source:
+                sources.append(source)
+    return sources
+
+
+def _wikipedia(http, terms, *, host="https://vi.wikipedia.org"):
+    response = http.get(host + "/w/api.php", params={
         "action": "query", "format": "json", "formatversion": 2,
         "generator": "search", "gsrsearch": terms, "gsrnamespace": 0, "gsrlimit": 4,
         "prop": "extracts", "exintro": 1, "explaintext": 1, "exchars": 900, "exlimit": "max",
@@ -88,8 +143,8 @@ def _wikipedia(http, terms):
     for page in sorted(data.get("query", {}).get("pages", []), key=lambda item: item.get("index", 0)):
         page_id = page.get("pageid")
         if isinstance(page_id, int):
-            source = _source(f"https://vi.wikipedia.org/?curid={page_id}", _plain(page.get("title")),
-                             _plain(page.get("extract")), "wikipedia")
+            source = _source(f"{host}/?curid={page_id}", _plain(page.get("title")),
+                             _plain(page.get("extract")), "wikipedia", "Wikipedia")
             if source:
                 sources.append(source)
     return sources
@@ -168,18 +223,29 @@ def search_web(question, mode, searxng_url="", *, image_question=""):
             else:
                 notices.append("Chưa cấu hình tìm kiếm web đa trang.")
             if not web:
-                with suppress(httpx.HTTPError, ValueError):
+                wiki_failed = False
+                try:
                     web = _wikipedia(http, terms)
+                except (httpx.HTTPError, ValueError):
+                    wiki_failed = True
+                if wiki_failed:
+                    with suppress(httpx.HTTPError, ValueError):
+                        web = _wikipedia(http, terms, host="https://en.wikipedia.org")
                 if web:
                     notices.append("Nguồn web dự phòng từ Wikipedia.")
             if academic:
+                academic_failed = False
                 try:
                     articles = academic.result()
                 except (httpx.HTTPError, ValueError):
+                    academic_failed = True
+                if not articles:
+                    with suppress(httpx.HTTPError, ValueError):
+                        articles = _openalex(http, terms)
+                if academic_failed and not articles:
                     notices.append("Tra cứu bài báo đang gián đoạn.")
-                else:
-                    if not articles:
-                        notices.append("Chưa tìm thấy bài báo có tóm tắt cho truy vấn này.")
+                elif not articles:
+                    notices.append("Chưa tìm thấy bài báo có tóm tắt cho truy vấn này.")
             if illustrations:
                 with suppress(httpx.HTTPError, ValueError, TypeError, AttributeError):
                     images = illustrations.result()

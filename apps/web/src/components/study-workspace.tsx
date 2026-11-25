@@ -14,6 +14,7 @@ import type {
   StudyStreak,
 } from "@/core/types";
 import { Markdown } from "./markdown";
+import { resolveWebProvider, safeExternalUrl } from "@/core/web-source";
 import { pastedChatMath } from "./chat-math";
 import { StudyToolbar } from "./study-toolbar";
 import { StudyOverview } from "./study-overview";
@@ -810,17 +811,20 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
                       ]} />}
                   {message.role === "assistant"
                     ? <StreamingAnswer content={message.content} status={message.status}
+                        sources={message.status === "completed" ? message.message_sources : undefined}
+                        webSources={message.status === "completed" ? message.web_sources : undefined}
+                        onOpenSource={(item) => void openSource(item)}
                         onReveal={index === messages.length - 1 ? followStream : ignoreReveal} />
                     : <Markdown content={message.content} chatMath />}
                   {!message.content && message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
                   {message.status === "completed" && message.message_sources.length > 0 && (
                     <div className={styles.citations}>{message.message_sources.map((item) => (
-                      <Link key={item.id} href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
+                      <Link key={item.id} data-authority="curriculum" href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
                     ))}</div>
                   )}
                   {message.status === "completed" && Boolean(message.web_sources?.some(item => item.kind !== "image")) && (
                     <div className={styles.citations}>{message.web_sources?.filter(item => item.kind !== "image").map(item => (
-                      <a key={item.label} href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}{item.kind === "article" ? " · Bài báo" : ""}</a>
+                      (() => { const safeUrl = safeExternalUrl(item.url); const provider = resolveWebProvider(item); return safeUrl ? <a key={item.label} data-authority="web" href={safeUrl} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · {provider}</a> : <span key={item.label} data-authority="web">[{item.label}] {item.title} · {provider}</span>; })()
                     ))}</div>
                   )}
                   {message.status === "completed" && message.web_sources?.some(item => item.kind === "image") && (
@@ -914,8 +918,8 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
                   ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
                   : "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
-                    : chatMode === "research" ? "Tìm nguồn web và bài báo để tổng hợp chi tiết. Từ khóa từ câu hỏi sẽ được gửi đi."
-                      : chatMode === "search" ? "Tìm thông tin từ các trang web liên quan. Từ khóa từ câu hỏi sẽ được gửi đi."
+                    : chatMode === "research" ? "Ưu tiên học liệu trường, kết hợp nguồn web và bài báo miễn phí. Chỉ gửi từ khóa câu hỏi."
+                      : chatMode === "search" ? "Ưu tiên học liệu trường và tìm thêm từ các trang web liên quan. Chỉ gửi từ khóa câu hỏi."
                         : selected.length ? "Đang dùng tài liệu đã chọn." : chatSubject ? `Tự động tìm trong tài liệu chung môn ${subjects[chatSubject]}.` : "Tự động tìm trong tài liệu chung."}</span>
                 <span>{question.length}/2000</span>
               </div>
@@ -956,8 +960,8 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
                 {allSources.map((item) => <button key={item.id} aria-pressed={source?.id === item.id} onClick={() => void openSource(item)}>
                   <span>[{item.label}]</span><strong>{item.document_name}</strong><small>{location(item)}</small>
                 </button>)}
-                {allWebSources.map(item => <a className={styles.pdfLink} key={item.id} href={item.url}
-                  target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}{item.kind === "article" ? " · Bài báo" : ""}</a>)}
+                {allWebSources.map(item => { const safeUrl = safeExternalUrl(item.url); const provider = resolveWebProvider(item); return safeUrl ? <a className={styles.pdfLink} key={item.id} href={safeUrl}
+                  target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · {provider}</a> : null; })}
               </div>}
             </div>
           </aside>

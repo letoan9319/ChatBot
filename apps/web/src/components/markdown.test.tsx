@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { Source, WebSource } from "@/core/types";
 import { pastedChatMath } from "./chat-math";
 import { Markdown } from "./markdown";
 import { revealSegments } from "./streaming-answer";
+import { parseStudyCard } from "./study-card";
 import { readApproach } from "./thinking-progress";
 
 describe("untrusted chat content", () => {
@@ -157,5 +159,92 @@ describe("stream display and reasoning details", () => {
     expect(readApproach("**Cách tiếp cận**: Lấy đạo hàm riêng.\n\nVí dụ"))
       .toEqual("Lấy đạo hàm riêng.");
     expect(readApproach("Một đoạn giải thích không có tóm tắt.")).toBeNull();
+  });
+});
+
+describe("study cards and citation pills", () => {
+  it("renders steps, pipeline, and comparison study-card blocks with inline math", () => {
+    const content = [
+      "```study-card",
+      JSON.stringify({
+        kind: "steps",
+        steps: [
+          { title: "Bước 1 — Đặt biến", body: "Xét phương trình $2x + 5 = 17$" },
+          { title: "Bước 2 — Biến đổi", body: "Chuyển vế và rút gọn.", tone: "accent" },
+        ],
+        loop: "Kiểm tra lại điều kiện nghiệm",
+      }),
+      "```",
+      "",
+      "```study-card",
+      JSON.stringify({
+        kind: "pipeline",
+        nodes: [
+          { title: "Hàm số liên tục", subtitle: "Điều kiện cần trên đoạn $[a, b]$" },
+          { title: "Đạo hàm", subtitle: "Tồn tại tiếp tuyến tại mọi điểm trong $(a, b)$", tone: "accent" },
+        ],
+      }),
+      "```",
+      "",
+      "```study-card",
+      JSON.stringify({
+        kind: "comparison",
+        columns: [
+          { title: "Giáo trình trường", tone: "accent", items: [{ label: "Độ khớp", value: "90%" }] },
+          { title: "Nguồn bổ trợ", tone: "neutral", items: [{ label: "Độ khớp", value: 45, display: "45%" }] },
+        ],
+        caption: "Minh họa tỷ lệ tham chiếu.",
+      }),
+      "```",
+    ].join("\n");
+
+    const html = renderToStaticMarkup(<Markdown content={content} chatMath />);
+    expect(html).toContain("Bước 1 — Đặt biến");
+    expect(html).toContain("Kiểm tra lại điều kiện nghiệm");
+    expect(html).toContain("Hàm số liên tục");
+    expect(html).toContain("Giáo trình trường");
+    expect(html).toContain("width:90%");
+    expect(html).toContain("width:45%");
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain("&quot;kind&quot;");
+  });
+
+  it("shows a loading placeholder while streaming study-card and hides malformed completed cards", () => {
+    const incomplete = "```study-card\n{\"kind\":\"steps\",\"steps\":[{\"title\":\"Bước 1";
+    const streamingHtml = renderToStaticMarkup(<Markdown content={incomplete} streaming />);
+    expect(streamingHtml).toContain("Đang dựng sơ đồ minh họa");
+
+    const malformed = "```study-card\n{not valid json}\n```";
+    const completedHtml = renderToStaticMarkup(<Markdown content={malformed} streaming={false} />);
+    expect(completedHtml).not.toContain("not valid json");
+    expect(completedHtml).not.toContain("Đang dựng sơ đồ minh họa");
+    expect(parseStudyCard("{bad")).toBeNull();
+  });
+
+  it("renders inline curriculum and web citation pills safely while leaving math and code untouched", () => {
+    const sources: Source[] = [{
+      id: "src-1",
+      document_id: "doc-1",
+      label: "S1",
+      document_name: "Giao-trinh-Giai-tich-1.pdf",
+      page: 23,
+      section: null,
+      paragraph: 2,
+      chunk_id: "chk-1",
+    }];
+    const webSources: WebSource[] = [
+      { label: "S2", title: "Derivative", url: "https://en.wikipedia.org/?curid=1", provider: "Wikipedia", kind: "wikipedia" },
+      { label: "S3", title: "Bad link", url: "javascript:alert(1)", provider: "OpenAlex", kind: "article" },
+    ];
+    const content = "Theo giáo trình [S1] và bài viết [S2] cũng như [S3]. Công thức $[S1]$ và `[S1]`.";
+    const html = renderToStaticMarkup(
+      <Markdown content={content} chatMath sources={sources} webSources={webSources} onOpenSource={() => {}} />,
+    );
+    expect(html).toContain("Giao-trinh-Giai-tich-1 · Tr.23");
+    expect(html).toContain('href="https://en.wikipedia.org/?curid=1"');
+    expect(html).toContain("Wikipedia");
+    expect(html).toContain("OpenAlex");
+    expect(html).not.toMatch(/href=["']javascript:/i);
+    expect(html).toContain("<code>[S1]</code>");
   });
 });

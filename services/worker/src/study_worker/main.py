@@ -185,6 +185,19 @@ def fail(conn, job, message, permanent=False, retry_seconds=10):
             conn.execute("select pgmq.set_vt('study_jobs',%s,%s)", (job["queue_id"], retry_seconds))
 
 
+def merge_curriculum_and_web(candidates, web, mode):
+    """Keep university curriculum chunks ahead of external web supplements."""
+    image_items = [item for item in candidates if item.get("question_image")]
+    doc_items = [item for item in candidates if not item.get("question_image")]
+    if mode == "research":
+        return image_items + doc_items[:4] + web[:4] + doc_items[4:] + web[4:]
+    if mode == "search":
+        return image_items + doc_items[:3] + web[:2] + doc_items[3:] + web[2:]
+    if not doc_items and not image_items:
+        return web[:2]
+    return candidates
+
+
 class Pipeline:
     def __init__(self, settings, conn, models, vectors, heartbeat):
         self.settings, self.conn = settings, conn
@@ -442,7 +455,8 @@ class Pipeline:
         document_ids = payload["document_ids"]
         versions = payload["versions"]
         owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in document_ids}
-        if mode == "library":
+        using_shared_catalog = not document_ids and mode in ("library", "search", "research")
+        if using_shared_catalog:
             catalog = self.conn.execute(
                 """select d.id,d.user_id,d.index_version from public.knowledge_documents k
                 join public.documents d on d.id=k.document_id where d.status='ready'
@@ -492,7 +506,7 @@ class Pipeline:
                     point.get("user_id"),
                     versions.get(point.get("document_id")),
                     subject, subject,
-                    mode == "library",
+                    using_shared_catalog,
                     job["user_id"],
                 ),
             ).fetchone()
@@ -533,7 +547,13 @@ class Pipeline:
             )
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
-            candidates = candidates[:2] + web[:4] + candidates[2:] + web[4:]
+            candidates = merge_curriculum_and_web(candidates, web, mode)
+        elif not candidates and not image_versions:
+            terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
+            results, _ = search_web(terms, "search", self.settings.searxng_url)
+            web = [source for source in results if source["kind"] != "image"]
+            if web:
+                candidates = merge_curriculum_and_web(candidates, web, mode)
         guard(self.conn, job)
         self.chat_documents(job)
         reason = should_reason(query, mode, has_image=bool(image_versions))
@@ -614,17 +634,21 @@ class Pipeline:
             if prior_images and any(item.get("question_image") for item in selected):
                 if self.follow_up_images(job, anchor["id"]) != prior_images:
                     raise Cancelled()
-            if mode == "library" and selected:
-                source_ids = {str(item["document_id"]) for item in selected if not item.get("question_image")}
+            shared_source_ids = {
+                str(item["document_id"])
+                for item in selected
+                if item.get("document_id") and not item.get("question_image")
+            }
+            if using_shared_catalog and shared_source_ids:
                 current = self.conn.execute(
                     """select d.id,d.index_version from public.documents d
                     join public.knowledge_documents k on k.document_id=d.id
                     where d.id=any(%s::uuid[]) and d.status='ready'
                     order by d.id for share of d,k""",
-                    (sorted(source_ids),),
+                    (sorted(shared_source_ids),),
                 ).fetchall()
                 if {str(row["id"]): row["index_version"] for row in current} != {
-                    doc_id: versions[doc_id] for doc_id in source_ids
+                    doc_id: versions[doc_id] for doc_id in shared_source_ids
                 }:
                     raise Cancelled()
             self.conn.execute(
@@ -632,13 +656,19 @@ class Pipeline:
                 (answer, getattr(self.models, "last_generation_provider", self.settings.ai_provider) if generated else None,
                  job["message_id"]),
             )
-            if mode in ("search", "research"):
-                web_sources = [
-                    {**{key: item[key] for key in ("label", "title", "url")}, "kind": item.get("kind")}
-                    for item in used if "url" in item
-                ]
-                self.conn.execute("update public.messages set web_sources=%s where id=%s",
-                                  (Jsonb(web_sources + illustrations), job["message_id"]))
+            web_sources = [
+                {
+                    **{key: item[key] for key in ("label", "title", "url")},
+                    "kind": item.get("kind"),
+                    **({"provider": item["provider"]} if item.get("provider") else {}),
+                }
+                for item in used if "url" in item
+            ]
+            if web_sources or illustrations or mode in ("search", "research"):
+                self.conn.execute(
+                    "update public.messages set web_sources=%s where id=%s",
+                    (Jsonb(web_sources + illustrations), job["message_id"]),
+                )
             for item in used:
                 if "url" in item:
                     continue
