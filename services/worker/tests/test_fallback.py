@@ -187,7 +187,7 @@ def test_chat_only_preflight_does_not_probe_embedding_or_validate_reranker():
 
 
 def test_enabling_chat_fallback_keeps_bge_profile_and_collection(monkeypatch):
-    monkeypatch.setattr("study_worker.config.load_dotenv", lambda: None)
+    monkeypatch.setattr("study_worker.config.load_dotenv", lambda *_: None)
     for name in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "QDRANT_URL", "QDRANT_API_KEY"):
         monkeypatch.setenv(name, "placeholder")
     monkeypatch.setenv("AI_PROVIDER", "ollama")

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import math
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from uuid import UUID
 from .config import Settings
 from .main import connect
 from .models import create_models, VectorStore
-from .rag import NO_EVIDENCE, build_prompt, validate_citations
+from .rag import NO_EVIDENCE, build_prompt, review_missing_citations, validate_citations
 
 
 def percentile(values, probability):
@@ -84,7 +85,12 @@ def run(settings, owner, questions, output):
                     candidates.append(row)
             candidates = models.rerank(question["question"], candidates)
             prompt, chosen = build_prompt(question["question"], [], candidates, models.count)
-            answer, used = validate_citations("".join(models.generate(prompt)), chosen) if chosen else (NO_EVIDENCE, [])
+            answer, used = NO_EVIDENCE, []
+            if chosen:
+                draft = "".join(models.generate(prompt))
+                if draft.strip() and not re.search(r"\[S\d+\]", draft):
+                    draft = review_missing_citations(question["question"], draft, chosen, models, lambda: None)
+                answer, used = validate_citations(draft, chosen)
             location_fields = ("document_name", "page", "section", "paragraph")
             row = {
                 **question,
