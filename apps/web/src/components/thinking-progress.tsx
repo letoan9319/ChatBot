@@ -11,7 +11,7 @@ export function readApproach(content: string): string | null {
   return approach && approach.length <= 480 ? approach : null;
 }
 
-export function ThinkingProgress({ status, started, duration, thinking, content, provider, sources = [] }: {
+export function ThinkingProgress({ status, duration, thinking, content, sources = [] }: {
   status: string;
   started: boolean;
   duration?: number | null;
@@ -28,12 +28,17 @@ export function ThinkingProgress({ status, started, duration, thinking, content,
   const active = status === "generating" && !content && duration == null;
   const liveThinking = thinking?.trim() ?? "";
   const open = userOpen ?? (active && Boolean(liveThinking));
-  const activeLabel = started ? "Đang suy luận…" : "Đang chuẩn bị câu trả lời…";
+  const activeLabel = "Đang suy nghĩ…";
+  const seconds = duration == null ? null : Math.max(1, Math.round(duration / 1000));
   const recorded = duration == null ? "" : duration < 1000
-    ? "Đã suy luận dưới 1 giây" : "Đã suy luận trong " + Math.round(duration / 1000) + " giây";
-  const doneLabel = recorded || (started
-    ? status === "stopped" ? "Đã dừng suy luận" : "Suy luận bị gián đoạn"
-    : status === "generating" ? "Đang sinh câu trả lời…" : "Không ghi nhận suy luận riêng");
+    ? "Đã suy nghĩ dưới 1 giây" : "Đã suy nghĩ trong " + seconds + " giây";
+  const doneLabel = recorded || (status === "stopped"
+    ? "Đã dừng suy nghĩ"
+    : status === "generating"
+      ? "Đang sinh câu trả lời…"
+      : status === "failed" || status === "interrupted"
+        ? "Quá trình suy nghĩ bị gián đoạn"
+        : "Đã suy nghĩ dưới 1 giây");
   const approach = status === "completed" ? readApproach(content) : null;
   const approachSources = approach
     ? sources.filter(source => approach.includes("[" + source.label + "]"))
@@ -41,12 +46,11 @@ export function ThinkingProgress({ status, started, duration, thinking, content,
   const citedSources = approachSources.length ? approachSources
     : sources.filter(source => status === "completed" && content.includes("[" + source.label + "]"));
   const steps = !liveThinking ? [
-    started && "Worker đã nhận tín hiệu suy luận từ model.",
-    recorded && "Thời gian được đo từ tín hiệu suy luận đầu tiên đến khi model bắt đầu xuất câu trả lời hoặc kết thúc lượt sinh.",
-    !started && status === "completed" && (provider === "deploy" || provider === "openrouter"
-      ? "Lượt trả lời qua nhà cung cấp dự phòng chưa có dữ liệu tiến độ suy luận trong LearnStep."
-      : "LearnStep chỉ báo đã suy luận khi nhận được tín hiệu riêng từ model."),
-    !started && status === "generating" && "Worker đang chuẩn bị ngữ cảnh hoặc bắt đầu sinh câu trả lời.",
+    duration != null && (duration < 1000
+      ? "Đã phân tích câu hỏi và đối chiếu ngữ cảnh trong chưa đầy 1 giây."
+      : "Đã phân tích câu hỏi và đối chiếu ngữ cảnh trong " + seconds + " giây."),
+    duration == null && status === "generating" && "Đang phân tích câu hỏi và đối chiếu tài liệu liên quan.",
+    duration == null && status === "completed" && "Đã phân tích câu hỏi và đối chiếu ngữ cảnh trong chưa đầy 1 giây.",
   ] : [];
 
   useEffect(() => {
@@ -104,7 +108,7 @@ export function ThinkingProgress({ status, started, duration, thinking, content,
         <div className={styles.u453Inner}>
           <div className={styles.u453List}>
             {liveThinking && <div className={styles.thoughtStream}>
-              <strong className={styles.thoughtTitle}>{active ? "Luồng suy luận trực tiếp" : "Nội dung suy luận"}</strong>
+              <strong className={styles.thoughtTitle}>{active ? "Luồng suy nghĩ trực tiếp" : "Nội dung suy nghĩ"}</strong>
               <div ref={streamBox} className={styles.thoughtBody}>
                 <Markdown content={liveThinking} chatMath streaming={active} />
               </div>

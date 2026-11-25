@@ -46,6 +46,7 @@ before(async () => {
     "202611250002_pixel_packs.sql",
     "202611250003_chat_thinking_stream.sql",
     "202611250004_streak_on_question.sql",
+    "202611260001_always_record_thinking_ms.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -326,6 +327,9 @@ test("RAG enqueue snapshots exact owners for shared and personal documents and r
   assert.deepEqual(job.payload.versions, { [common.id]: 1, [personal.id]: 1 });
   assert.equal((await rpc(viewer, "app_send_message", [conversation, "Hỏi", [common.id, personal.id], key])).id, job.id);
   await db.query("update messages set content='Lời giải [S1]',status='completed' where id=$1", [job.message_id]);
+  const autoThinking = (await db.query("select thinking_started_at, thinking_ms from messages where id=$1", [job.message_id])).rows[0];
+  assert.notEqual(autoThinking.thinking_started_at, null);
+  assert.equal(typeof autoThinking.thinking_ms, "number");
   await db.query(`insert into message_sources(message_id,document_id,user_id,chunk_id,label,document_name)
     values($1,$2,$3,$4,'S1','Giáo trình.pdf')`, [job.message_id, common.id, viewer, common.chunk]);
   await db.query("update jobs set status='completed' where id=$1", [job.id]);

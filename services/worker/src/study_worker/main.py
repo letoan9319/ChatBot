@@ -138,7 +138,7 @@ def claim(conn, *, mineru_available=False):
             conn.execute("delete from public.message_sources where message_id=%s", (job["message_id"],))
             conn.execute(
                 """update public.messages set content='',status='generating',generation_provider=null,
-                   thinking_started_at=null,thinking_ms=null,thinking_content=null where id=%s and user_id=%s""",
+                   thinking_started_at=clock_timestamp(),thinking_ms=null,thinking_content=null where id=%s and user_id=%s""",
                 (job["message_id"], job["user_id"]),
             )
         job["queue_id"] = message["msg_id"]
@@ -382,8 +382,9 @@ class Pipeline:
             self.chat_documents(job, lock=True)
             self.conn.execute(
                 """update public.messages set content=%s,status='generating',
-                   thinking_started_at=case when %s then null else thinking_started_at end,
-                   thinking_ms=case when %s then null else thinking_ms end,
+                   thinking_started_at=case when %s then clock_timestamp() else coalesce(thinking_started_at, created_at, clock_timestamp()) end,
+                   thinking_ms=case when %s then null
+                     else coalesce(thinking_ms, greatest(0, round(extract(epoch from (clock_timestamp() - coalesce(thinking_started_at, created_at, clock_timestamp()))) * 1000))::integer) end,
                    thinking_content=case when %s then null else thinking_content end
                    where id=%s and user_id=%s""",
                 (content, not content, not content, not content, job["message_id"], job["user_id"]),

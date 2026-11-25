@@ -171,7 +171,7 @@ describe("stream display and reasoning details", () => {
       />,
     );
     expect(liveHtml).toContain('aria-expanded="true"');
-    expect(liveHtml).toContain("Luồng suy luận trực tiếp");
+    expect(liveHtml).toContain("Luồng suy nghĩ trực tiếp");
     expect(liveHtml).toContain('class="katex"');
 
     const doneHtml = renderToStaticMarkup(
@@ -184,8 +184,18 @@ describe("stream display and reasoning details", () => {
       />,
     );
     expect(doneHtml).toContain('aria-expanded="false"');
-    expect(doneHtml).toContain("Đã suy luận trong 2 giây");
-    expect(doneHtml).toContain("Nội dung suy luận");
+    expect(doneHtml).toContain("Đã suy nghĩ trong 2 giây");
+    expect(doneHtml).toContain("Nội dung suy nghĩ");
+
+    const fastHtml = renderToStaticMarkup(
+      <ThinkingProgress
+        status="completed"
+        started={false}
+        content="Trả lời nhanh"
+      />,
+    );
+    expect(fastHtml).toContain("Đã suy nghĩ dưới 1 giây");
+    expect(fastHtml).not.toContain("Không ghi nhận suy luận riêng");
   });
 });
 
