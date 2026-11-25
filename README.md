@@ -26,6 +26,25 @@ LearnStep là trợ giảng tiếng Việt cho Giải tích, Đại số tuyến
 
 Trình duyệt tải tệp trực tiếp lên Supabase Storage. Worker nhận việc từ hàng đợi Supabase. Vercel có thể đánh thức worker Render khi production không nhận được heartbeat. [Kiến trúc và API](docs/architecture.md) · [Bộ sơ đồ](docs/diagrams/README.md)
 
+## Khởi động nhanh toàn hệ thống
+
+Chạy từ thư mục gốc repo trong PowerShell:
+
+| Nhu cầu | Lệnh | Địa chỉ truy cập |
+| --- | --- | --- |
+| Bật worker cục bộ kết nối Production (Vercel + Supabase/Qdrant Cloud + Ollama) | `.\scripts\start-learnstep.ps1 -Mode Production -Checkout .\tmp\document-catalog-release` | [LearnStep production](https://learnstep-gamma.vercel.app/study) |
+| Bật toàn bộ hệ thống Local (Docker Supabase + Qdrant + Ollama + Worker + Web) | `.\scripts\start-learnstep.ps1 -Mode Local -Checkout .\tmp\document-catalog-release` | [LearnStep local](http://127.0.0.1:3000/study) |
+
+Nếu tiến trình worker cũ bị treo khiến web báo **AI tạm dừng**, tắt worker cũ rồi khởi động lại:
+
+```powershell
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -in @('uv.exe','learnstep-worker.exe','python.exe') -and $_.CommandLine -match 'study_worker|learnstep-worker' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
+.\scripts\start-learnstep.ps1 -Mode Production -Checkout .\tmp\document-catalog-release
+```
+
 ## 1. Chạy toàn bộ trên máy cá nhân
 
 Cài Docker Desktop, Ollama, Node.js 22 trở lên và uv. Từ gốc repo, chạy một lệnh trong PowerShell:
