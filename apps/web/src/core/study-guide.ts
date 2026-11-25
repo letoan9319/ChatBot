@@ -11,7 +11,7 @@ export const guideTopics = {
     art: "tutor",
     steps: [
       "Vào Học tập. Nhập câu hỏi hoặc dán ảnh đề bài vào ô chat, rồi chọn môn học nếu muốn thu hẹp phạm vi.",
-      "Chọn Theo tài liệu để tra kho chung hoặc các tài liệu bạn chọn qua nút cộng. Chọn Tìm kiếm để tra web hoặc Nghiên cứu để tìm thêm bài báo và đọc phần tổng hợp chi tiết.",
+      "Chọn Theo tài liệu để tra kho chung hoặc các tài liệu bạn chọn qua nút cộng. Chọn Tìm kiếm để kết hợp học liệu trường với nguồn tham khảo mở từ web và bài báo khoa học.",
       "Bấm Dừng khi muốn ngắt phản hồi. Chọn trích dẫn dưới câu trả lời hoặc mở Nguồn để xem đoạn trích, trang gốc hay liên kết tham khảo.",
     ],
     action: "Mở trợ giảng",

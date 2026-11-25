@@ -918,8 +918,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
                   ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
                   : "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
-                    : chatMode === "research" ? "Ưu tiên học liệu trường, kết hợp nguồn web và bài báo miễn phí. Chỉ gửi từ khóa câu hỏi."
-                      : chatMode === "search" ? "Ưu tiên học liệu trường và tìm thêm từ các trang web liên quan. Chỉ gửi từ khóa câu hỏi."
+                    : chatMode === "search" ? "Ưu tiên học liệu trường và tìm thêm từ Wikipedia, bài báo mở liên quan. Chỉ gửi từ khóa câu hỏi."
                         : selected.length ? "Đang dùng tài liệu đã chọn." : chatSubject ? `Tự động tìm trong tài liệu chung môn ${subjects[chatSubject]}.` : "Tự động tìm trong tài liệu chung."}</span>
                 <span>{question.length}/2000</span>
               </div>
