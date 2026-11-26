@@ -48,6 +48,7 @@ before(async () => {
     "202611250004_streak_on_question.sql",
     "202611260001_always_record_thinking_ms.sql",
     "202611260002_admin_rbac.sql",
+    "202611270001_learning_plans_delete.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -614,6 +615,11 @@ test("learning plans isolate owners and reject ownership changes", async () => {
     assert.equal((await db.query("select id from learning_plans where id=$1", [id])).rows.length, 0);
     assert.equal((await db.query("update learning_plans set revision=2 where id=$1 returning id", [id])).rows.length, 0);
     await assert.rejects(db.query("insert into learning_plans(id,user_id,mode,content) values($1,$2,'guided','{}')", [randomUUID(),owner]), /row-level security/);
+    assert.equal((await db.query("delete from learning_plans where id=$1 returning id", [id])).rows.length, 0);
+  });
+  await asUser(owner, async () => {
+    assert.equal((await db.query("delete from learning_plans where id=$1 returning id", [id])).rows.length, 1);
+    assert.equal((await db.query("select id from learning_plans where id=$1", [id])).rows.length, 0);
   });
 });
 

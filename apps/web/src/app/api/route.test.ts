@@ -477,4 +477,25 @@ describe("API authorization and asynchronous boundaries", () => {
     expect((await GET(request("admin/users?limit=500"))).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
+  it("deletes only the caller's own learning plan", async () => {
+    const filters: [string, string][] = [];
+    let found: { id: string } | null = { id };
+    const query = {
+      eq: (column: string, value: string) => { filters.push([column, value]); return query; },
+      select: () => query,
+      maybeSingle: async () => ({ data: found, error: null }),
+    };
+    mocks.from.mockReturnValue({ delete: () => query });
+    const remove = (path: string) => DELETE(new NextRequest(`http://localhost:3000/api/${path}`, {
+      method: "DELETE", headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+    }));
+    const response = await remove(`learning-plans/${id}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ deleted: true });
+    expect(mocks.from).toHaveBeenCalledWith("learning_plans");
+    expect(filters).toEqual([["id", id], ["user_id", "authenticated-owner"]]);
+    found = null;
+    expect((await remove(`learning-plans/${id}`)).status).toBe(404);
+    expect((await remove("learning-plans/not-a-uuid")).status).toBe(400);
+  });
 });

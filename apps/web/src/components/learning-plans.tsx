@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { completedLessons, lessons, recordAttempt, type LearningPlan, type PlanInput } from "@/core/learning-plan";
+import {
+  completedLessons, contentFromTemplate, emptyPlanContent, lessons, localDate, paceOptions, planProgress,
+  planTemplates, recordAttempt, reviewStatus, sortByReview, type LearningPlan, type PlanInput, type PlanTemplate,
+} from "@/core/learning-plan";
 import { subjects, uuid } from "@/core/validation";
 import { MAX_JSON_BYTES } from "@/core/request-security";
 import "@fontsource-variable/inter";
 import styles from "./learning-plans.module.css";
 
 type Content = PlanInput["content"];
-const empty: Content = { subject: "calculus", topic: "", goal: "", baseline: "", schedule: "", documents: [],
-  notes: [], summary: "", cards: [], attempts: [], review: "", assessment: "" };
+const wizardSteps = ["Môn và chủ đề", "Mục tiêu và nhịp học", "Tài liệu nguồn"] as const;
 
 export function LearningPlans({ documents, onAsk }: {
   documents: { id: string; name: string; status: string }[];
@@ -18,6 +20,7 @@ export function LearningPlans({ documents, onAsk }: {
   const [plans, setPlans] = useState<LearningPlan[]>([]);
   const [mode, setMode] = useState<PlanInput["mode"]>("guided");
   const [draft, setDraft] = useState<PlanInput | null>(null);
+  const [step, setStep] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
@@ -29,7 +32,8 @@ export function LearningPlans({ documents, onAsk }: {
   const [front, setFront] = useState("");
   const [back, setBack] = useState("");
   const [lessonIndex, setLessonIndex] = useState(0);
-  const savedContent = draft && (plans.find(plan => plan.id === draft.id)?.content ?? empty);
+  const today = localDate();
+  const savedContent = draft && (plans.find(plan => plan.id === draft.id)?.content ?? emptyPlanContent);
   const dirty = Boolean(draft && (JSON.stringify(draft.content) !== JSON.stringify(savedContent) || note || source || front || back));
   const payload = draft ? JSON.stringify(draft) : "";
   const payloadBytes = new TextEncoder().encode(payload).byteLength;
@@ -53,10 +57,9 @@ export function LearningPlans({ documents, onAsk }: {
     return () => controller.abort();
   }, [reload]);
 
-  function select(plan: PlanInput | null) {
-    if (plan && plan.id === draft?.id) return false;
-    if (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Bỏ các thay đổi này?")) return false;
+  function open(plan: PlanInput | null, wizardStep: number | null = null) {
     setDraft(plan);
+    setStep(wizardStep);
     setLessonIndex(plan ? Math.min(completedLessons(plan.content), 2) : 0);
     setNote("");
     setSource("");
@@ -64,6 +67,12 @@ export function LearningPlans({ documents, onAsk }: {
     setFront("");
     setBack("");
     setMessage("");
+  }
+
+  function select(plan: PlanInput | null, wizardStep: number | null = null) {
+    if (plan && plan.id === draft?.id) return false;
+    if (dirty && !window.confirm("Bạn có thay đổi chưa lưu. Bỏ các thay đổi này?")) return false;
+    open(plan, wizardStep);
     return true;
   }
 
@@ -83,7 +92,27 @@ export function LearningPlans({ documents, onAsk }: {
       if (!response.ok) throw new Error(result.error || "Không lưu được kế hoạch.");
       setDraft(result);
       setPlans(previous => [result, ...previous.filter(plan => plan.id !== result.id)]);
-      setMessage("Đã lưu kế hoạch.");
+      setMessage(step === null ? "Đã lưu kế hoạch." : "Đã tạo kế hoạch. Bắt đầu học thôi.");
+      setStep(null);
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally { setBusy(false); }
+  }
+
+  async function remove() {
+    if (!draft || busy || draft.revision === null) return;
+    if (!window.confirm(`Xóa kế hoạch "${draft.content.topic}"? Ghi chú, thẻ và lịch sử kiểm tra sẽ mất.`)) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/learning-plans/" + draft.id, { method: "DELETE", headers: { "Content-Type": "application/json" } });
+      if (!response.ok && response.status !== 404) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || "Không xóa được kế hoạch.");
+      }
+      const id = draft.id;
+      setPlans(previous => previous.filter(plan => plan.id !== id));
+      open(null);
+      setMessage("Đã xóa kế hoạch.");
     } catch (error) {
       setMessage((error as Error).message);
     } finally { setBusy(false); }
@@ -113,11 +142,48 @@ export function LearningPlans({ documents, onAsk }: {
     if (value !== mode && select(null)) setMode(value);
   };
 
-  const visiblePlans = plans.filter(plan => plan.mode === mode);
+  const visiblePlans = sortByReview(plans.filter(plan => plan.mode === mode), today);
   const readySources = documents.filter(item => item.status === "ready");
   const visibleSources = readySources.filter(item => item.name.toLocaleLowerCase("vi-VN")
     .includes(sourceQuery.trim().toLocaleLowerCase("vi-VN")));
-  const createPlan = () => select({ id: crypto.randomUUID(), mode, revision: null, content: empty });
+  const createPlan = (template: PlanTemplate | null = null) =>
+    select({ id: crypto.randomUUID(), mode, revision: null, content: contentFromTemplate(template, mode, today) }, 0);
+  const stepValid = content ? [content.topic.trim() !== "", content.goal.trim() !== "", true] : [];
+
+  const sourcePicker = content && <>
+    <label>Tìm tài liệu <input type="search" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)} /></label>
+    <p className={styles.meta}>Đã chọn {content.documents.length}/5 tài liệu</p>
+    <div className={styles.sources}>
+      {visibleSources.map(item => <label className={styles.check} key={item.id}>
+        <input type="checkbox" checked={content.documents.includes(item.id)}
+          disabled={!content.documents.includes(item.id) && content.documents.length >= 5}
+          onChange={event => edit("documents", event.target.checked ? [...content.documents, item.id] : content.documents.filter(id => id !== item.id))} />
+        <a href={"/study/documents/" + item.id} target="_blank" rel="noreferrer">{item.name}</a></label>)}
+      {visibleSources.length === 0 && <p>{readySources.length ? "Không tìm thấy tài liệu phù hợp." : "Chưa có tài liệu sẵn sàng."}</p>}
+    </div>
+  </>;
+
+  const scheduleFields = content && <>
+    <label>Mục tiêu <textarea required maxLength={400} value={content.goal} onChange={event => edit("goal", event.target.value)} /></label>
+    {mode === "guided" && <label>Kiến thức ban đầu <textarea maxLength={300} value={content.baseline}
+      onChange={event => edit("baseline", event.target.value)} /></label>}
+    <label>Nhịp học hoặc thời gian dự kiến <input maxLength={300} value={content.schedule}
+      onChange={event => edit("schedule", event.target.value)} /></label>
+    <div className={styles.chips} role="group" aria-label="Chọn nhanh nhịp học">
+      {paceOptions.map(pace => <button type="button" key={pace} aria-pressed={content.schedule === pace}
+        onClick={() => edit("schedule", pace)}>{pace}</button>)}
+    </div>
+    <label>Ngày ôn lại <input type="date" min={draft?.revision === null ? today : undefined} value={content.review}
+      onChange={event => edit("review", event.target.value)} /></label>
+  </>;
+
+  const subjectFields = content && <>
+    <label>Môn học <select value={content.subject} disabled={content.attempts.length > 0}
+      onChange={event => { edit("subject", event.target.value as Content["subject"]); setLessonIndex(0); }}>
+      {Object.entries(subjects).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
+    </select></label>
+    <label>Chủ đề <input required maxLength={120} value={content.topic} onChange={event => edit("topic", event.target.value)} /></label>
+  </>;
 
   return <section className={styles.plans} aria-label="Kế hoạch học tập">
     <nav className={styles.modes} aria-label="Phương thức học">
@@ -135,46 +201,66 @@ export function LearningPlans({ documents, onAsk }: {
     {ready && <div className={styles.workspace}>
       <section className={styles.saved} aria-labelledby="saved-plans-heading">
         <h2 id="saved-plans-heading">Kế hoạch của bạn</h2>
-        <button className={styles.primary} disabled={busy} onClick={createPlan}>Tạo kế hoạch</button>
-        {visiblePlans.length > 0 && <ul>{visiblePlans.map(plan =>
-          <li key={plan.id}><button disabled={busy} aria-current={draft?.id === plan.id ? "true" : undefined} onClick={() => select(plan)}>
+        <button className={styles.primary} disabled={busy} onClick={() => createPlan()}>Tạo kế hoạch</button>
+        {visiblePlans.length > 0 && <ul>{visiblePlans.map(plan => {
+          const status = reviewStatus(plan.content.review, today);
+          const planned = planProgress(plan.mode, plan.content);
+          return <li key={plan.id}><button className={styles.card} disabled={busy}
+            aria-current={draft?.id === plan.id ? "true" : undefined} onClick={() => select(plan)}>
             <strong>{plan.content.topic}</strong>
-            <span>{subjects[plan.content.subject]}{mode === "guided" && ` · ${completedLessons(plan.content)}/3 bài`}</span>
-          </button></li>)}</ul>}
+            <span>{subjects[plan.content.subject]} · {planned.label}</span>
+            <progress value={planned.done} max={planned.total} aria-label={`Tiến độ ${planned.label}`} />
+            <span className={styles.review} data-tone={status.tone}>{status.label}</span>
+          </button></li>;
+        })}</ul>}
       </section>
       <div className={styles.detail}>
     {message && <p className={styles.message} role="status">{message}</p>}
     {!draft && <section className={styles.state}>
       <h2>{visiblePlans.length ? "Chọn kế hoạch để tiếp tục" : "Bắt đầu kế hoạch đầu tiên"}</h2>
-      <p>{visiblePlans.length ? "Mở một kế hoạch đã lưu để xem mục tiêu, tài liệu và tiến độ." : "Chọn môn học, đặt mục tiêu và xác định khi nào bạn muốn ôn lại."}</p>
+      <p>{visiblePlans.length ? "Mở một kế hoạch đã lưu để xem mục tiêu, tài liệu và tiến độ, hoặc bắt đầu nhanh từ mẫu." : "Chọn một mẫu để điền sẵn mục tiêu và nhịp học, hoặc tự tạo từ đầu."}</p>
+      <h3 className={styles.subheading}>Bắt đầu nhanh</h3>
+      <div className={styles.templates}>
+        {planTemplates.map(template => <button type="button" key={template.id} disabled={busy} onClick={() => createPlan(template)}>
+          <strong>{template.title}</strong><span>{template.description}</span><span className={styles.meta}>{template.schedule}</span>
+        </button>)}
+      </div>
     </section>}
-    {draft && content && lesson && <form onSubmit={save}>
+    {draft && content && step !== null && <form className={styles.wizard} onSubmit={event => {
+      if (step < wizardSteps.length - 1) { event.preventDefault(); if (stepValid[step]) setStep(step + 1); return; }
+      void save(event);
+    }}>
+      <ol className={styles.steps} aria-label="Các bước tạo kế hoạch">
+        {wizardSteps.map((label, index) => <li key={label} aria-current={index === step ? "step" : undefined}
+          data-done={index < step ? "true" : undefined}><span>{index + 1}</span>{label}</li>)}
+      </ol>
+      <fieldset disabled={busy}>
+        <legend>{wizardSteps[step]}</legend>
+        {step === 0 && subjectFields}
+        {step === 1 && scheduleFields}
+        {step === 2 && <>
+          <p className={styles.meta}>Chọn tối đa 5 tài liệu để trợ giảng trả lời theo đúng nội dung. Có thể bỏ qua và thêm sau.</p>
+          {sourcePicker}
+        </>}
+      </fieldset>
+      {payloadBytes > MAX_JSON_BYTES && <p role="alert">Kế hoạch vượt giới hạn lưu. Hãy rút ngắn nội dung.</p>}
+      <div className={styles.actions}>
+        <button type="button" disabled={busy} onClick={() => select(null)}>Hủy</button>
+        {step > 0 && <button type="button" disabled={busy} onClick={() => setStep(step - 1)}>Quay lại</button>}
+        <button className={styles.primary} type="submit" disabled={busy || !stepValid[step] || payloadBytes > MAX_JSON_BYTES}>
+          {step < wizardSteps.length - 1 ? "Tiếp tục" : busy ? "Đang tạo…" : "Tạo kế hoạch"}
+        </button>
+      </div>
+    </form>}
+    {draft && content && lesson && step === null && <form onSubmit={save}>
       <fieldset disabled={busy}>
         <legend>Mục tiêu và lịch học</legend>
-        <label>Môn học <select value={content.subject} disabled={content.attempts.length > 0}
-          onChange={event => { edit("subject", event.target.value as Content["subject"]); setLessonIndex(0); }}>
-          {Object.entries(subjects).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
-        </select></label>
-        <label>Chủ đề <input required maxLength={120} value={content.topic} onChange={event => edit("topic", event.target.value)} /></label>
-        <label>Mục tiêu <textarea required maxLength={400} value={content.goal} onChange={event => edit("goal", event.target.value)} /></label>
-        {mode === "guided" && <label>Kiến thức ban đầu <textarea maxLength={300} value={content.baseline}
-          onChange={event => edit("baseline", event.target.value)} /></label>}
-        <label>Nhịp học hoặc thời gian dự kiến <input maxLength={300} value={content.schedule}
-          onChange={event => edit("schedule", event.target.value)} /></label>
-        <label>Ngày ôn lại <input type="date" value={content.review} onChange={event => edit("review", event.target.value)} /></label>
+        {subjectFields}
+        {scheduleFields}
       </fieldset>
       <fieldset disabled={busy}>
         <legend>Tài liệu nguồn</legend>
-        <label>Tìm tài liệu <input type="search" value={sourceQuery} onChange={event => setSourceQuery(event.target.value)} /></label>
-        <p className={styles.meta}>Đã chọn {content.documents.length}/5 tài liệu</p>
-        <div className={styles.sources}>
-        {visibleSources.map(item => <label className={styles.check} key={item.id}>
-          <input type="checkbox" checked={content.documents.includes(item.id)}
-            disabled={!content.documents.includes(item.id) && content.documents.length >= 5}
-            onChange={event => edit("documents", event.target.checked ? [...content.documents, item.id] : content.documents.filter(id => id !== item.id))} />
-          <a href={"/study/documents/" + item.id} target="_blank" rel="noreferrer">{item.name}</a></label>)}
-        {visibleSources.length === 0 && <p>{readySources.length ? "Không tìm thấy tài liệu phù hợp." : "Chưa có tài liệu sẵn sàng."}</p>}
-        </div>
+        {sourcePicker}
         <button type="button" disabled={!documents.some(item => item.status === "ready" && content.documents.includes(item.id))}
           onClick={() => onAsk(content.documents, mode === "guided" ? lesson.title : content.topic)}>Hỏi trợ giảng theo nội dung này</button>
       </fieldset>
@@ -214,7 +300,10 @@ export function LearningPlans({ documents, onAsk }: {
           onChange={event => edit("assessment", event.target.value)} /></label>
       </fieldset>
       {payloadBytes > MAX_JSON_BYTES && <p role="alert">Kế hoạch vượt giới hạn lưu. Hãy rút ngắn ghi chú, tóm tắt hoặc thẻ ghi nhớ.</p>}
-      <button className={styles.primary} disabled={busy || payloadBytes > MAX_JSON_BYTES} type="submit">{busy ? "Đang lưu…" : "Lưu kế hoạch"}</button>
+      <div className={styles.actions}>
+        <button className={styles.primary} disabled={busy || payloadBytes > MAX_JSON_BYTES} type="submit">{busy ? "Đang lưu…" : "Lưu kế hoạch"}</button>
+        {draft.revision !== null && <button type="button" className={styles.danger} disabled={busy} onClick={remove}>Xóa kế hoạch</button>}
+      </div>
     </form>}
       </div>
     </div>}

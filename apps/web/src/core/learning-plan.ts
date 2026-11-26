@@ -59,3 +59,111 @@ export function recordAttempt(content: PlanInput["content"], lesson: number, ans
   }
   return retained;
 }
+
+type Content = PlanInput["content"];
+
+export const emptyPlanContent: Content = { subject: "calculus", topic: "", goal: "", baseline: "", schedule: "",
+  documents: [], notes: [], summary: "", cards: [], attempts: [], review: "", assessment: "" };
+
+export function planProgress(mode: PlanInput["mode"], content: Content) {
+  if (mode === "guided") {
+    const done = completedLessons(content);
+    const total = lessons[content.subject].length;
+    return { done, total, label: `${done}/${total} bài` };
+  }
+  const steps = [content.documents.length > 0, content.notes.length > 0, content.summary.trim() !== "",
+    content.cards.length > 0, content.assessment.trim() !== ""];
+  const done = steps.filter(Boolean).length;
+  return { done, total: steps.length, label: `${done}/${steps.length} bước tự học` };
+}
+
+export function localDate(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function addDays(day: string, days: number) {
+  const [year, month, date] = day.split("-").map(Number);
+  return localDate(new Date(year, month - 1, date + days));
+}
+
+export type ReviewTone = "none" | "overdue" | "today" | "upcoming";
+
+export function reviewStatus(review: string, today: string): { tone: ReviewTone; label: string } {
+  if (!review) return { tone: "none", label: "Chưa đặt ngày ôn" };
+  const [year, month, date] = review.split("-");
+  const shown = `${date}/${month}/${year}`;
+  if (review < today) return { tone: "overdue", label: `Quá hạn ôn từ ${shown}` };
+  if (review === today) return { tone: "today", label: "Ôn hôm nay" };
+  return { tone: "upcoming", label: `Ôn ngày ${shown}` };
+}
+
+const urgency: Record<ReviewTone, number> = { overdue: 0, today: 1, upcoming: 2, none: 2 };
+
+export function sortByReview<T extends { content: Pick<Content, "review"> }>(plans: T[], today: string) {
+  return plans.map((plan, index) => ({ plan, index, rank: urgency[reviewStatus(plan.content.review, today).tone] }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index).map(item => item.plan);
+}
+
+export const paceOptions = [
+  "Mỗi ngày 20 phút",
+  "2 buổi/tuần, mỗi buổi 30 phút",
+  "3 buổi/tuần, mỗi buổi 45 phút",
+  "Cuối tuần, mỗi buổi 60 phút",
+] as const;
+
+export type PlanTemplate = {
+  id: string;
+  title: string;
+  description: string;
+  topic: string;
+  goal: string;
+  baseline: string;
+  schedule: string;
+  reviewInDays: number;
+};
+
+export const planTemplates: PlanTemplate[] = [
+  {
+    id: "midterm",
+    title: "Ôn thi giữa kỳ",
+    description: "Hệ thống lại các dạng bài chính và luyện tốc độ làm bài.",
+    topic: "Ôn thi giữa kỳ",
+    goal: "Nắm chắc các dạng bài chính và làm được đề giữa kỳ trong thời gian quy định.",
+    baseline: "Đã học trên lớp nhưng chưa luyện đề.",
+    schedule: paceOptions[2],
+    reviewInDays: 7,
+  },
+  {
+    id: "foundation",
+    title: "Học lại từ đầu",
+    description: "Đi chậm từ khái niệm nền tảng, mỗi ngày một ít.",
+    topic: "Kiến thức nền tảng",
+    goal: "Hiểu các khái niệm nền tảng và tự giải được bài tập cơ bản.",
+    baseline: "Chưa vững kiến thức nền.",
+    schedule: paceOptions[0],
+    reviewInDays: 3,
+  },
+  {
+    id: "weak-spots",
+    title: "Củng cố phần còn yếu",
+    description: "Tập trung vào những dạng bài hay làm sai.",
+    topic: "Củng cố phần còn yếu",
+    goal: "Xác định và khắc phục các phần còn sai khi làm bài vận dụng.",
+    baseline: "Làm được bài cơ bản, hay sai ở bài vận dụng.",
+    schedule: paceOptions[1],
+    reviewInDays: 5,
+  },
+];
+
+export function contentFromTemplate(template: PlanTemplate | null, mode: PlanInput["mode"], today: string): Content {
+  if (!template) return { ...emptyPlanContent };
+  return {
+    ...emptyPlanContent,
+    topic: template.topic,
+    goal: template.goal,
+    baseline: mode === "guided" ? template.baseline : "",
+    schedule: template.schedule,
+    review: addDays(today, template.reviewInDays),
+  };
+}

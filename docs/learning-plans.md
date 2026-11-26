@@ -13,6 +13,6 @@
 | 9. Học theo tiến trình | Có kế hoạch riêng theo tài khoản, tự khai kiến thức ban đầu và nhịp học. Mỗi môn có ba bài mẫu theo thứ tự. Trả lời đúng mở bài tiếp theo. Có lịch sử kiểm tra và ghi phần cần củng cố. |
 | 10. Tự học | Có kế hoạch theo chủ đề, mục tiêu, nguồn và lịch. Người học tự viết ghi chú, tóm tắt và thẻ, làm câu hỏi mẫu theo môn và ghi tự đánh giá. Trợ giảng dùng tài liệu đã chọn. |
 
-Mở **Kế hoạch** trong góc học tập, chọn phương thức, tạo kế hoạch và bấm **Lưu kế hoạch** để đồng bộ. Có thể dán liên kết chi tiết hoặc đoạn nguồn từ trích dẫn vào ghi chú. Ngày ôn lưu trong kế hoạch. Nội dung ba bài của mỗi môn và câu hỏi là bộ mẫu cố định. Nhắc lịch tự động và tạo đề theo chủ đề tùy ý là phần mở rộng.
+Mở **Kế hoạch** trong góc học tập, chọn phương thức rồi bấm **Tạo kế hoạch** (hoặc chọn một mẫu bắt đầu nhanh). Trình tạo gồm ba bước: môn và chủ đề, mục tiêu và nhịp học, tài liệu nguồn. Sau khi tạo, chỉnh tiếp và bấm **Lưu kế hoạch** để đồng bộ. Danh sách hiện tiến độ và ngày ôn; kế hoạch quá hạn hoặc đến hạn ôn hôm nay được đưa lên đầu. Có thể xóa kế hoạch đã lưu. Có thể dán liên kết chi tiết hoặc đoạn nguồn từ trích dẫn vào ghi chú. Ngày ôn lưu trong kế hoạch. Nội dung ba bài của mỗi môn và câu hỏi là bộ mẫu cố định. Nhắc lịch tự động và tạo đề theo chủ đề tùy ý là phần mở rộng.
 
-Cần áp dụng migration `202611120001_learning_plans.sql` vào đúng Supabase project trước khi dùng. RLS giới hạn đọc và ghi theo tài khoản. Revision giúp phát hiện hai tab ghi đè cùng một kế hoạch.
+Cần áp dụng migration `202611120001_learning_plans.sql` và `202611270001_learning_plans_delete.sql` vào đúng Supabase project trước khi dùng. RLS giới hạn đọc, ghi và xóa theo tài khoản. Revision giúp phát hiện hai tab ghi đè cùng một kế hoạch.

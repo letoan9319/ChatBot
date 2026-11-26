@@ -231,6 +231,13 @@ async function handle(request: NextRequest) {
         return json(result.data, revision === null ? 201 : 200);
       }
     }
+    if (resource === "learning-plans" && parts.length === 2 && method === "DELETE") {
+      const { data, error } = await db.from("learning_plans").delete()
+        .eq("id", uuid.parse(rawId)).eq("user_id", user.id).select("id").maybeSingle();
+      check(error);
+      if (!data) throw new ApiError(404, "Không tìm thấy kế hoạch.");
+      return json({ deleted: true });
+    }
     if (resource === "notifications") {
       if (method === "GET" && parts.length === 1) {
         const { data, error } = await db.from("notifications")
