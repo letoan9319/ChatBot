@@ -15,6 +15,14 @@ const messages: Record<string, string> = {
   email_address_invalid: "Địa chỉ email không được chấp nhận. Vui lòng dùng địa chỉ email thật.",
   weak_password: "Mật khẩu chưa đạt yêu cầu. Hãy dùng mật khẩu dài hơn và khó đoán hơn.",
   same_password: "Mật khẩu mới cần khác mật khẩu hiện tại.",
+  otp_expired:
+    "Liên kết xác thực không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.",
+  flow_state_not_found:
+    "Liên kết xác thực không hợp lệ hoặc được mở ở trình duyệt khác. Vui lòng yêu cầu liên kết mới trên trình duyệt này.",
+  flow_state_expired:
+    "Liên kết xác thực đã hết hạn. Vui lòng yêu cầu liên kết mới.",
+  bad_code_verifier:
+    "Liên kết xác thực cần được mở trên cùng trình duyệt đã gửi yêu cầu. Vui lòng thử lại.",
   captcha_failed: "Không thể xác minh yêu cầu đăng ký. Vui lòng thử lại sau.",
   unexpected_failure: "Máy chủ chưa thể hoàn tất yêu cầu tài khoản. Vui lòng thử lại sau.",
 };
@@ -23,6 +31,9 @@ export function authErrorMessage(error: unknown): string {
   if (error && typeof error === "object") {
     if ("code" in error && typeof error.code === "string" && Object.hasOwn(messages, error.code)) {
       return messages[error.code];
+    }
+    if ("name" in error && error.name === "AuthSessionMissingError") {
+      return "Phiên đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.";
     }
     if ("name" in error && error.name === "AuthRetryableFetchError") {
       return "Không thể kết nối dịch vụ tài khoản. Vui lòng kiểm tra mạng và thử lại.";

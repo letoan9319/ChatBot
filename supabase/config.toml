@@ -14,7 +14,7 @@ major_version = 17
 enabled = true
 minimum_password_length = 8
 site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/auth/callback", "http://localhost:3000/auth/confirm"]
+additional_redirect_urls = ["http://localhost:3000/auth/callback", "http://localhost:3000/auth/confirm", "http://127.0.0.1:3000/auth/callback", "http://127.0.0.1:3000/auth/confirm"]
 
 [auth.email]
 enable_signup = true

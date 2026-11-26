@@ -1,7 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { rootAuthRedirectPath } from "@/core/auth-flow";
 
 export async function proxy(request: NextRequest) {
+  const authRedirect = rootAuthRedirectPath(request.nextUrl);
+  if (authRedirect) {
+    return NextResponse.redirect(new URL(authRedirect, request.url));
+  }
   let response = NextResponse.next({ request });
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||

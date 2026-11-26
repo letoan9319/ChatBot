@@ -2,20 +2,30 @@
 
 import { useState } from "react";
 
-export function PasswordField({ value, onChange, reset = false, disabled = false, label = "Mật khẩu" }: {
+export function PasswordField({
+  id = "account-password",
+  value,
+  onChange,
+  reset = false,
+  disabled = false,
+  label = "Mật khẩu",
+  placeholder = "Ít nhất 8 ký tự",
+}: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   reset?: boolean;
   disabled?: boolean;
   label?: string;
+  placeholder?: string;
 }) {
   const [visible, setVisible] = useState(false);
   return (
     <div className="password-field">
-      <label htmlFor="account-password">{label}</label>
+      <label htmlFor={id}>{label}</label>
       <div className="password-control">
         <input
-          id="account-password"
+          id={id}
           type={visible ? "text" : "password"}
           required
           minLength={8}
@@ -23,15 +33,15 @@ export function PasswordField({ value, onChange, reset = false, disabled = false
           autoComplete={reset ? "new-password" : "current-password"}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="Ít nhất 8 ký tự"
+          placeholder={placeholder}
           disabled={disabled}
         />
         <button
           type="button"
           className="password-toggle"
-          aria-label="Hiện mật khẩu"
+          aria-label={`${visible ? "Ẩn" : "Hiện"} ${label.toLowerCase()}`}
           aria-pressed={visible}
-          aria-controls="account-password"
+          aria-controls={id}
           onClick={() => setVisible((previous) => !previous)}
           disabled={disabled}
         >
