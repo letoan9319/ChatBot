@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { StudyStreak } from "@/core/types";
+import type { UserPermissions } from "@/core/roles";
 import type { AvatarId } from "@/core/pixel-packs";
 import { PixelAvatar } from "./pixel-avatar";
 import { ThemeToggle } from "./theme-provider";
@@ -13,10 +14,10 @@ import styles from "./study-workspace.module.css";
 
 type Panel = "streak" | "status" | "account";
 
-export function StudyToolbar({ username, avatar, canManageKnowledge, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings, onOpenGuide }: {
+export function StudyToolbar({ username, avatar, permissions, online, loading, provider, streak, streakError, title, subtitle, showStreak = true, onSignOut, onOpenConversation, onOpenGroup, onOpenSettings, onOpenGuide }: {
   username: string;
   avatar: AvatarId | null;
-  canManageKnowledge: boolean;
+  permissions: UserPermissions;
   online: boolean;
   loading: boolean;
   provider: string | null;
@@ -108,15 +109,36 @@ export function StudyToolbar({ username, avatar, canManageKnowledge, online, loa
           Chỉ dùng tài liệu thử nghiệm không chứa thông tin nhạy cảm.</p>}
       </section>
       <section id="toolbar-account-panel" className={`${styles.popover} ${styles.actionPanel} ${styles.accountPanel}`} hidden={panel !== "account"} aria-label="Tài khoản">
-        <strong className={styles.menuIdentity}>{username}</strong>
+        <div className={styles.menuIdentityRow}>
+          <strong className={styles.menuIdentity}>{username}</strong>
+          <span
+            className={styles.roleBadge}
+            data-role={permissions.isAdmin ? "admin" : permissions.canManageKnowledge ? "content_manager" : "user"}
+          >
+            {permissions.roleLabel}
+          </span>
+        </div>
         <button type="button" className={styles.menuAction} onClick={() => {
           setPanel(null);
           onOpenSettings();
           document.getElementById("toolbar-account")?.focus();
         }}><SidebarIcon name="settings" /> Hồ sơ và cài đặt</button>
-        {canManageKnowledge && <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
-          <SidebarIcon name="documents" /> Quản lý tài liệu chung
-        </Link>}
+        {(permissions.isAdmin || permissions.canManageKnowledge) && (
+          <>
+            <hr className={styles.menuDivider} />
+            <span className={styles.menuSectionLabel}>Quản trị</span>
+            {permissions.isAdmin && (
+              <Link className={styles.menuAction} href="/admin" prefetch={false}>
+                Bảng điều khiển quản trị
+              </Link>
+            )}
+            {permissions.canManageKnowledge && (
+              <Link className={styles.menuAction} href="/admin/knowledge" prefetch={false}>
+                Quản lý tài liệu chung
+              </Link>
+            )}
+          </>
+        )}
         <hr className={styles.menuDivider} />
         <button type="button" className={styles.menuAction} disabled={signingOut} onClick={async () => {
           setSigningOut(true);

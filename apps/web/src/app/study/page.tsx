@@ -7,6 +7,7 @@ import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-provider";
 import { uuid } from "@/core/validation";
 import { shouldShowWelcomeGuide } from "@/core/study-guide";
+import { extractRoleNames, resolveUserPermissions } from "@/core/roles";
 import type { AvatarId } from "@/core/pixel-packs";
 
 export const viewport: Viewport = { interactiveWidget: "resizes-content" };
@@ -42,18 +43,21 @@ export default async function StudyPage({ searchParams }: {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/auth");
-  const [profileResult, { data: contentRole }] = await Promise.all([
+  const [profileResult, rolesResult] = await Promise.all([
     db.from("profiles").select("username,avatar_id").eq("id", user.id).maybeSingle(),
-    db.from("user_roles").select("role").eq("user_id", user.id).eq("role", "content_manager").maybeSingle(),
+    db.from("user_roles").select("role").eq("user_id", user.id),
   ]);
   const profile = profileResult.error?.code === "42703"
     ? (await db.from("profiles").select("username").eq("id", user.id).maybeSingle()).data
     : profileResult.data;
   if (!profile?.username) redirect("/onboarding");
+  const permissions = resolveUserPermissions(
+    rolesResult.error ? [] : extractRoleNames(rolesResult.data),
+  );
   const query = await searchParams;
   const conversation = uuid.safeParse(query.conversation);
   const library = query.library === "personal" ? "documents" : query.library === "knowledge" ? "knowledge" : null;
-  return <StudyWorkspace userId={user.id} username={profile.username} canManageKnowledge={Boolean(contentRole)}
+  return <StudyWorkspace userId={user.id} username={profile.username} permissions={permissions}
     initialAvatar={(profileResult.data?.avatar_id ?? null) as AvatarId | null}
     initialWelcome={shouldShowWelcomeGuide(query.welcome, conversation.success, Boolean(library))}
     initialConversationId={conversation.success ? conversation.data : null} initialLibrary={library} />;

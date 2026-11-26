@@ -158,13 +158,50 @@
   box-shadow: 0 8px 28px rgb(0 0 0 / 18%);
 }
 .accountPanel > button.menuAction { margin-top: 0; }
+.menuIdentityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 8px;
+}
 .menuIdentity {
   display: block;
-  padding: 5px 10px 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
   overflow-wrap: anywhere;
+}
+.roleBadge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.roleBadge[data-role="admin"] {
+  border-color: var(--green-line);
+  background: var(--primary-soft);
+  color: var(--primary-ink);
+}
+.roleBadge[data-role="content_manager"] {
+  border-color: var(--purple-line);
+  background: var(--secondary-soft);
+  color: var(--secondary-ink);
+}
+.menuSectionLabel {
+  display: block;
+  padding: 4px 10px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .menuAction {
   display: flex;

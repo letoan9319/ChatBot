@@ -32,6 +32,7 @@ import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
 import { StudyGuideDialog, type StudyGuideMode } from "./study-guide-dialog";
 import type { GuideTopic } from "@/core/study-guide";
+import type { UserPermissions } from "@/core/roles";
 import type { AvatarId } from "@/core/pixel-packs";
 import { LearningPlans } from "./learning-plans";
 import { StudyGroups } from "./study-groups";
@@ -83,11 +84,11 @@ const location = (source: Source) =>
 
 const ignoreReveal = () => {};
 
-export function StudyWorkspace({ userId, username, canManageKnowledge, initialAvatar, initialConversationId = null, initialLibrary = null, initialWelcome = false }: {
+export function StudyWorkspace({ userId, username, permissions, initialAvatar, initialConversationId = null, initialLibrary = null, initialWelcome = false }: {
   userId: string;
   username: string;
   initialAvatar: AvatarId | null;
-  canManageKnowledge: boolean;
+  permissions: UserPermissions;
   initialConversationId?: string | null;
   initialLibrary?: "knowledge" | "documents" | null;
   initialWelcome?: boolean;
@@ -673,7 +674,7 @@ export function StudyWorkspace({ userId, username, canManageKnowledge, initialAv
         </nav>
       </aside>
       <div className={styles.mainColumn} data-view={view}>
-        <StudyToolbar username={username} avatar={avatar} canManageKnowledge={canManageKnowledge}
+        <StudyToolbar username={username} avatar={avatar} permissions={permissions}
           online={worker.online} loading={loading} provider={worker.provider}
           streak={streak} streakError={streakError} onSignOut={signOut}
           onOpenConversation={openConversation} onOpenGroup={openGroup} onOpenSettings={() => setView("settings")} onOpenGuide={openGuide}

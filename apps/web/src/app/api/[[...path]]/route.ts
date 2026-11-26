@@ -6,6 +6,7 @@ import { sessionClient, storageAdmin } from "@/core/supabase-server";
 import { profileSchema, USERNAME_HELP } from "@/core/profile";
 import { avatarIds, stickerIds } from "@/core/pixel-packs";
 import { checkMutationRequest, readJsonBody, RequestError } from "@/core/request-security";
+import { appRoles, extractRoleNames, resolveUserPermissions } from "@/core/roles";
 import {
   keySchema,
   messageSchema,
@@ -44,7 +45,15 @@ const failures: Record<string, [number, string]> = {
   GROUP_LIMIT: [409, "Bạn đã đạt giới hạn nhóm học."],
   GROUP_FULL: [409, "Nhóm học đã đủ thành viên."],
   GROUP_OWNER: [409, "Chủ nhóm không thể rời nhóm học."],
+  LAST_ADMIN: [409, "Không thể thu hồi quyền của quản trị viên cuối cùng."],
+  INVALID_INPUT: [400, "Dữ liệu quản trị không hợp lệ."],
 };
+
+const adminRoleUpdateSchema = z.object({
+  targetUserId: uuid,
+  role: z.enum(appRoles),
+  grant: z.boolean(),
+}).strict();
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3).max(80),
@@ -148,6 +157,58 @@ async function handle(request: NextRequest) {
     const [resource, rawId, action] = parts;
     const method = request.method;
     const body = () => readJsonBody(request);
+    if (resource === "admin") {
+      const { data: roleRows, error: roleError } = await db
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
+      check(roleError);
+      const permissions = resolveUserPermissions(extractRoleNames(roleRows));
+      if (!permissions.isAdmin) {
+        throw new ApiError(403, "Bạn không có quyền truy cập khu vực quản trị.", "FORBIDDEN");
+      }
+      if (rawId === "overview" && method === "GET" && parts.length === 2) {
+        const { data, error } = await db.rpc("app_admin_overview");
+        checkAdminRpc(error);
+        return json(data);
+      }
+      if (rawId === "users" && method === "GET" && parts.length === 2) {
+        const search = (request.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 80);
+        const rawLimit = request.nextUrl.searchParams.get("limit");
+        const limit = rawLimit === null ? 50 : z.coerce.number().int().min(1).max(100).parse(rawLimit);
+        const { data, error } = await db.rpc("app_admin_list_users", {
+          p_search: search,
+          p_limit: limit,
+        });
+        checkAdminRpc(error);
+        return json(data ?? []);
+      }
+      if (rawId === "roles" && method === "POST" && parts.length === 2) {
+        const value = adminRoleUpdateSchema.parse(await body());
+        const { data, error } = await db.rpc("app_admin_set_user_role", {
+          p_target_user_id: value.targetUserId,
+          p_role: value.role,
+          p_grant: value.grant,
+        });
+        checkAdminRpc(error);
+        return json(data);
+      }
+      if (rawId === "groups" && method === "GET" && parts.length === 2) {
+        const rawLimit = request.nextUrl.searchParams.get("limit");
+        const limit = rawLimit === null ? 50 : z.coerce.number().int().min(1).max(100).parse(rawLimit);
+        const { data, error } = await db.rpc("app_admin_list_groups", { p_limit: limit });
+        checkAdminRpc(error);
+        return json(data ?? []);
+      }
+      if (rawId === "groups" && action && method === "DELETE" && parts.length === 3) {
+        const { data, error } = await db.rpc("app_admin_delete_group", {
+          p_group_id: uuid.parse(action),
+        });
+        checkAdminRpc(error);
+        return json({ deleted: Boolean(data) });
+      }
+      throw new ApiError(404, "Không tìm thấy API.");
+    }
     if (resource === "learning-plans" && parts.length === 1) {
       const columns = "id,mode,content,revision";
       if (method === "GET") {
@@ -611,6 +672,13 @@ async function handle(request: NextRequest) {
       500,
     );
   }
+}
+
+function checkAdminRpc(error: { code?: string; message: string } | null) {
+  if (error && ["PGRST202", "PGRST205", "42P01", "42883"].includes(error.code || "")) {
+    throw new ApiError(503, "Chức năng quản trị chưa được cấu hình. Vui lòng áp dụng migration phân quyền.");
+  }
+  check(error);
 }
 
 function checkRepository(error: { code?: string; message: string } | null) {

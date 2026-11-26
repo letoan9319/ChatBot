@@ -8,6 +8,9 @@ updates:
       time: "09:00"
       timezone: Asia/Ho_Chi_Minh
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - automated-scan
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -22,6 +25,9 @@ updates:
       time: "09:00"
       timezone: Asia/Ho_Chi_Minh
     open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - automated-scan
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -36,6 +42,10 @@ updates:
       time: "09:00"
       timezone: Asia/Ho_Chi_Minh
     open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - automated-scan
+      - security
     commit-message:
       prefix: "chore(ci)"
     groups:
@@ -50,6 +60,10 @@ updates:
       time: "09:00"
       timezone: Asia/Ho_Chi_Minh
     open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - automated-scan
+      - security
     commit-message:
       prefix: "chore(security)"
     groups:

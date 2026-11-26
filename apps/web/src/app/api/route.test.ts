@@ -18,7 +18,7 @@ vi.mock("@/core/supabase-server", () => ({
   }),
   storageAdmin: mocks.admin,
 }));
-import { GET, POST } from "./[[...path]]/route";
+import { DELETE, GET, POST } from "./[[...path]]/route";
 
 const id = "318b12a1-0c59-45a3-bd28-5304d98b92e9";
 const request = (
@@ -418,5 +418,63 @@ describe("API authorization and asynchronous boundaries", () => {
       ).status,
     ).toBe(400);
     expect(mocks.admin).not.toHaveBeenCalled();
+  });
+  it("enforces admin role authorization on all admin API endpoints and maps LAST_ADMIN", async () => {
+    const mockRoles = (roles: string[]) => {
+      mocks.from.mockReturnValue({
+        select: () => ({
+          eq: async () => ({
+            data: roles.map((role) => ({ role })),
+            error: null,
+          }),
+        }),
+      });
+    };
+    const deleteRequest = (path: string) =>
+      new NextRequest(`http://localhost:3000/api/${path}`, {
+        method: "DELETE",
+        headers: { origin: "http://localhost:3000", "content-type": "application/json" },
+      });
+
+    // Regular learner is denied before hitting admin RPCs.
+    mockRoles([]);
+    expect((await GET(request("admin/overview"))).status).toBe(403);
+    expect((await POST(request("admin/roles", { targetUserId: id, role: "content_manager", grant: true }))).status).toBe(403);
+    expect((await DELETE(deleteRequest(`admin/groups/${id}`))).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+
+    // Content manager without admin role is also denied on admin endpoints.
+    mockRoles(["content_manager"]);
+    expect((await GET(request("admin/users"))).status).toBe(403);
+    expect((await GET(request("admin/groups"))).status).toBe(403);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+
+    // Admin succeeds and validates input + error mapping.
+    mockRoles(["admin"]);
+    mocks.rpc.mockResolvedValueOnce({ data: { counts: { users: 5 }, recent_audit: [] }, error: null });
+    expect((await GET(request("admin/overview"))).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_admin_overview");
+
+    mocks.rpc.mockResolvedValueOnce({ data: [{ user_id: id, username: "minh", roles: [] }], error: null });
+    expect((await GET(request("admin/users?q=minh&limit=20"))).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_admin_list_users", { p_search: "minh", p_limit: 20 });
+
+    mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "LAST_ADMIN private SQL detail" } });
+    const lastAdmin = await POST(request("admin/roles", { targetUserId: id, role: "admin", grant: false }));
+    expect(lastAdmin.status).toBe(409);
+    const lastAdminPayload = await lastAdmin.json();
+    expect(lastAdminPayload).toMatchObject({ code: "LAST_ADMIN" });
+    expect(JSON.stringify(lastAdminPayload)).not.toContain("SQL");
+
+    mocks.rpc.mockResolvedValueOnce({ data: true, error: null });
+    const deleted = await DELETE(deleteRequest(`admin/groups/${id}`));
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ deleted: true });
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_admin_delete_group", { p_group_id: id });
+
+    mocks.rpc.mockClear();
+    expect((await POST(request("admin/roles", { targetUserId: id, role: "superadmin", grant: true }))).status).toBe(400);
+    expect((await GET(request("admin/users?limit=500"))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-provider";
+import { extractRoleNames, resolveUserPermissions } from "@/core/roles";
 import { sessionClient } from "@/core/supabase-server";
 import { KnowledgeManager, type ManageableDocument, type PublishedDocument } from "./knowledge-manager";
 import styles from "./knowledge.module.css";
@@ -14,14 +15,19 @@ export default async function KnowledgeAdminPage() {
   const { data: { user } } = await db.auth.getUser();
   if (!user) redirect("/auth");
 
-  const { data: role, error: roleError } = await db.from("user_roles").select("role")
-    .eq("user_id", user.id).eq("role", "content_manager").maybeSingle();
-  if (!roleError && !role) notFound();
+  const { data: roleRows, error: roleError } = await db
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id);
+  const permissions = resolveUserPermissions(
+    roleError ? [] : extractRoleNames(roleRows),
+  );
+  if (!roleError && !permissions.canManageKnowledge) notFound();
 
   let documents: ManageableDocument[] = [];
   let published: PublishedDocument[] = [];
   let loadFailed = Boolean(roleError);
-  if (role) {
+  if (permissions.canManageKnowledge) {
     const [own, shared] = await Promise.all([
       db.from("documents").select("id,name,subject,file_type").eq("user_id", user.id)
         .eq("status", "ready").order("created_at", { ascending: false }),
@@ -39,7 +45,12 @@ export default async function KnowledgeAdminPage() {
     <main className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <Link className={styles.back} href="/study">Về góc học tập</Link>
+          <nav className={styles.headerNav} aria-label="Điều hướng quản trị tài liệu">
+            <Link className={styles.back} href="/study">Về góc học tập</Link>
+            {permissions.isAdmin && (
+              <Link className={styles.back} href="/admin">Bảng điều khiển quản trị</Link>
+            )}
+          </nav>
           <ThemeToggle />
         </div>
       </header>

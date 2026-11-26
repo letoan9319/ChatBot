@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { extractRoleNames, resolveUserPermissions } from "@/core/roles";
 import { sessionClient } from "@/core/supabase-server";
 import { uuid } from "@/core/validation";
 
@@ -22,6 +23,18 @@ export async function setPublication(
   const db = await sessionClient();
   const { data: { user } } = await db.auth.getUser();
   if (!user) return { error: true, message: "Phiên đã hết hạn. Hãy đăng nhập lại." };
+
+  const { data: roleRows, error: roleError } = await db
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id);
+  if (roleError) {
+    return { error: true, message: "Không thể xác minh quyền tài khoản. Hãy thử lại." };
+  }
+  const permissions = resolveUserPermissions(extractRoleNames(roleRows));
+  if (!permissions.canManageKnowledge) {
+    return { error: true, message: "Tài khoản của bạn không có quyền quản lý tài liệu chung." };
+  }
 
   const { data: changed, error } = await db.rpc("app_set_knowledge_publication", {
     p_document_id: id.data,

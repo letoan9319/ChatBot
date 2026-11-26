@@ -47,6 +47,7 @@ before(async () => {
     "202611250003_chat_thinking_stream.sql",
     "202611250004_streak_on_question.sql",
     "202611260001_always_record_thinking_ms.sql",
+    "202611260002_admin_rbac.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -665,4 +666,184 @@ test("chat lifecycle protects ownership, retains partial answers, and expires te
     assert.equal((await db.query(`select id from ${table} where user_id=$1`, [owner])).rows.length, 0);
   }
   assert.equal((await db.query("select job_id from app_private.chat_request_log where user_id=$1", [owner])).rows.length, 3);
+});
+
+test("RBAC enforces admin vs content_manager vs regular user permissions, last-admin guard, and audit logging", async () => {
+  const admin = await learner("rbac_admin");
+  const secondAdmin = await learner("rbac_admin_two");
+  const manager = await learner("rbac_manager");
+  const regular = await learner("rbac_learner");
+  const groupOwner = await learner("rbac_group_owner");
+
+  // Clear any roles from prior tests so last-admin count is exact and deterministic.
+  await db.query("delete from user_roles");
+  await db.query("insert into user_roles(user_id,role) values($1,'admin'),($2,'content_manager')", [admin, manager]);
+
+  // Verify role check constraint rejects unsupported role values.
+  await assert.rejects(
+    db.query("insert into user_roles(user_id,role) values($1,'superadmin')", [regular]),
+    /user_roles_role_check/,
+  );
+
+  // Verify internal role helpers return expected values for each role tier.
+  const helperRow = (await db.query(
+    `select
+      app_private.has_role($1,'admin') as admin_has_admin,
+      app_private.is_admin($1) as admin_is_admin,
+      app_private.can_manage_knowledge($1) as admin_can_manage,
+      app_private.is_admin($2) as manager_is_admin,
+      app_private.can_manage_knowledge($2) as manager_can_manage,
+      app_private.is_admin($3) as regular_is_admin,
+      app_private.can_manage_knowledge($3) as regular_can_manage,
+      app_private.has_role(null,'admin') as null_has_role`,
+    [admin, manager, regular],
+  )).rows[0];
+  assert.deepEqual(helperRow, {
+    admin_has_admin: true,
+    admin_is_admin: true,
+    admin_can_manage: true,
+    manager_is_admin: false,
+    manager_can_manage: true,
+    regular_is_admin: false,
+    regular_can_manage: false,
+    null_has_role: false,
+  });
+
+  const adminDoc = await repositoryDocument(admin);
+  const managerDoc = await repositoryDocument(manager);
+  const regularDoc = await repositoryDocument(regular);
+  const group = await create(groupOwner, { name: "Nhom kiem duyet", subject: "physics" });
+  await rpc(regular, "app_join_group", [group.id]);
+  const groupMsg = await post(groupOwner, group.id, "Tin nhan trong nhom");
+
+  // user_roles RLS: authenticated users read only their own roles and cannot mutate or probe private helpers.
+  await asUser(regular, async () => {
+    assert.deepEqual((await db.query("select role from user_roles")).rows, []);
+    await assert.rejects(db.query("insert into user_roles(user_id,role) values($1,'admin')", [regular]), /permission denied/);
+    await assert.rejects(db.query("delete from user_roles where user_id=$1", [admin]), /permission denied/);
+    await assert.rejects(db.query("select * from app_private.admin_audit_log"), /permission denied/);
+    await assert.rejects(db.query("select app_private.is_admin($1)", [admin]), /permission denied/);
+    await assert.rejects(db.query("select app_private.has_role($1,'admin')", [admin]), /permission denied/);
+    await assert.rejects(db.query("select app_private.can_manage_knowledge($1)", [admin]), /permission denied/);
+  });
+  await asUser(manager, async () => {
+    assert.deepEqual((await db.query("select user_id,role from user_roles")).rows, [{ user_id: manager, role: "content_manager" }]);
+  });
+
+  // Regular user denied on every admin RPC and knowledge publication RPC.
+  for (const [fn, args] of [
+    ["app_admin_overview", []],
+    ["app_admin_list_users", ["", 20]],
+    ["app_admin_set_user_role", [regular, "content_manager", true]],
+    ["app_admin_list_groups", [20]],
+    ["app_admin_delete_group", [group.id]],
+    ["app_set_knowledge_publication", [regularDoc.id, true, ""]],
+  ]) {
+    await assert.rejects(rpc(regular, fn, args), /FORBIDDEN/);
+  }
+
+  // Content manager allowed on knowledge publication, denied on all admin RPCs.
+  assert.equal(await rpc(manager, "app_set_knowledge_publication", [managerDoc.id, true, "Tai lieu chung"]), true);
+  for (const [fn, args] of [
+    ["app_admin_overview", []],
+    ["app_admin_list_users", ["", 20]],
+    ["app_admin_set_user_role", [regular, "content_manager", true]],
+    ["app_admin_list_groups", [20]],
+    ["app_admin_delete_group", [group.id]],
+  ]) {
+    await assert.rejects(rpc(manager, fn, args), /FORBIDDEN/);
+  }
+
+  // Admin can publish own ready doc, cannot publish another user's private doc, and can revoke any shared doc.
+  assert.equal(await rpc(admin, "app_set_knowledge_publication", [adminDoc.id, true, "Tai lieu admin"]), true);
+  await assert.rejects(rpc(admin, "app_set_knowledge_publication", [regularDoc.id, true, ""]), /DOCUMENT_NOT_PUBLISHABLE/);
+  assert.equal(await rpc(admin, "app_set_knowledge_publication", [managerDoc.id, false, ""]), true);
+  assert.equal(await rpc(admin, "app_set_knowledge_publication", [managerDoc.id, false, ""]), false);
+
+  // Admin user listing and search validation.
+  await assert.rejects(rpc(admin, "app_admin_list_users", ["", 0]), /INVALID_INPUT/);
+  await assert.rejects(rpc(admin, "app_admin_list_users", ["", 101]), /INVALID_INPUT/);
+  const searched = await rpc(admin, "app_admin_list_users", ["rbac_admin", 20]);
+  assert.ok(searched.some((u) => u.user_id === admin && u.username === "rbac_admin" && u.roles.includes("admin")));
+  assert.equal(searched.some((u) => u.user_id === regular), false);
+  // Wildcard characters in search must be treated literally.
+  assert.deepEqual(await rpc(admin, "app_admin_list_users", ["%", 20]), []);
+
+  // Admin role management + LAST_ADMIN protection + audit log.
+  await assert.rejects(rpc(admin, "app_admin_set_user_role", [admin, "admin", false]), /LAST_ADMIN/);
+  await assert.rejects(rpc(admin, "app_admin_set_user_role", [regular, "superadmin", true]), /INVALID_INPUT/);
+  await assert.rejects(rpc(admin, "app_admin_set_user_role", [randomUUID(), "content_manager", true]), /NOT_FOUND/);
+
+  const grantedCm = await rpc(admin, "app_admin_set_user_role", [regular, "content_manager", true]);
+  assert.deepEqual(grantedCm, { user_id: regular, username: "rbac_learner", roles: ["content_manager"], changed: true });
+  const grantedCmRepeat = await rpc(admin, "app_admin_set_user_role", [regular, "content_manager", true]);
+  assert.equal(grantedCmRepeat.changed, false);
+
+  const grantedSecondAdmin = await rpc(admin, "app_admin_set_user_role", [secondAdmin, "admin", true]);
+  assert.deepEqual(grantedSecondAdmin, { user_id: secondAdmin, username: "rbac_admin_two", roles: ["admin"], changed: true });
+
+  // Now with two admins, revoking one admin succeeds; revoking the remaining one fails with LAST_ADMIN.
+  const revokedFirst = await rpc(secondAdmin, "app_admin_set_user_role", [admin, "admin", false]);
+  assert.deepEqual(revokedFirst, { user_id: admin, username: "rbac_admin", roles: [], changed: true });
+  await assert.rejects(rpc(secondAdmin, "app_admin_set_user_role", [secondAdmin, "admin", false]), /LAST_ADMIN/);
+  // Revoked admin immediately loses admin access.
+  await assert.rejects(rpc(admin, "app_admin_overview", []), /FORBIDDEN/);
+  // Re-grant admin back to first admin for remaining assertions.
+  await rpc(secondAdmin, "app_admin_set_user_role", [admin, "admin", true]);
+
+  // Admin group moderation: list and delete violating group safely, while regular user still cannot delete foreign group.
+  await assert.rejects(rpc(regular, "app_delete_group", [group.id]), /FORBIDDEN/);
+  await assert.rejects(rpc(admin, "app_admin_list_groups", [0]), /INVALID_INPUT/);
+  const adminGroups = await rpc(admin, "app_admin_list_groups", [50]);
+  const listedGroup = adminGroups.find((g) => g.id === group.id);
+  assert.ok(listedGroup);
+  assert.equal(listedGroup.owner_username, "rbac_group_owner");
+  assert.equal(listedGroup.member_count, 2);
+  assert.equal(listedGroup.message_count, 1);
+
+  assert.equal(await rpc(admin, "app_admin_delete_group", [group.id]), true);
+  assert.equal(await rpc(admin, "app_admin_delete_group", [group.id]), false);
+  assert.equal((await db.query("select count(*)::int as n from study_group_messages where id=$1", [groupMsg.id])).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int as n from notifications where group_id=$1 and kind='group_message'", [group.id])).rows[0].n, 0);
+
+  // Admin overview reflects counts and recent audit entries.
+  const overview = await rpc(admin, "app_admin_overview", []);
+  assert.equal(overview.counts.admins, 2);
+  assert.equal(overview.counts.content_managers, 2);
+  assert.ok(overview.counts.users >= 5);
+  assert.ok(overview.counts.profiles >= 5);
+  assert.ok(overview.counts.ready_documents >= 3);
+  assert.ok(overview.counts.published_documents >= 1);
+  assert.equal(typeof overview.counts.study_groups, "number");
+  assert.equal(typeof overview.counts.active_jobs, "number");
+  assert.ok(overview.recent_audit.length >= 5);
+  assert.equal(overview.recent_audit[0].action, "delete_group");
+  assert.equal(overview.recent_audit[0].actor_username, "rbac_admin");
+  assert.equal(overview.recent_audit[0].target_id, group.id);
+
+  // Anonymous and unauthenticated access blocked on every admin RPC.
+  await db.exec("set role anon");
+  try {
+    for (const statement of [
+      "select * from user_roles",
+      "select app_admin_overview()",
+      "select app_admin_list_users()",
+      `select app_admin_set_user_role('${regular}','content_manager',true)`,
+      "select app_admin_list_groups()",
+      `select app_admin_delete_group('${randomUUID()}')`,
+    ]) {
+      await assert.rejects(db.query(statement), /permission denied/);
+    }
+  } finally {
+    await db.exec("reset role");
+  }
+  for (const [fn, args] of [
+    ["app_admin_overview", []],
+    ["app_admin_list_users", []],
+    ["app_admin_set_user_role", [regular, "content_manager", true]],
+    ["app_admin_list_groups", []],
+    ["app_admin_delete_group", [randomUUID()]],
+  ]) {
+    await assert.rejects(rpc("", fn, args), /UNAUTHORIZED/);
+  }
 });
