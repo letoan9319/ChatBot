@@ -35,6 +35,7 @@ import type { GuideTopic } from "@/core/study-guide";
 import type { UserPermissions } from "@/core/roles";
 import type { AvatarId } from "@/core/pixel-packs";
 import { LearningPlans } from "./learning-plans";
+import { tutorPrompt } from "@/core/course";
 import { StudyGroups } from "./study-groups";
 import { useStudyPreferences } from "./use-study-preferences";
 import { shouldSendQuestion } from "@/core/study-preferences";
@@ -702,6 +703,13 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
               setChatSubject("");
               setSelected(ids.filter(id => [...documents, ...knowledge].some(doc => doc.id === id && doc.status === "ready")));
               setQuestion(`Giúp tôi học chủ đề “${topic}” dựa trên tài liệu đã chọn.`);
+            }}
+            onAskLesson={(subject, lessonId) => {
+              openConversation(null);
+              setChatMode("documents");
+              setSelected([]);
+              setChatSubject(subject);
+              setQuestion(tutorPrompt(lessonId));
             }} />
         </div>}
         <div className={styles.contentGrid} hidden={view !== "study" && view !== "library"} data-view={view} data-panel={tab} data-sources-open={sourcesOpen}>

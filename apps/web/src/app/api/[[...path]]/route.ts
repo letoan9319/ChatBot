@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { groupReactionOptions } from "@/core/group-reactions";
 import { learningPlanSchema } from "@/core/learning-plan";
+import { lessonIdSchema, lessonSaveSchema, quizSubmitSchema } from "@/core/course";
 import { sessionClient, storageAdmin } from "@/core/supabase-server";
 import { profileSchema, USERNAME_HELP } from "@/core/profile";
 import { avatarIds, stickerIds } from "@/core/pixel-packs";
@@ -41,6 +42,10 @@ const failures: Record<string, [number, string]> = {
   INVALID_USERNAME: [400, USERNAME_HELP],
   USERNAME_TAKEN: [409, "Username này đã được sử dụng. Hãy chọn tên khác."],
   INVALID_GROUP_IMAGE: [400, "Ảnh phải là PNG, JPEG hoặc WebP và không vượt quá 512 KB."],
+  QUIZ_REQUIRED: [409, "Bài học này có bài kiểm tra. Hãy làm bài kiểm tra để hoàn thành."],
+  NO_QUIZ: [409, "Bài học này chưa có câu hỏi kiểm tra."],
+  INVALID_SOURCES: [400, "Nguồn trích dẫn phải là tài liệu đã công bố trong kho chung."],
+  EMPTY_LESSON: [400, "Bài giảng trống không thể công bố."],
   INVALID_GROUP: [400, "Tên hoặc nội dung nhóm học không hợp lệ."],
   GROUP_LIMIT: [409, "Bạn đã đạt giới hạn nhóm học."],
   GROUP_FULL: [409, "Nhóm học đã đủ thành viên."],
@@ -73,6 +78,16 @@ const groupMessageSchema = z.object({
 }).strict();
 const readNotificationsSchema = z.object({ id: uuid.optional() }).strict();
 const emptyBodySchema = z.object({}).strict();
+
+// A reviewed lecture (up to 40,000 characters of Vietnamese Markdown) plus quiz and sources.
+const LESSON_JSON_BYTES = 200_000;
+
+function checkCourse(error: { code?: string; message: string } | null) {
+  if (error && ["PGRST202", "PGRST205", "42P01", "42883"].includes(error.code || "")) {
+    throw new ApiError(503, "Lộ trình học chưa sẵn sàng. Vui lòng liên hệ quản trị viên.");
+  }
+  check(error);
+}
 
 function checkCommunity(error: { code?: string; message: string } | null) {
   if (error && ["PGRST202", "PGRST205", "42P01", "42883", "42703"].includes(error.code || "")) {
@@ -144,7 +159,9 @@ async function handle(request: NextRequest) {
       );
     }
     const imagePost = request.method === "POST" && /^\/api\/groups\/[^/]+\/images\/?$/.test(request.nextUrl.pathname);
-    if (request.method !== "GET") checkMutationRequest(request, imagePost ? 710_000 : undefined);
+    const lessonPost = request.method === "POST" && /^\/api\/course\/manage\/?$/.test(request.nextUrl.pathname);
+    const bodyLimit = imagePost ? 710_000 : lessonPost ? LESSON_JSON_BYTES : undefined;
+    if (request.method !== "GET") checkMutationRequest(request, bodyLimit);
     const db = await sessionClient();
     const {
       data: { user },
@@ -156,7 +173,7 @@ async function handle(request: NextRequest) {
       .filter(Boolean);
     const [resource, rawId, action] = parts;
     const method = request.method;
-    const body = () => readJsonBody(request);
+    const body = () => readJsonBody(request, lessonPost ? LESSON_JSON_BYTES : undefined);
     if (resource === "admin") {
       const { data: roleRows, error: roleError } = await db
         .from("user_roles")
@@ -229,6 +246,49 @@ async function handle(request: NextRequest) {
         check(result.error);
         if (!result.data) throw new ApiError(409, "Kế hoạch đã thay đổi. Hãy tải lại trước khi lưu.");
         return json(result.data, revision === null ? 201 : 200);
+      }
+    }
+    if (resource === "course") {
+      const subject = () => subjectSchema.parse(request.nextUrl.searchParams.get("subject"));
+      if (method === "GET" && parts.length === 1) {
+        const { data, error } = await db.rpc("app_course_overview", { p_subject: subject() });
+        checkCourse(error);
+        return json(data);
+      }
+      if (rawId === "manage" && parts.length === 2 && method === "GET") {
+        const { data, error } = await db.rpc("app_manage_course_lessons", { p_subject: subject() });
+        checkCourse(error);
+        return json(data ?? []);
+      }
+      if (rawId === "manage" && parts.length === 2 && method === "POST") {
+        const value = lessonSaveSchema.parse(await body());
+        const { data, error } = await db.rpc("app_save_course_lesson", {
+          p_lesson: value.lessonId, p_body: value.body, p_quiz: value.quiz,
+          p_sources: value.sources, p_publish: value.publish,
+        });
+        checkCourse(error);
+        return json(data);
+      }
+      if (rawId === "lessons" && action) {
+        const lesson = lessonIdSchema.parse(action);
+        if (parts.length === 3 && method === "GET") {
+          const { data, error } = await db.rpc("app_course_lesson", { p_lesson: lesson });
+          checkCourse(error);
+          if (!data) throw new ApiError(404, "Bài học chưa có bài giảng được công bố.");
+          return json(data);
+        }
+        if (parts.length === 4 && parts[3] === "submit" && method === "POST") {
+          const { answers } = quizSubmitSchema.parse(await body());
+          const { data, error } = await db.rpc("app_submit_lesson_quiz", { p_lesson: lesson, p_answers: answers });
+          checkCourse(error);
+          return json(data);
+        }
+        if (parts.length === 4 && parts[3] === "complete" && method === "POST") {
+          emptyBodySchema.parse(await body());
+          const { error } = await db.rpc("app_complete_lesson", { p_lesson: lesson });
+          checkCourse(error);
+          return json({ completed: true });
+        }
       }
     }
     if (resource === "learning-plans" && parts.length === 2 && method === "DELETE") {

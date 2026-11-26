@@ -114,6 +114,7 @@
 .steps li[data-done="true"] span { background: var(--primary-soft); border-color: var(--green-strong-line); color: var(--primary-ink); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.legacy { margin: 16px 0; }
 .plans .danger { margin-left: auto; border-color: var(--danger-line); color: var(--danger-ink); }
 .plans .danger:hover:not(:disabled) { border-color: var(--danger); background: var(--danger-soft); }
 

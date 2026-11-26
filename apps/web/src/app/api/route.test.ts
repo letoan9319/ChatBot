@@ -477,6 +477,42 @@ describe("API authorization and asynchronous boundaries", () => {
     expect((await GET(request("admin/users?limit=500"))).status).toBe(400);
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
+  it("serves the guided course through authorized RPCs and validates lessons and answers", async () => {
+    mocks.rpc.mockResolvedValue({ data: { published: [], progress: [] }, error: null });
+    expect((await GET(request("course?subject=physics&user_id=foreign"))).status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_course_overview", { p_subject: "physics" });
+    expect((await GET(request("course?subject=chemistry"))).status).toBe(400);
+
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    expect((await GET(request("course/lessons/calculus.c1.l1"))).status).toBe(404);
+    expect((await GET(request("course/lessons/calculus.c99.l1"))).status).toBe(400);
+
+    mocks.rpc.mockResolvedValue({ data: { score: 100, passed: true, results: [] }, error: null });
+    const submitted = await POST(request("course/lessons/calculus.c1.l1/submit", { answers: [1, 0] }));
+    expect(submitted.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_submit_lesson_quiz", { p_lesson: "calculus.c1.l1", p_answers: [1, 0] });
+    expect((await POST(request("course/lessons/calculus.c1.l1/submit", { answers: [7] }))).status).toBe(400);
+    expect((await POST(request("course/lessons/calculus.c1.l1/submit", { answers: [1], userId: id }))).status).toBe(400);
+
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "QUIZ_REQUIRED private SQL detail" } });
+    const required = await POST(request("course/lessons/calculus.c1.l1/complete", {}));
+    expect(required.status).toBe(409);
+    expect(JSON.stringify(await required.json())).not.toContain("SQL");
+
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: "FORBIDDEN" } });
+    expect((await GET(request("course/manage?subject=calculus"))).status).toBe(403);
+    const lesson = { lessonId: "calculus.c1.l1", body: "Bài giảng ".repeat(3000), quiz: [], sources: [], publish: false };
+    expect((await POST(request("course/manage", lesson))).status).toBe(403);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_save_course_lesson", {
+      p_lesson: lesson.lessonId, p_body: lesson.body, p_quiz: [], p_sources: [], p_publish: false,
+    });
+    mocks.rpc.mockClear();
+    expect((await POST(request("course/manage", { ...lesson, publish: true, body: " " }))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "missing" } });
+    expect((await GET(request("course?subject=calculus"))).status).toBe(503);
+  });
   it("deletes only the caller's own learning plan", async () => {
     const filters: [string, string][] = [];
     let found: { id: string } | null = { id };

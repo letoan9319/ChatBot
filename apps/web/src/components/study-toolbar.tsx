@@ -137,6 +137,11 @@ export function StudyToolbar({ username, avatar, permissions, online, loading, p
                 Quản lý tài liệu chung
               </Link>
             )}
+            {permissions.canManageKnowledge && (
+              <Link className={styles.menuAction} href="/admin/course" prefetch={false}>
+                Soạn lộ trình học
+              </Link>
+            )}
           </>
         )}
         <hr className={styles.menuDivider} />

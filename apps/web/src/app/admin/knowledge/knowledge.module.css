@@ -195,3 +195,7 @@
     gap: var(--space-1);
   }
 }
+
+.content[data-wide="true"] {
+  width: min(100% - 32px, 84rem);
+}

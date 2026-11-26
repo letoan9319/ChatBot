@@ -1,0 +1,130 @@
+.subjects, .path, .lesson { display: grid; gap: 18px; }
+.intro h2, .pathHeader h2, .lessonHeader h2 { margin: 0; font-size: 1.3rem; font-weight: 750; line-height: 1.3; }
+.intro p { margin: 6px 0 0; color: var(--muted); }
+.meta { color: var(--muted); font-weight: 500; font-size: .875rem; }
+
+.state, .notice, .objectives, .body, .quiz, .chapter, .subjectCard {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.state { padding: 24px; }
+.state p { margin: 0 0 12px; color: var(--muted); }
+
+.subjectGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 14px; }
+.subjects .subjectCard {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 20px;
+  text-align: left;
+}
+.subjectCard strong { font-size: 1.1rem; font-weight: 750; }
+
+.subjects progress, .path progress {
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--line);
+  appearance: none;
+}
+.subjects progress::-webkit-progress-bar, .path progress::-webkit-progress-bar { background: var(--line); border-radius: 999px; }
+.subjects progress::-webkit-progress-value, .path progress::-webkit-progress-value { background: var(--primary); border-radius: 999px; }
+.subjects progress::-moz-progress-bar, .path progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; }
+
+.back { justify-self: start; }
+.back::before { content: "< "; }
+
+.pathHeader { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px; }
+.pathHeader > div { display: grid; gap: 6px; flex: 1 1 18rem; }
+
+.chapters { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.chapter { padding: 4px 18px; }
+.chapter[data-locked] { opacity: .75; }
+.chapter summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+.chapter summary strong { flex: 1 1 12rem; font-size: 1.02rem; font-weight: 750; }
+.chapter details > p { margin: 0 0 10px; }
+.chapterNumber { color: var(--primary-ink); font-weight: 750; font-size: .875rem; }
+
+.lessons { display: grid; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
+.lessons button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  width: 100%;
+  text-align: left;
+}
+.lessons button[data-state="current"] { border-color: var(--green-strong-line); background: var(--primary-soft); }
+.lessonNumber { min-width: 2.2rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lessonTitle { flex: 1 1 10rem; }
+
+.badge {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--neutral-hover);
+  color: var(--muted);
+  font-size: .8125rem;
+  font-weight: 650;
+}
+.badge[data-state="passed"] { background: var(--primary-soft); color: var(--primary-ink); }
+.badge[data-state="current"] { background: var(--warning-soft); color: var(--warning-ink); }
+
+.lessonHeader { display: grid; gap: 6px; justify-items: start; }
+.objectives, .notice { padding: 16px 20px; }
+.objectives ul { margin: 8px 0 0; padding-left: 1.2rem; }
+.notice p { margin: 6px 0 0; color: var(--muted); }
+.body { padding: clamp(16px, 2.5vw, 28px); overflow-wrap: anywhere; }
+
+.quiz { display: grid; gap: 14px; padding: clamp(16px, 2.5vw, 24px); }
+.quiz h3 { margin: 0; font-size: 1.1rem; font-weight: 750; }
+.quiz > p { margin: -8px 0 0; }
+.quiz fieldset { display: grid; gap: 8px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.quiz fieldset[data-result="correct"] { border-color: var(--green-strong-line); }
+.quiz fieldset[data-result="wrong"] { border-color: var(--danger-line); }
+.quiz legend { display: flex; gap: 6px; padding-inline: 4px; font-weight: 700; }
+.quiz legend p, .option p { margin: 0; }
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.option:hover { background: var(--neutral-hover); }
+.option[data-answer] { border-color: var(--green-strong-line); background: var(--primary-soft); }
+.option input { accent-color: var(--primary-edge); }
+.feedback { margin: 0; color: var(--muted); }
+.score { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--warning-soft); color: var(--warning-ink); font-weight: 650; }
+.score[data-passed="true"] { background: var(--primary-soft); color: var(--primary-ink); }
+.error { margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--danger-soft); color: var(--danger-ink); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.pager { display: flex; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+.subjects button, .path button, .lesson button, .state button {
+  padding: 9px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 650;
+}
+.subjects button:hover:not(:disabled), .path button:hover:not(:disabled), .lesson button:hover:not(:disabled) {
+  border-color: var(--green-strong-line);
+  background: var(--neutral-hover);
+}
+.path button:disabled, .lesson button:disabled { cursor: not-allowed; opacity: .55; }
+.path .primary, .lesson .primary { background: var(--primary); border-color: var(--primary-edge); color: var(--on-primary); }
+.path .primary:hover:not(:disabled), .lesson .primary:hover:not(:disabled) { background: var(--primary-hover); }

@@ -5,19 +5,22 @@ import {
   completedLessons, contentFromTemplate, emptyPlanContent, lessons, localDate, paceOptions, planProgress,
   planTemplates, recordAttempt, reviewStatus, sortByReview, type LearningPlan, type PlanInput, type PlanTemplate,
 } from "@/core/learning-plan";
-import { subjects, uuid } from "@/core/validation";
+import { subjects, uuid, type Subject } from "@/core/validation";
 import { MAX_JSON_BYTES } from "@/core/request-security";
 import "@fontsource-variable/inter";
+import { CoursePath } from "./course-path";
 import styles from "./learning-plans.module.css";
 
 type Content = PlanInput["content"];
 const wizardSteps = ["Môn và chủ đề", "Mục tiêu và nhịp học", "Tài liệu nguồn"] as const;
 
-export function LearningPlans({ documents, onAsk }: {
+export function LearningPlans({ documents, onAsk, onAskLesson }: {
   documents: { id: string; name: string; status: string }[];
   onAsk: (ids: string[], topic: string) => void;
+  onAskLesson: (subject: Subject, lessonId: string) => void;
 }) {
   const [plans, setPlans] = useState<LearningPlan[]>([]);
+  const [legacy, setLegacy] = useState(false);
   const [mode, setMode] = useState<PlanInput["mode"]>("guided");
   const [draft, setDraft] = useState<PlanInput | null>(null);
   const [step, setStep] = useState<number | null>(null);
@@ -139,7 +142,7 @@ export function LearningPlans({ documents, onAsk }: {
   const progress = content ? completedLessons(content) : 0;
   const attempt = content?.attempts.find(item => item.lesson === lessonIndex);
   const update = (value: PlanInput["mode"]) => {
-    if (value !== mode && select(null)) setMode(value);
+    if (value !== mode && select(null)) { setMode(value); setLegacy(false); }
   };
 
   const visiblePlans = sortByReview(plans.filter(plan => plan.mode === mode), today);
@@ -188,17 +191,26 @@ export function LearningPlans({ documents, onAsk }: {
   return <section className={styles.plans} aria-label="Kế hoạch học tập">
     <nav className={styles.modes} aria-label="Phương thức học">
       <button disabled={busy} aria-pressed={mode === "guided"} onClick={() => update("guided")}>
-        <strong>Học theo tiến trình</strong><span>Học từng bài theo thứ tự và tự kiểm tra trước khi chuyển bài.</span>
+        <strong>Học theo tiến trình</strong><span>Chọn môn, học lần lượt từng chương với bài giảng và bài kiểm tra cuối bài.</span>
       </button>
       <button disabled={busy} aria-pressed={mode === "self"} onClick={() => update("self")}>
         <strong>Tự học</strong><span>Chọn chủ đề, ghi chú và tạo thẻ để ôn theo nhịp của bạn.</span>
       </button>
     </nav>
-    {!ready && <div className={styles.state} role="status">
+    {mode === "guided" && !legacy && <>
+      <CoursePath onAsk={onAskLesson} />
+      {visiblePlans.length > 0 && <p className={styles.legacy}>
+        <button type="button" onClick={() => setLegacy(true)}>Xem {visiblePlans.length} kế hoạch theo tiến trình đã tạo trước đây</button>
+      </p>}
+    </>}
+    {mode === "guided" && legacy && <p className={styles.legacy}>
+      <button type="button" disabled={busy} onClick={() => { if (select(null)) setLegacy(false); }}>Quay lại lộ trình môn học</button>
+    </p>}
+    {(mode === "self" || legacy) && !ready && <div className={styles.state} role="status">
       <p>{loadError || "Đang tải kế hoạch học tập…"}</p>
       {loadError && <button onClick={() => { setLoadError(""); setReload(value => value + 1); }}>Thử lại</button>}
     </div>}
-    {ready && <div className={styles.workspace}>
+    {(mode === "self" || legacy) && ready && <div className={styles.workspace}>
       <section className={styles.saved} aria-labelledby="saved-plans-heading">
         <h2 id="saved-plans-heading">Kế hoạch của bạn</h2>
         <button className={styles.primary} disabled={busy} onClick={() => createPlan()}>Tạo kế hoạch</button>

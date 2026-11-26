@@ -49,6 +49,7 @@ before(async () => {
     "202611260001_always_record_thinking_ms.sql",
     "202611260002_admin_rbac.sql",
     "202611270001_learning_plans_delete.sql",
+    "202611280001_course_lessons.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -621,6 +622,74 @@ test("learning plans isolate owners and reject ownership changes", async () => {
     assert.equal((await db.query("delete from learning_plans where id=$1 returning id", [id])).rows.length, 1);
     assert.equal((await db.query("select id from learning_plans where id=$1", [id])).rows.length, 0);
   });
+});
+
+test("course lessons are curated by managers, hide answers and grade progress on the server", async () => {
+  const manager = await learner(), student = await learner(), other = await learner();
+  await db.query("insert into user_roles(user_id,role) values($1,'content_manager')", [manager]);
+  const lesson = "calculus.c2.l1";
+  const quiz = [
+    { question: "Đạo hàm của x^2?", options: ["x", "2x", "x^2"], correct: 1, explanation: "Quy tắc lũy thừa." },
+    { question: "Đạo hàm của hằng số?", options: ["0", "1"], correct: 0 },
+  ];
+  const save = (user, body, items, sources, publish, id = lesson) =>
+    rpc(user, "app_save_course_lesson", [id, body, JSON.stringify(items), JSON.stringify(sources), publish]);
+
+  await assert.rejects(save(student, "Bài giảng", quiz, [], true), /FORBIDDEN/);
+  await assert.rejects(save(manager, "Bài giảng", quiz, [], true, "calculus.bad"), /INVALID_INPUT/);
+  await assert.rejects(save(manager, "Bài giảng", [{ ...quiz[0], correct: 3 }], [], true), /INVALID_INPUT/);
+  await assert.rejects(save(manager, "  ", quiz, [], true), /EMPTY_LESSON/);
+  const privateDoc = await repositoryDocument(manager);
+  const citation = { label: "S1", document_id: privateDoc.id, document_name: "Giáo trình", page: 12, chunk_id: null };
+  await assert.rejects(save(manager, "Bài giảng [S1]", quiz, [citation], true), /INVALID_SOURCES/);
+  await db.query("insert into knowledge_documents(document_id) values($1)", [privateDoc.id]);
+
+  assert.equal((await save(manager, "Bản nháp", quiz, [citation], false)).status, "draft");
+  assert.equal(await rpc(student, "app_course_lesson", [lesson]), null);
+  assert.deepEqual((await rpc(student, "app_course_overview", ["calculus"])).published, []);
+  await asUser(student, async () => {
+    await assert.rejects(db.query("select * from course_lessons"), /permission denied/);
+    await assert.rejects(db.query("insert into course_progress(lesson_id,passed_at) values($1,now())", [lesson]), /permission denied/);
+  });
+  await assert.rejects(rpc(student, "app_manage_course_lessons", ["calculus"]), /FORBIDDEN/);
+  assert.equal((await rpc(manager, "app_manage_course_lessons", ["calculus"]))[0].quiz[0].correct, 1);
+
+  assert.equal((await save(manager, "Bài giảng [S1]", quiz, [citation], true)).status, "published");
+  const shown = await rpc(student, "app_course_lesson", [lesson]);
+  assert.equal(shown.body, "Bài giảng [S1]");
+  assert.deepEqual(shown.quiz[0], { question: quiz[0].question, options: quiz[0].options });
+  assert.equal(shown.sources[0].page, 12);
+  assert.deepEqual((await rpc(student, "app_course_overview", ["calculus"])).published, [{ lesson_id: lesson, questions: 2 }]);
+
+  await assert.rejects(rpc(student, "app_complete_lesson", [lesson]), /QUIZ_REQUIRED/);
+  await assert.rejects(rpc(student, "app_submit_lesson_quiz", [lesson, [1]]), /INVALID_INPUT/);
+  const failed = await rpc(student, "app_submit_lesson_quiz", [lesson, [0, 0]]);
+  assert.equal(failed.score, 50);
+  assert.equal(failed.passed, false);
+  assert.deepEqual(failed.results[0], { correct: false, answer: 1, explanation: "Quy tắc lũy thừa." });
+  const passed = await rpc(student, "app_submit_lesson_quiz", [lesson, [1, 0]]);
+  assert.equal(passed.score, 100);
+  assert.equal(passed.passed, true);
+  await rpc(student, "app_submit_lesson_quiz", [lesson, [0, 1]]);
+  const progress = (await rpc(student, "app_course_overview", ["calculus"])).progress[0];
+  assert.equal(progress.best_score, 100);
+  assert.equal(progress.attempts, 3);
+  assert.ok(progress.passed_at);
+  assert.deepEqual((await rpc(other, "app_course_overview", ["calculus"])).progress, []);
+  assert.equal((await asUser(other, () => db.query("select * from course_progress"))).rows.length, 0);
+
+  assert.equal(await rpc(student, "app_complete_lesson", ["calculus.c1.l1"]), true);
+  assert.equal((await rpc(student, "app_course_overview", ["calculus"])).progress.length, 2);
+  await assert.rejects(rpc(student, "app_complete_lesson", ["unknown.c1.l1"]), /INVALID_INPUT/);
+
+  assert.equal((await save(manager, "Bản sửa", quiz, [], false)).published_at, null);
+  assert.equal(await rpc(student, "app_course_lesson", [lesson]), null);
+  await db.exec("set role anon");
+  try {
+    await assert.rejects(db.query("select app_course_overview('calculus')"), /permission denied/);
+  } finally {
+    await db.exec("reset role");
+  }
 });
 
 test("chat lifecycle protects ownership, retains partial answers, and expires temporary chat", async () => {

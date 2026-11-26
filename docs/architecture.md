@@ -39,6 +39,10 @@ Tất cả các endpoint dưới đây yêu cầu đăng nhập. Body JSON, tố
 | GET `/api/sources/:id` | `{available,content,url,...metadata}`; PDF URL có hiệu lực 120 giây |
 | GET, POST `/api/learning-plans` | Đọc, tạo hoặc cập nhật kế hoạch của tài khoản, có kiểm tra revision |
 | DELETE `/api/learning-plans/:id` | Xóa kế hoạch thuộc tài khoản hiện tại |
+| GET `/api/course?subject=` | Danh sách bài đã công bố và tiến độ của người học trong môn |
+| GET `/api/course/lessons/:lessonId` | Bài giảng đã công bố, câu hỏi không kèm đáp án |
+| POST `/api/course/lessons/:lessonId/submit`, `/complete` | Chấm bài kiểm tra ở máy chủ hoặc hoàn thành bài chưa có câu hỏi |
+| GET, POST `/api/course/manage` | Người quản lý nội dung đọc toàn bộ bài (gồm nháp) và lưu hoặc công bố bài giảng |
 | `/api/groups`, `/api/notifications` | [API nhóm học và thông báo](community.md#api) |
 
 `key` là UUID idempotency: giữ nguyên khi thử lại cùng yêu cầu, đổi khi nội dung thay đổi. API trả `{error: string}` và mã HTTP 400/401/403/404/409/413/429/503 phù hợp. Các lỗi dịch vụ nội bộ trả thông báo chung.
