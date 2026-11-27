@@ -101,6 +101,8 @@ function cleanVisualText(value: string): string {
     .replace(/\\Delta\b/g, "\u0394")
     .replace(/\\omega\b/g, "\u03c9")
     .replace(/\\lambda\b/g, "\u03bb")
+    .replace(/\\nabla\b/g, "\u2207")
+    .replace(/\\partial\b/g, "\u2202")
     .replace(/\\infty\b/g, "\u221e")
     .replace(/_\{([^}]+)\}/g, "_$1")
     .replace(/\^\{([^}]+)\}/g, "^$1")
@@ -1078,6 +1080,9 @@ function VectorDiagram({ visual }: { visual: VectorVisual }) {
 
           return (
             <g key={`vec-${idx}`} className={styles.vectorGroup} data-tone={tone} data-role="vector-arrow">
+              {!hasBody && (Math.abs(vec.x) > 1e-9 || Math.abs(vec.y) > 1e-9) && (
+                <circle cx={x1} cy={y1} r={3.5} className={styles.vectorHead} />
+              )}
               <line
                 x1={x1}
                 y1={y1}
@@ -1108,11 +1113,13 @@ function VectorDiagram({ visual }: { visual: VectorVisual }) {
         {visual.vectors.map((vec, idx) => {
           const tone = vec.tone ?? DEFAULT_VECTOR_TONES[idx % DEFAULT_VECTOR_TONES.length];
           const mag = Math.hypot(vec.dx, vec.dy);
+          const hasTail = !hasBody && (Math.abs(vec.x) > 1e-9 || Math.abs(vec.y) > 1e-9);
           return (
             <span key={`vleg-${idx}`} className={styles.legendItem} data-tone={tone}>
               <span className={styles.legendLine} />
               <span>
-                {vec.label} = ({formatCompact(vec.dx)}, {formatCompact(vec.dy)}), |{vec.label}| = {formatCompact(mag)}
+                {vec.label} = ({formatCompact(vec.dx)}, {formatCompact(vec.dy)})
+                {hasTail ? ` tại (${formatCompact(vec.x)}, ${formatCompact(vec.y)})` : ""}, |{vec.label}| = {formatCompact(mag)}
               </span>
             </span>
           );

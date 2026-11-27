@@ -133,6 +133,13 @@ _FOLLOWUP_IMAGE_FILLER_RE = re.compile(
     r"|\b(?:chi tiết|rõ|kỹ|kĩ|cụ thể|dễ hiểu|ngắn gọn|đơn giản|sâu)\s+hơn\b"
     r"|\b(?:cho\s+)?thêm\s+ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
     r"|\bví\s+dụ\s+(?:khác|thực tế|thêm)\b"
+    r"|\b(?:vẽ|biểu\s+diễn|minh\s+họa|mô\s+phỏng|dựng)(?:\s+(?:lại|thêm|ra|trực\s+quan|bằng))?"
+    r"(?:\s+(?:đồ\s+thị|hình(?:\s+vẽ|\s+ảnh|\s+minh\s+họa)?|sơ\s+đồ(?:\s+(?:khái\s+niệm|tư\s+duy|quan\s+hệ))?|biểu\s+đồ))+"
+    r"(?:\s+(?:biểu\s+diễn|minh\s+họa|trực\s+quan))?\b"
+    r"|\b(?:kèm(?:\s+theo)?\s+)?(?:hình\s+minh\s+họa|minh\s+họa(?:\s+(?:trực\s+quan|thêm|lại|cụ\s+thể|"
+    r"bằng\s+(?:hình|đồ\s+thị|sơ\s+đồ|biểu\s+đồ)))?|hình\s+ảnh|hình\s+vẽ|trực\s+quan\s+hóa)\b"
+    r"|\b(?:vẽ|biểu\s+diễn|minh\s+họa|mô\s+phỏng|dựng)\s+"
+    r"(?:nó|ý\s+này|phần\s+này|ví\s+dụ\s+(?:này|đó|trên|vừa\s+nêu)|cho\s+(?:tôi|mình|em)|giúp(?:\s+(?:tôi|mình|em))?)\b"
     r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|hoàn thành nốt|đang dở|nốt đi)\b"
     r"|\b(?:được không|phải không|vậy ạ|thì sao|thế còn|vậy còn)\b"
     r")",

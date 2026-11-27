@@ -643,3 +643,71 @@ def test_natural_student_attempts_sliding_query_rewriting_and_conversation_windo
     assert packed_roles[0] == "system" and packed_roles[-1] == "user"
     for prev_role, next_role in zip(packed_roles[1:], packed_roles[2:]):
         assert prev_role != next_role
+
+
+def test_elliptical_visual_followup_preserves_multiturn_gradient_context_and_avoids_cubic_leak():
+    from study_worker.rag import ILLUSTRATION_REQUEST, contextualize_search_question, extract_topic_phrase
+
+    assert extract_topic_phrase("Chi tiết hơn kèm minh họa đi") == ""
+    assert extract_topic_phrase("Vẽ đồ thị biểu diễn cho tôi") == ""
+    assert extract_topic_phrase("Biểu diễn bằng sơ đồ giúp mình") == ""
+    assert extract_topic_phrase("Vẽ đồ thị hàm số y = x^2 - 4x + 3") != ""
+    assert ILLUSTRATION_REQUEST.search("Chi tiết hơn kèm minh họa đi")
+
+    gradient_history = [
+        {"id": "u1", "role": "user", "content": "gradient trong giải tích"},
+        {
+            "id": "a1",
+            "role": "assistant",
+            "content": "Gradient của hàm vô hướng cho biết hướng tăng nhanh nhất tại một điểm.",
+        },
+        {"id": "u2", "role": "user", "content": "Chi tiết hơn kèm minh họa đi"},
+        {
+            "id": "a2",
+            "role": "assistant",
+            "content": (
+                "Gradient của hàm số $f$ tại $M_0 \\in \\mathbb{R}^n$ là $\\nabla f(M_0)$.\n\n"
+                "Ví dụ: với $f(x,y) = x^2 + y^2$, tại $M_0(1,2)$ ta có $\\nabla f(M_0) = (2,4)$; "
+                "vectơ này chỉ hướng tăng nhanh nhất."
+            ),
+        },
+    ]
+
+    # Elliptical visual request continues the active Gradient thread, whereas a new explicit equation starts fresh.
+    thread = follow_up_history("Vẽ đồ thị biểu diễn cho tôi", gradient_history)
+    assert thread == gradient_history
+    assert follow_up_history("Vẽ đồ thị hàm số y = x^2 - 4x + 3", gradient_history) == []
+
+    # Topic contextualization stays anchored to Gradient instead of drifting to generic "đồ thị / biểu diễn".
+    topic_q = contextualize_search_question("Vẽ đồ thị biểu diễn cho tôi", thread)
+    assert "gradient" in topic_q.casefold()
+    assert "biểu diễn" not in topic_q.casefold()
+
+    rag_q = follow_up_query("Vẽ đồ thị biểu diễn cho tôi", thread, lambda t: len(t.split()))
+    assert "gradient trong giải tích" in rag_q
+    assert "x^2 + y^2" in rag_q
+    assert "(2,4)" in rag_q
+
+    sources = [
+        {
+            "id": "d4c1ade2-02d6-579c-9638-5be8c348d903",
+            "document_name": "Dao ham - Vi phan (1).pdf",
+            "content": "Gradient của hàm số f tại điểm M0 là vectơ có tọa độ là các đạo hàm riêng.",
+        }
+    ]
+    messages, _ = build_prompt(
+        "Vẽ đồ thị biểu diễn cho tôi",
+        thread,
+        sources,
+        lambda t: len(t.split()),
+        mode="library",
+        subject="calculus",
+        conversation_history=gradient_history,
+    )
+    full_prompt_text = "\n".join(m["content"] for m in messages)
+    assert "x^3 - 3*x" not in full_prompt_text
+    assert "x^3 - 3x" not in full_prompt_text
+    assert any("(2,4)" in m["content"] for m in messages[1:-1])
+    assert '"type":"vector"' in messages[-1]["content"]
+    assert '"grid":true' in messages[-1]["content"]
+

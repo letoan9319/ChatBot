@@ -77,8 +77,10 @@ FOLLOW_UP = re.compile(
     r"viết tiếp|nói tiếp|làm tiếp|trả lời tiếp|giải tiếp|hoàn thành nốt|đang dở|nốt đi)\b"
     r"|\bbước\s+(?:tiếp theo|\d+)\b"
     r"|\b(?:tại sao|vì sao|sao)\s+(?:lại|phải|cần|ở bước|nhân|chia|đổi|bỏ|thêm|dùng|như vậy)\b"
-    r"|\b(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài|ý|hàm(?:\s+số)?|phương trình|định lý|định luật|"
+    r"|\b(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài|ý|ví\s+dụ|trường\s+hợp|khái\s+niệm|đại\s+lượng|"
+    r"đồ\s+thị|hình(?:\s+vẽ)?|hàm(?:\s+số)?|phương trình|định lý|định luật|"
     r"ma trận|vectơ|vector|tích phân|giới hạn|biểu thức|hệ)\s+(?:này|đó|ấy|trên|vừa rồi|vừa nêu|lúc nãy)\b"
+    r"|\bkèm(?:\s+theo)?\s+(?:hình\s+)?minh\s+họa\b"
     r"|\b(?:mình|tôi|em)\s+(?:tính|làm|giải|biến đổi|đạo hàm|tích phân|rút gọn|thay|ra|được)\b"
     r"|\b(?:đúng\s+(?:không|chưa)|phải\s+không|sai\s+ở\s+(?:đâu|bước\s+nào|chỗ\s+nào)|kiểm\s+tra\s+(?:giúp|hộ|lại))\b"
     r"|^\s*(?:vậy(?:\s+thì|\s+nên|\s+là|\s+suy\s+ra|\s+[a-zA-Z0-9\\$])|thế\s+thì|rồi\s+sao|tức\s+là|"
@@ -109,8 +111,9 @@ COMPLEX_TOPIC = re.compile(
 
 
 VISUAL_REQUEST = re.compile(
-    r"biểu đồ|đồ thị(?:\s+hàm)?|vẽ hàm|phân tích lực|biểu diễn vect(?:or|ơ)|mặt phẳng nghiêng|"
-    r"line graph|line chart|sơ đồ|lưu đồ|diagram|flowchart|bar chart|learnstep-visual",
+    r"biểu đồ|đồ thị(?:\s+hàm)?|vẽ\s+(?:hàm|đồ\s+thị|hình|sơ\s+đồ|minh\s+họa)|"
+    r"biểu\s+diễn\s+(?:vect(?:or|ơ)|trực\s+quan|hình\s+học|bằng\s+(?:đồ\s+thị|hình|sơ\s+đồ))|"
+    r"phân tích lực|mặt phẳng nghiêng|line graph|line chart|sơ đồ|lưu đồ|diagram|flowchart|bar chart|learnstep-visual",
     re.I,
 )
 
@@ -172,7 +175,11 @@ VECTOR_REQUEST = re.compile(
     r"free[- ]body\s+diagram|vector\s+diagram)\b",
     re.I,
 )
-ILLUSTRATION_REQUEST = re.compile(r"\b(?:hình minh họa|minh họa bằng hình|mô phỏng|hình ảnh|illustration)\b", re.I)
+ILLUSTRATION_REQUEST = re.compile(
+    r"\b(?:hình\s+minh\s+họa|minh\s+họa\s+(?:bằng\s+hình|trực\s+quan)|"
+    r"kèm(?:\s+theo)?\s+(?:hình\s+)?minh\s+họa|mô\s+phỏng|hình\s+ảnh|illustration)\b",
+    re.I,
+)
 
 
 def concept_request(question, history=()):
@@ -325,6 +332,36 @@ def _shares_recent_topic(question, history):
     return False
 
 
+_ELLIPTICAL_VISUAL_RE = re.compile(
+    r"\b(?:vẽ|biểu\s+diễn|minh\s+họa|mô\s+phỏng|dựng)\b",
+    re.IGNORECASE,
+)
+
+_VECTOR_OR_MULTIVAR_CONTEXT_RE = re.compile(
+    r"(?:\bgradient\b|\\nabla|\u2207|\bvect(?:or|ơ)\b|\btrường\s+(?:vô\s+hướng|vect(?:or|ơ))\b|"
+    r"\bđạo\s+hàm\s+(?:riêng|theo\s+hướng)\b|\b[fgh]\s*\(\s*x\s*,\s*y\b)",
+    re.IGNORECASE,
+)
+
+_EXPLICIT_1D_PLOT_RE = re.compile(
+    r"(?:\b(?:y|[fgh]\s*\(\s*x\s*\))\s*=|\b(?:sin|cos|tan|ln|log|exp|sqrt)\s*\(\s*x\b|\bx\s*\^\s*\d)",
+    re.IGNORECASE,
+)
+
+
+def _is_elliptical_visual_followup(text):
+    stripped = (text or "").strip()
+    if not stripped or re.search(r"[=$^]|(?:\b[fghy]\s*\()", stripped):
+        return False
+    if not (
+        VISUAL_REQUEST.search(stripped)
+        or ILLUSTRATION_REQUEST.search(stripped)
+        or _ELLIPTICAL_VISUAL_RE.search(stripped)
+    ):
+        return False
+    return not extract_topic_phrase(stripped)
+
+
 def follow_up_history(question, history):
     """Keep turns back to the most recent standalone question."""
     if not history:
@@ -338,7 +375,7 @@ def follow_up_history(question, history):
         and not re.search(r"\blà\s+gì\b", stripped, re.IGNORECASE)
         and _shares_recent_topic(stripped, history)
     )
-    if not FOLLOW_UP.search(stripped) and not is_short_refinement:
+    if not (FOLLOW_UP.search(stripped) or _is_elliptical_visual_followup(stripped) or is_short_refinement):
         if not (interrupted_tail and not EXERCISE_REQUEST.search(stripped)):
             return []
     for index in range(len(history) - 1, -1, -1):
@@ -347,6 +384,7 @@ def follow_up_history(question, history):
         if (
             message["role"] == "user"
             and not FOLLOW_UP.search(msg_text)
+            and not _is_elliptical_visual_followup(msg_text)
             and not (index > 0 and len(msg_text.split()) <= 7 and _shares_recent_topic(msg_text, history[:index]))
         ):
             return history[index:]
@@ -414,7 +452,11 @@ _FOLLOWUP_STRIP_RE = re.compile(
     r"|\b(?:chưa hiểu|không hiểu|khó hiểu|mơ hồ|làm rõ|đi sâu|nói sâu|phân tích sâu)\b"
     r"|\b(?:cho\s+)?(?:mình\s+|tôi\s+|em\s+)?(?:một\s+|thêm\s+)?ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
     r"|\bví\s+dụ(?:\s+(?:khác|thực tế|thêm))?\b"
-    r"|\b(?:minh họa\s+thêm|bằng\s+hình(?:\s+minh\s+họa|\s+ảnh)?|hình\s+minh\s+họa|hình\s+ảnh)\b"
+    r"|\b(?:minh họa\s+thêm|kèm(?:\s+theo)?(?:\s+hình)?\s+minh\s+họa|"
+    r"bằng\s+(?:đồ\s+thị|hình(?:\s+minh\s+họa|\s+ảnh|\s+vẽ)?|sơ\s+đồ|biểu\s+đồ)|"
+    r"hình\s+minh\s+họa|hình\s+ảnh|hình\s+vẽ|đồ\s+thị|sơ\s+đồ|biểu\s+đồ|"
+    r"vẽ|biểu\s+diễn|minh\s+họa|mô\s+phỏng|dựng|trực\s+quan(?:\s+hóa)?)\b"
+    r"|\b(?:cho\s+(?:mình|tôi|em)|giúp(?:\s+(?:mình|tôi|em))?)\b"
     r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|hoàn thành nốt|đang dở|nốt đi)\b"
     r"|\b(?:thế còn|vậy còn|còn|thì sao|như vậy|từ đó|suy ra|ở trên|vừa rồi|vừa nêu|lúc nãy|được không|phải không|đúng không|đúng chưa|vậy ạ)\b"
     r"|\b(?:đi|nhé|nha|ạ|nữa|thêm|xem|với|thế|vậy)\b"
@@ -617,13 +659,12 @@ def build_prompt(
         visual_spec = (
             "Nếu hình giúp giải thích, tạo một khối mã đóng mở bằng ```learnstep-visual chứa JSON hợp lệ (không dùng nhãn ```json). "
             "Trong mọi chuỗi JSON chỉ dùng chữ thuần, tuyệt đối không dùng $, dấu gạch chéo ngược \\ hay Markdown. "
-            "Chọn kiểu phù hợp với ý cần minh họa. "
-            'Đồ thị hàm số liên tục: {"type":"plot","title":"...","xDomain":[-4,4],"functions":[{"expr":"x^3 - 3*x","label":"f(x)"}],'
-            '"shade":{"from":0,"to":2},"tangentAt":1,"points":[{"x":-1,"label":"Cực đại"}]} '
-            '(shade, tangentAt, points là tùy chọn; expr dùng ký hiệu toán thuần như x^3 - 3*x, sin(x), không dùng dấu gạch chéo LaTeX). '
-            'Sơ đồ vector / phân tích lực 2D: {"type":"vector","title":"...","grid":true,"planeAngle":0,"bodyLabel":"m",'
-            '"vectors":[{"label":"P","dx":0,"dy":-3,"tone":"warn"},{"label":"N","dx":0,"dy":3,"tone":"info"}]} '
-            '(với mặt phẳng nghiêng đặt planeAngle theo độ và grid=false; nhãn trong JSON dùng chữ thuần). '
+            "Chỉ biểu diễn đúng khái niệm, hàm số, vectơ và số liệu đang xét trong câu hỏi hoặc lượt trước; không tự bịa hàm khác. "
+            'Đồ thị hàm 1 biến: {"type":"plot","title":"...","xDomain":[-3,3],"functions":[{"expr":"<bieu_thuc_theo_x>","label":"f(x)"}]} '
+            '(tùy chọn "points":[{"x":1,"label":"A"}], "tangentAt":1 cho tiếp tuyến, "shade":{"from":0,"to":1} chỉ cho tích phân/diện tích; '
+            "expr là biểu thức toán thuần chỉ theo biến x với +, -, *, /, ^, sin, cos, sqrt, exp, ln; không chứa y hay LaTeX). "
+            'Vectơ Oxy / lực 2D: {"type":"vector","title":"...","grid":true,"vectors":[{"label":"v","x":0,"y":0,"dx":2,"dy":1,"tone":"primary"}]} '
+            '(vectơ tọa độ/gradient trên Oxy đặt grid=true và bỏ planeAngle, bodyLabel; phân tích lực mới đặt grid=false, "bodyLabel":"m", "planeAngle" theo độ). '
             'Sơ đồ khái niệm: {"type":"concept","title":"...","center":"Khái niệm chính",'
             '"items":[{"label":"Ý A","detail":"Quan hệ với ý chính"},{"label":"Ý B","detail":"Quan hệ với ý chính"}]}. '
             'Biểu đồ thanh: {"type":"bar","title":"...","items":[{"label":"...","value":12}]}. '
@@ -765,6 +806,20 @@ def build_prompt(
             "Chỉ dùng chữ thuần trong mọi chuỗi JSON, không dùng $, dấu gạch chéo ngược \\ hay Markdown. "
             "Viết lời giải thích hình bên ngoài khối."
         )
+        if follow_up:
+            tutoring_question += (
+                " Vì đây là yêu cầu tiếp nối trong hội thoại, bắt buộc dựng hình và giải thích khớp chính xác với "
+                "khái niệm, hàm số, điểm tọa độ hoặc số liệu ví dụ cụ thể vừa nêu ở lượt trước; "
+                "không lặp lại định nghĩa từ đầu và tuyệt đối không tự đổi sang một hàm số khác không có trong ngữ cảnh."
+            )
+        history_blob = "\n".join((m.get("content") or "") for m in history[-4:]) if follow_up else ""
+        multivar_or_vector = (
+            not _EXPLICIT_1D_PLOT_RE.search(question)
+            and bool(
+                _VECTOR_OR_MULTIVAR_CONTEXT_RE.search(question)
+                or _VECTOR_OR_MULTIVAR_CONTEXT_RE.search(history_blob)
+            )
+        )
         if CONCEPT_DIAGRAM.search(question):
             tutoring_question += (
                 " Với sơ đồ khái niệm, bắt buộc dùng type concept, có title, center và items. "
@@ -773,21 +828,31 @@ def build_prompt(
                 "Chỉ dùng chữ thuần trong JSON, không có LaTeX, dấu gạch chéo ngược hay Markdown. "
                 "Đặt công thức trong lời giải thích bên ngoài hình."
             )
-        elif PLOT_REQUEST.search(question):
-            tutoring_question += (
-                ' Với đồ thị hàm số, bắt buộc xuất khối ```learnstep-visual dùng "type":"plot", có "title", '
-                '"xDomain":[a,b] và "functions":[{"expr":"...","label":"f(x)"}] (tùy chọn "shade", "tangentAt", "points"). '
-                'Kể cả khi câu hỏi có phần bài tập, vẫn bắt buộc vẽ đồ thị hàm số đề bài đã cho trên miền xDomain '
-                'và hướng dẫn người học phần còn lại trong văn bản bên ngoài. '
-                'Trong "expr" chỉ viết biểu thức toán thuần như "x^3 - 3*x", "sin(x)", không viết LaTeX.'
-            )
         elif VECTOR_REQUEST.search(question):
             tutoring_question += (
                 ' Với sơ đồ vector hoặc phân tích lực 2D, bắt buộc xuất khối ```learnstep-visual dùng "type":"vector", '
-                'có "title", "grid" (true cho hệ trục tọa độ, false cho sơ đồ vật tự do), "planeAngle" (góc nghiêng theo độ, 0 nếu ngang), '
-                '"bodyLabel" (nếu là sơ đồ lực tác dụng lên vật) và "vectors":[{"label":"P","dx":0,"dy":-3,"tone":"warn"}]. '
+                'có "title", "grid" (true cho hệ trục tọa độ Oxy và bỏ qua planeAngle/bodyLabel; false cho sơ đồ vật tự do kèm "planeAngle" và "bodyLabel") '
+                'và "vectors":[{"label":"P","dx":0,"dy":-3,"tone":"warn"}]. '
                 'Kể cả khi là bài tập, vẫn bắt buộc xuất khối sơ đồ lực/vector này; chỉ dùng chữ thuần trong "title", "bodyLabel", "label" '
-                '(ví dụ "30 độ", "P", "N", "fms"), tuyệt đối không dùng $, \\circ hay \\vec trong JSON.'
+                '(ví dụ "30 độ", "P", "N", "fms", "grad f"), tuyệt đối không dùng $, \\circ hay \\vec trong JSON.'
+            )
+        elif PLOT_REQUEST.search(question) and multivar_or_vector:
+            tutoring_question += (
+                ' Ngữ cảnh đang xét vectơ, gradient hoặc hàm nhiều biến trong mặt phẳng Oxy: ưu tiên xuất khối ```learnstep-visual dùng '
+                '"type":"vector" với "grid":true (không đặt planeAngle hay bodyLabel) để biểu diễn trực tiếp vectơ trên mặt phẳng tọa độ tại đúng điểm ví dụ vừa nêu '
+                '(đặt "x", "y" là tọa độ điểm đặt và "dx", "dy" là thành phần vectơ, "label" ngắn gọn bằng chữ thuần như "grad f"); '
+                'hoặc nếu muốn vẽ đường mức hay mặt cắt một biến y = g(x) của đúng hàm đang xét thì dùng "type":"plot" với "expr" chỉ chứa duy nhất biến x '
+                '(tuyệt đối không đưa biến y vào "expr" và không tự đổi sang hàm số khác).'
+            )
+        elif PLOT_REQUEST.search(question):
+            tutoring_question += (
+                ' Với đồ thị hàm một biến, bắt buộc xuất khối ```learnstep-visual dùng "type":"plot", có "title", '
+                '"xDomain":[a,b] và "functions":[{"expr":"<bieu_thuc_theo_x>","label":"f(x)"}] (tùy chọn "shade", "tangentAt", "points") '
+                'cho đúng hàm số đang xét trong câu hỏi hoặc lượt trước. '
+                'Kể cả khi câu hỏi có phần bài tập, vẫn bắt buộc vẽ đồ thị hàm số đề bài đã cho trên miền xDomain '
+                'và hướng dẫn người học phần còn lại trong văn bản bên ngoài. '
+                'Trong "expr" chỉ viết biểu thức toán thuần theo biến x (dùng +, -, *, /, ^, sin(x), cos(x), sqrt(x), exp(x), ln(x)), '
+                'tuyệt đối không chứa biến y và không viết LaTeX.'
             )
 
     if reasoning and (mode in ("search", "research") or has_text_sources):
