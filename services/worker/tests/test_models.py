@@ -284,5 +284,5 @@ def test_finetuned_qwen35_model_name_supports_vision_and_relative_paths(monkeypa
 
     # Relative path inside repo root resolves even when CWD is services/worker.
     monkeypatch.chdir(REPO_ROOT / "services" / "worker")
-    resolved = resolve_local_path("models/README.md")
-    assert resolved == str(REPO_ROOT / "models" / "README.md")
+    resolved = resolve_local_path("docs/deployment.md")
+    assert resolved == str(REPO_ROOT / "docs" / "deployment.md")
