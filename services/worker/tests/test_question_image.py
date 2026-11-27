@@ -10,7 +10,13 @@ import pytest
 
 from study_worker.config import Settings
 from study_worker.documents import InvalidDocument
-from study_worker.question_image import extract_question_image, ollama_question_image
+from study_worker.question_image import extract_question_image, is_question_image, ollama_question_image
+
+
+def make_image(*, width=1600, height=1200, fmt="png"):
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, width, height), False)
+    pix.clear_with(245)
+    return pix.tobytes(fmt)
 
 
 def make_settings(**kwargs):
@@ -287,3 +293,44 @@ def test_ollama_question_image_default_and_custom_max_side():
 
     with pytest.raises(ValueError, match="max_side"):
         ollama_question_image(pdf, max_side=0)
+
+
+def test_native_png_and_jpeg_question_images_supported_end_to_end(monkeypatch):
+    assert is_question_image({"file_type": "png", "name": "Ảnh câu hỏi - bai1.png"}) is True
+    assert is_question_image({"file_type": "jpg", "name": "Ảnh câu hỏi - bai1.jpg"}) is True
+    assert is_question_image({"file_type": "webp", "name": "Ảnh câu hỏi - bai1.webp"}) is True
+    assert is_question_image({"file_type": "pdf", "name": "Ảnh câu hỏi - legacy.pdf"}) is True
+    assert is_question_image({"file_type": "png", "name": "normal.png"}) is False
+
+    png_bytes = make_image(width=1600, height=1200, fmt="png")
+    jpg_bytes = make_image(width=800, height=600, fmt="jpeg")
+
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"done": True, "done_reason": "stop", "message": {"content": "Câu 1: Tính đạo hàm của $x^2$"}},
+        )
+
+    patch_ollama_client(monkeypatch, handler)
+    settings = make_settings(ai_provider="ollama", chat_model="qwen3.5:4b-q4_K_M")
+
+    sections = extract_question_image(png_bytes, settings, lambda: None)
+    assert sections[0].page == 1
+    assert "x^2" in sections[0].text
+    ocr_png = b64decode(captured[0]["messages"][0]["images"][0])
+    assert ocr_png.startswith(b"\x89PNG\r\n\x1a\n")
+    width, height = struct.unpack(">II", ocr_png[16:24])
+    assert max(width, height) == 1400
+
+    # Small native JPEG keeps original resolution without upscaling.
+    jpg_b64 = ollama_question_image(jpg_bytes, max_side=1280)
+    jpg_pix = pymupdf.Pixmap(b64decode(jpg_b64))
+    assert (jpg_pix.width, jpg_pix.height) == (800, 600)
+
+    # Large native PNG is downscaled cleanly to max_side for local vision.
+    png_b64 = ollama_question_image(png_bytes, max_side=1280)
+    png_pix = pymupdf.Pixmap(b64decode(png_b64))
+    assert max(png_pix.width, png_pix.height) == 1280

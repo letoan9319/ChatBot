@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-provider";
 import { extractRoleNames, resolveUserPermissions } from "@/core/roles";
+import { isQuestionImageName } from "@/core/validation";
 import { sessionClient } from "@/core/supabase-server";
 import { KnowledgeManager, type ManageableDocument, type PublishedDocument } from "./knowledge-manager";
 import styles from "./knowledge.module.css";
@@ -37,7 +38,9 @@ export default async function KnowledgeAdminPage() {
     if (!loadFailed) {
       published = shared.data as PublishedDocument[];
       const publishedIds = new Set(published.map((document) => document.id));
-      documents = (own.data as ManageableDocument[]).filter((document) => !publishedIds.has(document.id));
+      documents = (own.data as ManageableDocument[]).filter(
+        (document) => !publishedIds.has(document.id) && !isQuestionImageName(document.name),
+      );
     }
   }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
-import { MAX_FILE_SIZE, statuses, subjects, type Subject } from "@/core/validation";
+import { MAX_FILE_SIZE, isImageFileType, mimeForFilename, statuses, subjects, type Subject } from "@/core/validation";
 import type {
   Conversation,
   Message,
@@ -27,7 +27,7 @@ import { StreamingAnswer } from "./streaming-answer";
 import { catalogEntries } from "@/core/document-catalog";
 import { DocumentRepository } from "./document-repository";
 import { PixelNavigationIcon } from "./sidebar-icon";
-import { chatImageToPdf, validateChatImage } from "@/core/chat-image";
+import { prepareChatImageFile, validateChatImage } from "@/core/chat-image";
 import { ChatDocumentMenu } from "./chat-document-menu";
 import { SelectField } from "./select-field";
 import { StudySettings } from "./study-settings";
@@ -122,7 +122,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
     activeChat: null,
   });
   const [question, setQuestion] = useState("");
-  const [questionImage, setQuestionImage] = useState<{ file: File; key: string; pdf?: File; documentId?: string } | null>(null);
+  const [questionImage, setQuestionImage] = useState<{ file: File; key: string; prepared?: File; documentId?: string } | null>(null);
   const [readingImage, setReadingImage] = useState(false);
   const [chatSubject, setChatSubject] = useState<Subject | "">("");
   const [failedImages, setFailedImages] = useState<Record<string, true>>({});
@@ -350,9 +350,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
       key,
     });
     if (result.upload) {
-      const contentType = /\.pdf$/i.test(file.name)
-        ? "application/pdf"
-        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const contentType = mimeForFilename(file.name) ?? file.type;
       const { error } = await browserClient()
         .storage.from("documents")
         .uploadToSignedUrl(result.upload.path, result.upload.token, file, {
@@ -378,9 +376,9 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
     if (!image.documentId) {
       if (!worker.ocrAvailable) throw new Error("Worker OCR đang tạm dừng. Hãy thử lại khi máy đọc ảnh hoạt động.");
       if (documents.length >= 20) throw new Error("Kho cá nhân đã đủ 20 tệp. Hãy xóa bớt tài liệu trước khi gửi ảnh.");
-      image.pdf ??= await chatImageToPdf(image.file);
+      image.prepared ??= await prepareChatImageFile(image.file);
       if (!isCurrent()) return;
-      image.documentId = await uploadPrivateDocument(image.pdf, chatSubject || "calculus", image.key);
+      image.documentId = await uploadPrivateDocument(image.prepared, chatSubject || "calculus", image.key);
     }
     const id = image.documentId;
     const deadline = Date.now() + 120_000;
@@ -1055,7 +1053,9 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                   <h3>{source.document_name}</h3><p className={styles.sourceLocation}>{location(source)}</p>
                   {source.available ? <>
                     <p className={styles.sourceExcerpt}>{source.content}</p>
-                    {source.url && <a className={styles.pdfLink} href={source.url} target="_blank" rel="noopener noreferrer">Mở trang PDF gốc</a>}
+                    {source.url && <a className={styles.pdfLink} href={source.url} target="_blank" rel="noopener noreferrer">
+                      {isImageFileType(source.document_name.split(".").pop()) ? "Mở ảnh gốc" : "Mở trang PDF gốc"}
+                    </a>}
                   </> : <p className={styles.emptyText}>Tài liệu đã bị xóa hoặc nguồn không còn khả dụng.</p>}
                 </article>
                   : <div className={styles.emptyLibrary}><h3>Đối chiếu lời giải</h3><p>Chọn trích dẫn bên dưới câu trả lời để đọc đoạn nguồn và mở tài liệu gốc.</p></div>}

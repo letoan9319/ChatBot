@@ -9,7 +9,11 @@ import { avatarIds, stickerIds } from "@/core/pixel-packs";
 import { checkMutationRequest, readJsonBody, RequestError } from "@/core/request-security";
 import { appRoles, extractRoleNames, resolveUserPermissions } from "@/core/roles";
 import {
+  fileTypeMime,
+  isImageFileType,
+  isQuestionImageName,
   keySchema,
+  MAX_QUESTION_IMAGE_SIZE,
   messageSchema,
   subjectSchema,
   uploadSchema,
@@ -530,8 +534,8 @@ async function handle(request: NextRequest) {
         parts.length === 2
       ) {
         const value = uploadSchema.parse(await body());
-        if (value.name.startsWith("Ảnh câu hỏi - ")) {
-          if (value.size > 3 * 1024 * 1024) throw new ApiError(400, "Ảnh câu hỏi vượt quá 3 MB.");
+        if (isQuestionImageName(value.name)) {
+          if (value.size > MAX_QUESTION_IMAGE_SIZE) throw new ApiError(400, "Ảnh câu hỏi vượt quá 3 MB.");
           const { data: online, error: ocrError } = await db.rpc("app_ocr_available");
           check(ocrError);
           if (!online) throw new ApiError(503, "Worker OCR đang tạm dừng. Hãy thử lại khi máy đọc ảnh hoạt động.");
@@ -583,11 +587,9 @@ async function handle(request: NextRequest) {
           );
           if (infoError || !info)
             throw new ApiError(400, "File chưa được tải lên thành công.");
-          const expectedType =
-            doc.file_type === "pdf"
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          const expectedType = fileTypeMime(doc.file_type);
           if (
+            !expectedType ||
             Number(info.size) !== Number(doc.size_bytes) ||
             info.contentType !== expectedType
           )
@@ -711,6 +713,8 @@ async function handle(request: NextRequest) {
       let url: string | null = null;
       if (doc.file_type === "pdf") {
         url = `/api/documents/${source.document_id}/file?page=${source.page || 1}`;
+      } else if (isImageFileType(doc.file_type)) {
+        url = `/api/documents/${source.document_id}/file`;
       }
       return json({ ...source, available: true, content: chunk.content, url });
     }

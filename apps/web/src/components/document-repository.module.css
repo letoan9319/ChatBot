@@ -89,6 +89,10 @@
 }
 
 .fileType[data-type="docx"] { background: #3155ad; }
+.fileType[data-type="png"],
+.fileType[data-type="jpg"],
+.fileType[data-type="jpeg"],
+.fileType[data-type="webp"] { background: #2b7a5b; }
 
 .rowText { min-width: 0; }
 .rowText h3 { margin: 0; font-size: 14px; font-weight: 750; line-height: 1.4; }

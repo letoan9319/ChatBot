@@ -10,7 +10,7 @@ export type ManageableDocument = {
   id: string;
   name: string;
   subject: keyof typeof subjects;
-  file_type: "pdf" | "docx";
+  file_type: string;
 };
 
 export type PublishedDocument = ManageableDocument & {

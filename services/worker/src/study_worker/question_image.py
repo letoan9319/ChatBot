@@ -11,6 +11,12 @@ import pymupdf
 
 from .documents import InvalidDocument, Section, clean_text
 
+MAX_QUESTION_IMAGE_BYTES = 3 * 1024 * 1024
+MAX_IMAGE_SIDE_PX = 8000
+MAX_IMAGE_PIXELS = 25_000_000
+IMAGE_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
+QUESTION_IMAGE_FILE_TYPES = ("pdf", *IMAGE_FILE_TYPES)
+
 QUESTION_OCR_PROMPT = (
     "Transcribe all text, choices, and formulas from this exercise image in reading order. "
     "Preserve Vietnamese diacritics exactly and write math/science formulas in LaTeX. "
@@ -21,18 +27,75 @@ QUESTION_OCR_PROMPT = (
 
 
 def is_question_image(doc):
-    return doc.get("file_type") == "pdf" and doc.get("name", "").startswith("Ảnh câu hỏi - ")
+    return (
+        doc.get("file_type") in QUESTION_IMAGE_FILE_TYPES
+        and doc.get("name", "").startswith("Ảnh câu hỏi - ")
+    )
 
 
-def _render_page_image(page, *, max_side, image_format="jpeg"):
-    side = max(page.rect.width, page.rect.height)
-    scale = min(2.0, max_side / side)
-    pixels = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False, colorspace=pymupdf.csRGB)
+def _detect_question_filetype(data: bytes) -> str | None:
+    if data.startswith(b"%PDF-"):
+        return "pdf"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def _encode_pixmap(pixels: pymupdf.Pixmap, *, image_format: str) -> str:
+    if pixels.alpha or pixels.colorspace != pymupdf.csRGB:
+        pixels = pymupdf.Pixmap(pymupdf.csRGB, pixels)
     if image_format == "png":
         raw = pixels.tobytes("png")
     else:
         raw = pixels.tobytes("jpeg", jpg_quality=92)
     return b64encode(raw).decode("ascii")
+
+
+def _render_page_image(page, *, max_side, image_format="jpeg", max_scale=2.0):
+    side = max(page.rect.width, page.rect.height)
+    scale = min(max_scale, max_side / side)
+    pixels = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False, colorspace=pymupdf.csRGB)
+    return _encode_pixmap(pixels, image_format=image_format)
+
+
+def _prepare_raster_image(data: bytes, filetype: str, *, max_side: int, image_format: str):
+    if filetype == "webp":
+        return b64encode(data).decode("ascii"), None
+    try:
+        pix = pymupdf.Pixmap(data)
+        width, height = pix.width, pix.height
+        if (
+            width <= 0
+            or height <= 0
+            or max(width, height) > MAX_IMAGE_SIDE_PX
+            or width * height > MAX_IMAGE_PIXELS
+        ):
+            raise InvalidDocument("Kích thước ảnh câu hỏi không hợp lệ.")
+        with pymupdf.open(stream=data, filetype=filetype) as doc:
+            if len(doc) != 1:
+                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
+            if max(width, height) > max_side:
+                page = doc[0]
+                side = max(page.rect.width, page.rect.height)
+                scale = max_side / side
+                rendered = page.get_pixmap(
+                    matrix=pymupdf.Matrix(scale, scale),
+                    alpha=False,
+                    colorspace=pymupdf.csRGB,
+                )
+                encoded = _encode_pixmap(rendered, image_format=image_format)
+            else:
+                encoded = _encode_pixmap(pix, image_format=image_format)
+            mineru_pdf = doc.convert_to_pdf()
+            return encoded, mineru_pdf
+    except InvalidDocument:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.") from exc
 
 
 def _clean_ocr_text(raw: str) -> str:
@@ -122,45 +185,59 @@ def extract_question_image(data, settings, check):
     use_mineru = bool(getattr(settings, "mineru_available", False))
     if not use_vision and not use_mineru:
         raise RuntimeError("Question OCR is not configured")
-    if len(data) > 3 * 1024 * 1024 or not data.startswith(b"%PDF-"):
-        raise InvalidDocument("Ảnh câu hỏi phải là PDF một trang dưới 3 MB.")
+    filetype = _detect_question_filetype(data)
+    if len(data) > MAX_QUESTION_IMAGE_BYTES or filetype is None:
+        raise InvalidDocument("Ảnh câu hỏi phải là ảnh PNG, JPEG, WebP hoặc PDF một trang dưới 3 MB.")
+
     rendered_image = None
-    try:
-        with pymupdf.open(stream=data, filetype="pdf") as pdf:
-            if pdf.needs_pass or len(pdf) != 1:
-                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
-            page = pdf[0]
-            side = max(page.rect.width, page.rect.height)
-            if not 0 < side <= 1800:
-                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
-            if use_vision:
-                rendered_image = _render_page_image(page, max_side=1400, image_format="png")
-    except InvalidDocument:
-        raise
-    except (ValueError, RuntimeError) as exc:
-        raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.") from exc
+    mineru_bytes = data
+    if filetype == "pdf":
+        try:
+            with pymupdf.open(stream=data, filetype="pdf") as pdf:
+                if pdf.needs_pass or len(pdf) != 1:
+                    raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
+                page = pdf[0]
+                side = max(page.rect.width, page.rect.height)
+                if not 0 < side <= 1800:
+                    raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
+                if use_vision:
+                    rendered_image = _render_page_image(page, max_side=1400, image_format="png")
+        except InvalidDocument:
+            raise
+        except (ValueError, RuntimeError) as exc:
+            raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.") from exc
+    else:
+        rendered_image, mineru_bytes = _prepare_raster_image(
+            data, filetype, max_side=1400, image_format="png"
+        )
+        if not use_vision and mineru_bytes is None:
+            raise InvalidDocument("Không đọc được ảnh câu hỏi định dạng WebP với MinerU. Hãy dùng PNG hoặc JPEG.")
 
     if use_vision:
         return _extract_with_ollama_vision(rendered_image, settings, check)
-    return _extract_with_mineru(data, settings, check)
+    return _extract_with_mineru(mineru_bytes, settings, check)
 
 
 def ollama_question_image(data, *, max_side=1280):
-    """Render the authorized single-page question PDF for local vision."""
+    """Render an authorized question image (native PNG/JPEG/WebP or legacy 1-page PDF) for local vision."""
     if max_side <= 0:
         raise ValueError("max_side must be positive")
-    if not data.startswith(b"%PDF-") or len(data) > 3 * 1024 * 1024:
+    filetype = _detect_question_filetype(data)
+    if filetype is None or len(data) > MAX_QUESTION_IMAGE_BYTES:
         raise InvalidDocument("Ảnh câu hỏi không hợp lệ.")
-    try:
-        with pymupdf.open(stream=data, filetype="pdf") as pdf:
-            if pdf.needs_pass or len(pdf) != 1:
-                raise InvalidDocument("Ảnh câu hỏi phải có đúng một trang.")
-            page = pdf[0]
-            side = max(page.rect.width, page.rect.height)
-            if not 0 < side <= 1800:
-                raise InvalidDocument("Kích thước ảnh câu hỏi không hợp lệ.")
-            return _render_page_image(page, max_side=max_side, image_format="jpeg")
-    except InvalidDocument:
-        raise
-    except (ValueError, RuntimeError) as exc:
-        raise InvalidDocument("Không thể đọc ảnh câu hỏi.") from exc
+    if filetype == "pdf":
+        try:
+            with pymupdf.open(stream=data, filetype="pdf") as pdf:
+                if pdf.needs_pass or len(pdf) != 1:
+                    raise InvalidDocument("Ảnh câu hỏi phải có đúng một trang.")
+                page = pdf[0]
+                side = max(page.rect.width, page.rect.height)
+                if not 0 < side <= 1800:
+                    raise InvalidDocument("Kích thước ảnh câu hỏi không hợp lệ.")
+                return _render_page_image(page, max_side=max_side, image_format="jpeg")
+        except InvalidDocument:
+            raise
+        except (ValueError, RuntimeError) as exc:
+            raise InvalidDocument("Không thể đọc ảnh câu hỏi.") from exc
+    encoded, _ = _prepare_raster_image(data, filetype, max_side=max_side, image_format="jpeg")
+    return encoded

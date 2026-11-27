@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import type { StudyDocument } from "@/core/types";
 import { catalogEntries, catalogSearch, documentReaderHref, partLabel } from "@/core/document-catalog";
-import { statuses, subjects } from "@/core/validation";
+import { isImageFileType, statuses, subjects } from "@/core/validation";
 import { SelectField } from "./select-field";
 import { DocumentListRow } from "./document-list-row";
 import styles from "./document-repository.module.css";
@@ -163,7 +163,7 @@ export function DocumentRepository({ documents, selected, loading, error, online
                     <span>{chosen ? "Đã chọn" : "Hỏi đáp"}</span>
                   </label>
                   {doc.status === "ready" && <a className={styles.openFile} href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer">
-                    {doc.file_type === "pdf" ? "Mở PDF" : "Tải DOCX"}<span className="sr-only">: {doc.name} (mở trong tab mới)</span>
+                    {doc.file_type === "pdf" ? "Mở PDF" : isImageFileType(doc.file_type) ? "Xem ảnh" : "Tải DOCX"}<span className="sr-only">: {doc.name} (mở trong tab mới)</span>
                   </a>}
                   {mode === "personal" && doc.status === "failed" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "retry")}>Thử xử lý lại</button>}
                   {mode === "personal" && doc.status === "uploading" && <button disabled={!online || actionId !== null} onClick={() => void act(doc, "complete")}>Xác nhận tải</button>}

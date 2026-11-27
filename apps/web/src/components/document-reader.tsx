@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DocumentDetail } from "@/core/types";
-import { statuses, subjects } from "@/core/validation";
+import { isImageFileType, statuses, subjects } from "@/core/validation";
 import { Brand } from "./brand";
 import { ThemeToggle } from "./theme-provider";
 import { Markdown } from "./markdown";
@@ -50,7 +50,13 @@ export function DocumentReader({ id, chunk, conversation, page }: { id: string; 
   const localPage = page && part && page >= part.firstPage && page <= part.lastPage
     ? page - part.firstPage + 1
     : chunk ? excerpt?.page : undefined;
-  const fileUrl = "/api/documents/" + id + "/file" + (localPage ? "?page=" + localPage : "");
+  const isImage = isImageFileType(document?.file_type);
+  const fileUrl = "/api/documents/" + id + "/file" + (!isImage && localPage ? "?page=" + localPage : "");
+  const formattedSize = document
+    ? document.size_bytes < 1024 * 1024
+      ? `${Math.max(1, Math.round(document.size_bytes / 1024))} KB`
+      : `${(document.size_bytes / 1024 / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} MB`
+    : "";
   async function toggleOcr() {
     if (ocrText) {
       setOcrExpanded((value) => !value);
@@ -85,13 +91,19 @@ export function DocumentReader({ id, chunk, conversation, page }: { id: string; 
               <h1>{volume?.name ?? document.name}</h1>
               {part && <p className={styles.metadata}>{partLabel(part)}{page && localPage ? " · đang mở trang " + page : ""}</p>}
               <p className={styles.metadata}>{subjects[document.subject as keyof typeof subjects] ?? document.subject}
-                <span> · {document.file_type.toUpperCase()} · {(document.size_bytes / 1024 / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} MB</span></p>
+                <span> · {document.file_type.toUpperCase()} · {formattedSize}</span></p>
               {document.description && <p>{document.description}</p>}
               {document.status === "ready" && <a className={styles.openFile} href={fileUrl}
-                target="_blank" rel="noopener noreferrer">{document.file_type === "pdf" ? `Mở PDF${localPage ? " tại trang " + (part ? localPage + part.firstPage - 1 : localPage) : " gốc"}` : "Tải tệp DOCX"}
+                target="_blank" rel="noopener noreferrer">{document.file_type === "pdf" ? `Mở PDF${localPage ? " tại trang " + (part ? localPage + part.firstPage - 1 : localPage) : " gốc"}` : isImage ? "Mở ảnh gốc" : "Tải tệp DOCX"}
                 <span className="sr-only"> (mở trong tab mới)</span></a>}
               {document.error && <p className="inline-error">{document.error}</p>}
             </article>
+            {document.status === "ready" && isImage && !volume && (
+              <figure className={styles.imageFrame}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className={styles.imagePreview} src={fileUrl} alt={document.name} />
+              </figure>
+            )}
             {volume && <DocumentVolumeNavigation volume={volume} id={id} conversation={conversation} />}
             {volume && <iframe className={styles.pdf} src={fileUrl}
               title={volume.name + (part ? " · " + partLabel(part) : "")} />}

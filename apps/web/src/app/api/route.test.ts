@@ -123,6 +123,11 @@ describe("API authorization and asynchronous boundaries", () => {
     mocks.rpc.mockResolvedValue({ data: { storage_path: "authorized/file.docx", file_type: "docx", name: "Giáo trình.docx" }, error: null });
     expect((await GET(request(`documents/${id}/file`))).status).toBe(307);
     expect(mocks.signFile).toHaveBeenLastCalledWith("authorized/file.docx", 120, { download: "Giáo trình.docx" });
+    mocks.rpc.mockResolvedValue({ data: { storage_path: "authorized/question.png", file_type: "png", name: "Ảnh câu hỏi - bai1.png" }, error: null });
+    const imageFile = await GET(request(`documents/${id}/file?page=1`));
+    expect(imageFile.status).toBe(307);
+    expect(imageFile.headers.get("location")).toBe("https://example.supabase.co/storage/signed/file");
+    expect(mocks.signFile).toHaveBeenLastCalledWith("authorized/question.png", 120, undefined);
     expect(mocks.admin).not.toHaveBeenCalled();
   });
   it("never signs denied files and rejects invalid repository identifiers or missing migrations", async () => {

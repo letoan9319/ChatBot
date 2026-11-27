@@ -704,7 +704,7 @@ class Pipeline:
               and (j.payload->'document_ids') ? d.id::text
             where j.user_id=%s and j.kind='chat' and a.conversation_id=%s
               and j.payload->>'user_message_id'=%s
-              and d.status='ready' and d.file_type='pdf' and d.name like 'Ảnh câu hỏi - %%'
+              and d.status='ready' and d.file_type in ('pdf','png','jpg','jpeg','webp') and d.name like 'Ảnh câu hỏi - %%'
               and j.payload->'versions'->>d.id::text=d.index_version::text
             order by d.id for share of d""",
             (job["user_id"], job["payload"]["conversation_id"], str(user_message_id)),
@@ -714,7 +714,7 @@ class Pipeline:
     def question_vision(self, job, image_versions):
         rows = self.conn.execute(
             """select id,index_version,storage_path from public.documents where id=any(%s::uuid[]) and user_id=%s
-               and status='ready' and file_type='pdf' and name like 'Ảnh câu hỏi - %%' order by id""",
+               and status='ready' and file_type in ('pdf','png','jpg','jpeg','webp') and name like 'Ảnh câu hỏi - %%' order by id""",
             (list(image_versions), job["user_id"]),
         ).fetchall()
         images = []

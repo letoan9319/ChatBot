@@ -50,6 +50,7 @@ before(async () => {
     "202611260002_admin_rbac.sql",
     "202611270001_learning_plans_delete.sql",
     "202611280001_course_lessons.sql",
+    "202611280002_native_question_images.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -921,4 +922,34 @@ test("RBAC enforces admin vs content_manager vs regular user permissions, last-a
   ]) {
     await assert.rejects(rpc("", fn, args), /UNAUTHORIZED/);
   }
+});
+
+test("native question images stay in original format with 3 MB cap and subject exemption", async () => {
+  const user = await learner();
+  const bucket = (await db.query("select allowed_mime_types from storage.buckets where id='documents'")).rows[0];
+  assert.ok(bucket.allowed_mime_types.includes("image/png"));
+  assert.ok(bucket.allowed_mime_types.includes("image/jpeg"));
+  assert.ok(bucket.allowed_mime_types.includes("image/webp"));
+
+  const pngDoc = await rpc(user, "app_upload_intent", ["Ảnh câu hỏi - bai1.png", 120000, "calculus", randomUUID()]);
+  assert.equal(pngDoc.file_type, "png");
+  assert.ok(pngDoc.storage_path.endsWith(".png"));
+
+  const webpDoc = await rpc(user, "app_upload_intent", ["Ảnh câu hỏi - bai2.webp", 90000, "calculus", randomUUID()]);
+  assert.equal(webpDoc.file_type, "webp");
+  assert.ok(webpDoc.storage_path.endsWith(".webp"));
+
+  await assert.rejects(
+    rpc(user, "app_upload_intent", ["photo.png", 10000, "calculus", randomUUID()]),
+    /INVALID_FILE/,
+  );
+  await assert.rejects(
+    rpc(user, "app_upload_intent", ["Ảnh câu hỏi - huge.jpg", 3 * 1024 * 1024 + 1, "calculus", randomUUID()]),
+    /INVALID_FILE/,
+  );
+
+  await db.query("update documents set status='ready' where id=$1", [pngDoc.id]);
+  const conv = await rpc(user, "app_create_conversation", [randomUUID()]);
+  const job = await rpc(user, "app_send_message", [conv, "Giải giúp bài này", [pngDoc.id], randomUUID(), "documents", "physics"]);
+  assert.equal(job.kind, "chat");
 });
