@@ -38,6 +38,7 @@ from .rag import (
     normalize_citation_marks,
     review_missing_citations,
     should_reason,
+    should_stream_thinking,
     strict_document_query,
     validate_citations,
 )
@@ -614,10 +615,39 @@ class Pipeline:
         prior_images = self.follow_up_images(job, anchor["id"]) if (anchor and not image_documents) else {}
         query = follow_up_query(question, history, self.models.count)
         search_query = clean_retrieval_query(query) or query
+        live_thinking = (
+            getattr(self.models, "supports_thinking_progress", False)
+            and getattr(self.models, "supports_thinking_stream", False)
+            and should_stream_thinking(question, has_image=bool(image_documents))
+        )
+        trace_steps: list[str] = []
+
+        def format_thinking_payload(reasoning_body: str = "") -> str | None:
+            body = (reasoning_body or "").strip()
+            if trace_steps and body:
+                return ("[trace]\n" + "\n".join(trace_steps) + "\n\n---\n\n" + body)[:32000]
+            if trace_steps:
+                return ("[trace]\n" + "\n".join(trace_steps))[:32000]
+            return body[:32000] if body else None
+
+        def emit_trace(step_line: str) -> None:
+            if not live_thinking or not step_line:
+                return
+            trace_steps.append(step_line)
+            if self.heartbeat.lost.is_set():
+                guard(self.conn, job)
+                raise LostLease()
+            self.save_thinking(job, None, format_thinking_payload())
+
         candidates = []
         vector_scores = {}
         carried_chunks = []
         if non_image_doc_ids:
+            emit_trace(
+                f"Đang tra cứu kho học liệu ({SUBJECTS[effective_subject]})…"
+                if effective_subject in SUBJECTS
+                else "Đang tra cứu kho học liệu…"
+            )
             vector = self.models.embed([search_query], query=True)[0]
             hits = self.vectors.search(job["user_id"], non_image_doc_ids, non_image_versions, vector, non_image_owners)
             for hit in hits:
@@ -746,6 +776,7 @@ class Pipeline:
         )
         if external_search and has_topic:
             did_web_search = True
+            emit_trace("Đang tìm kiếm nguồn học thuật bổ trợ…")
             terms = f"{topic_question} {SUBJECTS[effective_subject]}" if effective_subject in SUBJECTS else topic_question
             results, notices = search_web(
                 terms,
@@ -755,6 +786,8 @@ class Pipeline:
             )
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
+            if web:
+                emit_trace(f"Đã thu thập {len(web)} nguồn tham khảo học thuật.")
             candidates = merge_curriculum_and_web(candidates, web, mode)
         elif can_expand_web:
             explicit_web = explicit_web_request(question)
@@ -762,12 +795,19 @@ class Pipeline:
             curriculum_sufficient = carried_for_work_check or curriculum_covers_query(
                 topic_question, candidates, vector_scores=vector_scores
             )
+            if curriculum_sufficient and candidates:
+                emit_trace(f"Đã đối chiếu {len(candidates)} đoạn từ kho học liệu.")
             need_web_text = explicit_web or (
                 not curriculum_sufficient
                 and bool(extract_search_terms(search_query))
             )
             if need_web_text:
                 did_web_search = True
+                emit_trace(
+                    "Đang tra cứu thêm nguồn học thuật theo yêu cầu…"
+                    if explicit_web
+                    else "Kho học liệu chưa có đoạn khớp trực tiếp · Đang mở rộng tìm kiếm nguồn học thuật…"
+                )
                 terms = (
                     f"{topic_question} {SUBJECTS[effective_subject]}"
                     if effective_subject in SUBJECTS
@@ -782,6 +822,7 @@ class Pipeline:
                 illustrations = [source for source in results if source["kind"] == "image"]
                 web = [source for source in results if source["kind"] != "image"]
                 if web:
+                    emit_trace(f"Đã thu thập {len(web)} nguồn tham khảo bổ trợ.")
                     candidates = merge_curriculum_and_web(candidates, web, "search")
                 if explicit_web:
                     notices = web_notices
@@ -828,10 +869,10 @@ class Pipeline:
                 last_flush = time.monotonic()
 
             options = {"research": True} if mode == "research" else {}
-            if reason and getattr(self.models, "supports_thinking_progress", False):
+            if (reason or live_thinking) and getattr(self.models, "supports_thinking_progress", False):
                 def on_thinking(elapsed):
                     nonlocal last_thinking_flush
-                    self.save_thinking(job, elapsed, thinking_text or None)
+                    self.save_thinking(job, elapsed, format_thinking_payload(thinking_text))
                     last_thinking_flush = time.monotonic()
 
                 options["on_thinking"] = on_thinking
@@ -843,11 +884,11 @@ class Pipeline:
                         was_empty = not thinking_text
                         thinking_text = (thinking_text + piece)[:32000]
                         now = time.monotonic()
-                        if was_empty or now - last_thinking_flush >= 0.7:
+                        if was_empty or now - last_thinking_flush >= 0.35:
                             if self.heartbeat.lost.is_set():
                                 guard(self.conn, job)
                                 raise LostLease()
-                            self.save_thinking(job, None, thinking_text)
+                            self.save_thinking(job, None, format_thinking_payload(thinking_text))
                             last_thinking_flush = now
 
                     options["on_thinking_token"] = on_thinking_token

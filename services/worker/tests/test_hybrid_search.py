@@ -1099,3 +1099,45 @@ def test_curriculum_first_priority_expands_to_web_when_subject_refinement_misses
     completed_oos = [params[0] for sql, params in executed3 if "update public.messages set content=%s,status='completed'" in sql][0]
     assert completed_oos == OUT_OF_SCOPE_MESSAGE
 
+
+def test_live_thinking_streams_retrieval_trace_and_model_thoughts_on_normal_concept_turns(monkeypatch):
+    monkeypatch.setattr(worker_main, "search_web", lambda *_a, **_k: ([{
+        "url": "https://vi.wikipedia.org/?curid=10",
+        "title": "Gradient",
+        "content": "Trong giải tích vectơ, gradient của f(x,y) là vectơ đạo hàm riêng.",
+        "kind": "wikipedia",
+        "provider": "Wikipedia",
+    }], []))
+    monkeypatch.setattr(worker_main, "search_illustrations", lambda *_a, **_k: [])
+
+    pipeline, _ = _make_chat_pipeline(has_chunk=False, history_rows=[])
+    saved_thinking = []
+    pipeline.save_thinking = lambda _job, elapsed, content=None: saved_thinking.append((elapsed, content))
+
+    def streaming_generate(_prompt, on_reset=None, **opts):
+        assert "on_thinking" in opts and "on_thinking_token" in opts
+        opts["on_thinking"](None)
+        opts["on_thinking_token"]("Bước 1: Xác định khái niệm gradient trong giải tích.")
+        opts["on_thinking"](1800)
+        yield "Gradient là vectơ đạo hàm riêng [S1]."
+
+    pipeline.models.supports_thinking_progress = True
+    pipeline.models.supports_thinking_stream = True
+    pipeline.models.generate = streaming_generate
+
+    pipeline.chat({
+        "id": "job-lt", "queue_id": 40, "user_id": "student-1", "message_id": "msg-lt", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-lt", "user_message_id": "u-lt",
+            "question": "gradient trong giải tích",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": None,
+        },
+    })
+    # Verify trace steps were streamed BEFORE generation and combined with live model thinking tokens!
+    assert any(content and content.startswith("[trace]\nĐang tra cứu kho học liệu") for _, content in saved_thinking)
+    final_elapsed, final_payload = saved_thinking[-1]
+    assert final_elapsed == 1800
+    assert "[trace]\n" in final_payload
+    assert "Kho học liệu chưa có đoạn khớp trực tiếp" in final_payload
+    assert "\n\n---\n\nBước 1: Xác định khái niệm gradient trong giải tích." in final_payload
+

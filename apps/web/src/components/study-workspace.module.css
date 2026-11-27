@@ -354,10 +354,72 @@
 .messageLabel span { color: var(--muted); font-size: 10px; }
 .shell[data-answer-font-size="large"] .message :global(.markdown),
 .shell[data-answer-font-size="large"] .sourceExcerpt { font-size: 16px; }
-.citations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.citations :is(button, a, span) { max-width: 100%; padding: 5px 8px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 7px; background: var(--secondary-soft); color: var(--secondary-ink); text-align: left; font-size: 11px; }
+.sourcesFooter {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+.sourcesSummary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sourcesSummary::-webkit-details-marker { display: none; }
+.sourcesSummaryTitle {
+  font-weight: 700;
+  color: var(--text);
+}
+.sourcesSummaryBadges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.sourceOriginBadge {
+  max-width: 190px;
+  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sourcesChevron {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--motion-fast) ease;
+}
+.sourcesFooter[open] .sourcesChevron {
+  transform: rotate(90deg);
+}
+.citations {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+.citations :is(button, a, span) { max-width: 100%; padding: 6px 10px; min-height: 30px; overflow-wrap: anywhere; border: 1px solid var(--purple-line); border-radius: 8px; background: var(--surface); color: var(--secondary-ink); text-align: left; font-size: 12px; line-height: 1.45; }
 .citations [data-authority="curriculum"] { border-color: var(--green-line); background: var(--primary-soft); color: var(--primary-ink); }
-.citations [data-authority="web"] { border-color: var(--line-strong); background: var(--surface-alt); color: var(--muted); }
+.citations [data-authority="web"] { border-color: var(--line-strong); background: var(--surface); color: var(--text); }
 .composer { flex-shrink: 0; padding: 10px 24px 16px; background: var(--surface); }
 .documentMenu { position: relative; }
 .documentMenu > summary {

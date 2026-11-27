@@ -11,24 +11,44 @@ export function readApproach(content: string): string | null {
   return approach && approach.length <= 480 ? approach : null;
 }
 
-export function ThinkingProgress({ status, duration, thinking, content, sources = [] }: {
+function parseThinkingPayload(raw: string): { traceLines: string[]; reasoning: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { traceLines: [], reasoning: "" };
+  if (!trimmed.startsWith("[trace]\n")) {
+    return { traceLines: [], reasoning: trimmed };
+  }
+  const body = trimmed.slice("[trace]\n".length);
+  const dividerIdx = body.indexOf("\n\n---\n\n");
+  if (dividerIdx === -1) {
+    const traceLines = body.split("\n").map(line => line.trim()).filter(Boolean);
+    return { traceLines, reasoning: "" };
+  }
+  const tracePart = body.slice(0, dividerIdx);
+  const reasoning = body.slice(dividerIdx + "\n\n---\n\n".length).trim();
+  const traceLines = tracePart.split("\n").map(line => line.trim()).filter(Boolean);
+  return { traceLines, reasoning };
+}
+
+export function ThinkingProgress({ status, duration, thinking, content }: {
   status: string;
   started: boolean;
   duration?: number | null;
   thinking?: string | null;
   content: string;
   provider?: string | null;
-  sources?: { label: string; title: string; url: string }[];
 }) {
   const id = useId();
   const star = useRef<SVGSVGElement>(null);
   const rotation = useRef<number | null>(null);
   const streamBox = useRef<HTMLDivElement>(null);
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
   const active = status === "generating" && !content && duration == null;
   const liveThinking = thinking?.trim() ?? "";
-  const open = userOpen ?? (active && Boolean(liveThinking));
-  const activeLabel = "Đang suy nghĩ…";
+  const { traceLines, reasoning } = parseThinkingPayload(liveThinking);
+  const hasRichStream = Boolean(traceLines.length || reasoning);
+  const open = userOpen ?? (active && hasRichStream);
+  const activeLabel = elapsedSec > 0 ? `Đang suy nghĩ · ${elapsedSec}s…` : "Đang suy nghĩ…";
   const seconds = duration == null ? null : Math.max(1, Math.round(duration / 1000));
   const recorded = duration == null ? "" : duration < 1000
     ? "Đã suy nghĩ dưới 1 giây" : "Đã suy nghĩ trong " + seconds + " giây";
@@ -40,12 +60,7 @@ export function ThinkingProgress({ status, duration, thinking, content, sources 
         ? "Quá trình suy nghĩ bị gián đoạn"
         : "Đã suy nghĩ dưới 1 giây");
   const approach = status === "completed" ? readApproach(content) : null;
-  const approachSources = approach
-    ? sources.filter(source => approach.includes("[" + source.label + "]"))
-    : [];
-  const citedSources = approachSources.length ? approachSources
-    : sources.filter(source => status === "completed" && content.includes("[" + source.label + "]"));
-  const steps = !liveThinking ? [
+  const steps = !hasRichStream ? [
     duration != null && (duration < 1000
       ? "Đã phân tích câu hỏi và đối chiếu ngữ cảnh trong chưa đầy 1 giây."
       : "Đã phân tích câu hỏi và đối chiếu ngữ cảnh trong " + seconds + " giây."),
@@ -54,9 +69,21 @@ export function ThinkingProgress({ status, duration, thinking, content, sources 
   ] : [];
 
   useEffect(() => {
-    if (!active || !open || !liveThinking || !streamBox.current) return;
+    if (!active) {
+      setElapsedSec(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSec(Math.max(1, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || !open || !hasRichStream || !streamBox.current) return;
     streamBox.current.scrollTop = streamBox.current.scrollHeight;
-  }, [active, open, liveThinking]);
+  }, [active, open, liveThinking, hasRichStream]);
 
   useEffect(() => {
     const icon = star.current;
@@ -84,7 +111,7 @@ export function ThinkingProgress({ status, duration, thinking, content, sources 
     return () => settle.cancel();
   }, [active]);
 
-  return <div className={styles.u453 + (active ? "" : " " + styles.done) + (liveThinking ? " " + styles.withStream : "")}>
+  return <div className={styles.u453 + (active ? "" : " " + styles.done) + (hasRichStream ? " " + styles.withStream : "")}>
     <div className={styles.u453Wrap}>
       <button type="button" className={styles.u453Toggle} aria-expanded={open} aria-controls={id}
         onClick={() => setUserOpen(!open)}
@@ -107,10 +134,21 @@ export function ThinkingProgress({ status, duration, thinking, content, sources 
       <div className={styles.u453Panel} id={id} aria-hidden={!open} inert={!open}>
         <div className={styles.u453Inner}>
           <div className={styles.u453List}>
-            {liveThinking && <div className={styles.thoughtStream}>
+            {traceLines.length > 0 && <ul className={styles.traceList} aria-label="Tiến trình xử lý">
+              {traceLines.map((line, idx) => {
+                const isRunningStep = active && !reasoning && idx === traceLines.length - 1;
+                return (
+                  <li key={`${idx}-${line}`} className={styles.traceItem} data-active={isRunningStep ? "true" : undefined}>
+                    <span className={styles.traceDot} aria-hidden="true" />
+                    <span>{line}</span>
+                  </li>
+                );
+              })}
+            </ul>}
+            {reasoning && <div className={styles.thoughtStream}>
               <strong className={styles.thoughtTitle}>{active ? "Luồng suy nghĩ trực tiếp" : "Nội dung suy nghĩ"}</strong>
               <div ref={streamBox} className={styles.thoughtBody}>
-                <Markdown content={liveThinking} chatMath streaming={active} />
+                <Markdown content={reasoning} chatMath streaming={active} />
               </div>
             </div>}
             {steps.filter(Boolean).map((step, index) => <p key={index} className={styles.u453Line + (step ? " " + styles.visible : "")}>
@@ -120,11 +158,6 @@ export function ThinkingProgress({ status, duration, thinking, content, sources 
               <strong>Tóm tắt cách tiếp cận</strong>
               <Markdown content={approach} chatMath />
             </div>}
-            {citedSources.length > 0 && <ul aria-label={approachSources.length ? "Nguồn trong tóm tắt" : "Nguồn đã trích trong câu trả lời"}>
-              {citedSources.map(source => <li key={source.label}>
-                <a href={source.url} target="_blank" rel="noopener noreferrer">[{source.label}] {source.title}</a>
-              </li>)}
-            </ul>}
           </div>
         </div>
       </div>

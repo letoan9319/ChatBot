@@ -310,6 +310,20 @@ describe("stream display and reasoning details", () => {
     );
     expect(fastHtml).toContain("Đã suy nghĩ dưới 1 giây");
     expect(fastHtml).not.toContain("Không ghi nhận suy luận riêng");
+
+    const traceHtml = renderToStaticMarkup(
+      <ThinkingProgress
+        status="generating"
+        started
+        thinking={"[trace]\nĐang tra cứu kho học liệu (Giải tích)…\nĐã thu thập 2 nguồn tham khảo.\n\n---\n\nXét hàm khả vi $f(x, y)$"}
+        content=""
+      />,
+    );
+    expect(traceHtml).toContain('aria-expanded="true"');
+    expect(traceHtml).toContain("Tiến trình xử lý");
+    expect(traceHtml).toContain("Đang tra cứu kho học liệu (Giải tích)…");
+    expect(traceHtml).toContain("Luồng suy nghĩ trực tiếp");
+    expect(traceHtml).not.toContain("Nguồn đã trích trong câu trả lời");
   });
 });
 

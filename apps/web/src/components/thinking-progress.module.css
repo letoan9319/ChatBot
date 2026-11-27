@@ -49,8 +49,53 @@
 }
 
 .approach { margin: 8px 0 4px; font-size: 13px; }
-.withStream { width: min(100%, 640px); }
+.withStream { width: min(100%, 720px); }
+.traceList {
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ux-ink-2);
+}
+.traceItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.traceDot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transform: translateY(-1px);
+}
+.traceItem[data-active="true"] {
+  color: var(--ux-ink);
+  font-weight: 500;
+}
+.traceItem[data-active="true"] .traceDot {
+  background: var(--ux-accent);
+  animation: tracePulse 1.2s ease-in-out infinite;
+}
+@keyframes tracePulse {
+  0%, 100% { opacity: 1; transform: translateY(-1px) scale(1); }
+  50% { opacity: .4; transform: translateY(-1px) scale(.8); }
+}
 .thoughtStream { margin: 4px 0 8px; }
 .thoughtTitle { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; letter-spacing: .01em; color: var(--ux-ink-2); }
-.thoughtBody { max-height: 240px; overflow-y: auto; padding-right: 6px; font-size: 13.5px; line-height: 1.55; color: var(--ux-ink-2); }
+.thoughtBody {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  padding-right: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ux-ink-2);
+}
 .u453.done .thoughtBody { color: var(--ux-ink-3); }

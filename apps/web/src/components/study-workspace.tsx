@@ -265,7 +265,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
       if (document.visibilityState === "visible") {
         void refresh({ documents: pendingDocuments, chat: pendingChat });
       }
-    }, pendingChat ? 1000 : 2000);
+    }, pendingChat ? 500 : 2000);
     return () => clearInterval(timer);
   }, [refresh, pendingDocuments, pendingChat]);
   const followStream = useCallback(() => {
@@ -833,15 +833,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                   {message.role === "assistant" && (message.thinking_started_at || message.thinking_content || message.status === "generating" ||
                     (message.status === "completed" && (index === messages.length - 1 || readApproach(message.content)))) &&
                     <ThinkingProgress status={message.status} started={Boolean(message.thinking_started_at)}
-                      duration={message.thinking_ms} thinking={message.thinking_content} content={message.content} provider={message.generation_provider}
-                      sources={[
-                        ...(message.web_sources ?? []).filter(source => source.kind !== "image"),
-                        ...message.message_sources.map(source => ({
-                          label: source.label,
-                          title: source.document_name,
-                          url: `/study/documents/${source.document_id}?${new URLSearchParams({ chunk: source.chunk_id ?? "00000000-0000-0000-0000-000000000000" })}`,
-                        })),
-                      ]} />}
+                      duration={message.thinking_ms} thinking={message.thinking_content} content={message.content} provider={message.generation_provider} />}
                   {message.role === "assistant"
                     ? <StreamingAnswer content={message.content} status={message.status}
                         sources={message.status === "completed" ? message.message_sources : undefined}
@@ -850,16 +842,6 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                         onReveal={index === messages.length - 1 ? followStream : ignoreReveal} />
                     : <Markdown content={message.content} chatMath />}
                   {!message.content && message.status === "queued" && <p className={styles.emptyText}>Câu hỏi đã vào hàng đợi…</p>}
-                  {message.status === "completed" && message.message_sources.length > 0 && (
-                    <div className={styles.citations}>{message.message_sources.map((item) => (
-                      <Link key={item.id} data-authority="curriculum" href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}>[{item.label}] {item.document_name} · {location(item)}</Link>
-                    ))}</div>
-                  )}
-                  {message.status === "completed" && Boolean(message.web_sources?.some(item => item.kind !== "image")) && (
-                    <div className={styles.citations}>{message.web_sources?.filter(item => item.kind !== "image").map(item => (
-                      (() => { const safeUrl = safeExternalUrl(item.url); const provider = resolveWebProvider(item); return safeUrl ? <a key={item.label} data-authority="web" href={safeUrl} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · {provider}</a> : <span key={item.label} data-authority="web">[{item.label}] {item.title} · {provider}</span>; })()
-                    ))}</div>
-                  )}
                   {message.status === "completed" && (() => {
                     const visibleImages = (message.web_sources ?? []).filter(
                       (item) =>
@@ -917,6 +899,56 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                           );
                         })}
                       </div>
+                    );
+                  })()}
+                  {message.status === "completed" && (() => {
+                    const docSources = message.message_sources;
+                    const textWebSources = (message.web_sources ?? []).filter(item => item.kind !== "image");
+                    const totalSources = docSources.length + textWebSources.length;
+                    if (!totalSources) return null;
+                    const previewBadges = Array.from(new Set([
+                      ...docSources.map(item => item.document_name.replace(/\.(pdf|docx)$/i, "")),
+                      ...textWebSources.map(item => resolveWebProvider(item)),
+                    ]));
+                    return (
+                      <details className={styles.sourcesFooter}>
+                        <summary className={styles.sourcesSummary}>
+                          <span className={styles.sourcesSummaryTitle}>Nguồn trích dẫn ({totalSources})</span>
+                          <span className={styles.sourcesSummaryBadges}>
+                            {previewBadges.slice(0, 3).map(badge => (
+                              <span key={badge} className={styles.sourceOriginBadge}>{badge}</span>
+                            ))}
+                            {previewBadges.length > 3 && (
+                              <span className={styles.sourceOriginBadge}>+{previewBadges.length - 3}</span>
+                            )}
+                          </span>
+                          <svg className={styles.sourcesChevron} viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg>
+                        </summary>
+                        <div className={styles.citations}>
+                          {docSources.map((item) => (
+                            <Link
+                              key={item.id}
+                              data-authority="curriculum"
+                              href={`/study/documents/${item.document_id}?${new URLSearchParams({ chunk: item.chunk_id ?? "00000000-0000-0000-0000-000000000000", ...(conversationId && !temporary ? { conversation: conversationId } : {}) })}`}
+                            >
+                              <strong>[{item.label}]</strong> {item.document_name} · {location(item)}
+                            </Link>
+                          ))}
+                          {textWebSources.map((item) => {
+                            const safeUrl = safeExternalUrl(item.url);
+                            const provider = resolveWebProvider(item);
+                            return safeUrl ? (
+                              <a key={item.label} data-authority="web" href={safeUrl} target="_blank" rel="noopener noreferrer">
+                                <strong>[{item.label}]</strong> {item.title} · {provider}
+                              </a>
+                            ) : (
+                              <span key={item.label} data-authority="web">
+                                <strong>[{item.label}]</strong> {item.title} · {provider}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </details>
                     );
                   })()}
                   {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
