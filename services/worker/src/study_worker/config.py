@@ -64,6 +64,15 @@ class Settings:
     thinking_model: str = "qwen3.5:4b-q4_K_M"
     mineru_python: str = ""
     mineru_model: str = ""
+    r2_account_id: str = ""
+    r2_bucket: str = ""
+    r2_access_key_id: str = field(default="", repr=False)
+    r2_secret_access_key: str = field(default="", repr=False)
+    r2_endpoint: str = ""
+
+    @property
+    def r2_configured(self):
+        return bool(self.r2_endpoint and self.r2_bucket and self.r2_access_key_id and self.r2_secret_access_key)
 
     @property
     def mineru_available(self):
@@ -109,6 +118,14 @@ class Settings:
         qdrant_key = os.getenv("QDRANT_API_KEY", "")
         if not qdrant_key and urlparse(os.environ["QDRANT_URL"]).hostname not in ("localhost", "127.0.0.1", "::1"):
             raise ValueError("QDRANT_API_KEY is required for remote Qdrant.")
+        r2_account_id = os.getenv("R2_ACCOUNT_ID", "").strip()
+        r2_bucket = os.getenv("R2_BUCKET", "").strip()
+        r2_access_key_id = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+        r2_secret_access_key = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
+        r2_endpoint = (
+            os.getenv("R2_ENDPOINT", "").strip()
+            or (f"https://{r2_account_id}.r2.cloudflarestorage.com" if r2_account_id else "")
+        ).rstrip("/")
         settings = cls(
             *[os.environ[name] for name in names],
             qdrant_key=qdrant_key,
@@ -133,7 +150,16 @@ class Settings:
             searxng_url=os.getenv("SEARXNG_URL", "" if remote else "http://127.0.0.1:8888").strip().rstrip("/"),
             mineru_python=resolve_local_path(os.getenv("MINERU_PYTHON", "")),
             mineru_model=resolve_local_path(os.getenv("MINERU_MODEL_PATH", "")),
+            r2_account_id=r2_account_id,
+            r2_bucket=r2_bucket,
+            r2_access_key_id=r2_access_key_id,
+            r2_secret_access_key=r2_secret_access_key,
+            r2_endpoint=r2_endpoint,
         )
+        if settings.r2_configured:
+            parsed_r2 = urlparse(settings.r2_endpoint)
+            if parsed_r2.scheme != "https" or not parsed_r2.hostname:
+                raise ValueError("R2_ENDPOINT must use HTTPS.")
         if settings.searxng_url:
             search_url = urlparse(settings.searxng_url)
             local_search = search_url.hostname in ("localhost", "127.0.0.1", "::1")

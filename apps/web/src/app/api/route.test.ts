@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   signFile: vi.fn(),
   storageBucket: vi.fn(),
 }));
+vi.mock("server-only", () => ({}));
 vi.mock("@/core/supabase-server", () => ({
   sessionClient: async () => ({
     auth: { getUser: mocks.getUser },
@@ -565,5 +566,94 @@ describe("API authorization and asynchronous boundaries", () => {
     found = null;
     expect((await remove(`learning-plans/${id}`)).status).toBe(404);
     expect((await remove("learning-plans/not-a-uuid")).status).toBe(400);
+  });
+  it("routes R2 uploads and downloads through presigned SigV4 URLs with 90% quota error mapping", async () => {
+    process.env.R2_ACCOUNT_ID = "acct123";
+    process.env.R2_BUCKET = "learnstep-documents";
+    process.env.R2_ACCESS_KEY_ID = "AKIA123";
+    process.env.R2_SECRET_ACCESS_KEY = "SECRET456";
+    try {
+      mocks.rpc.mockResolvedValueOnce({
+        data: {
+          id,
+          storage_path: `authenticated-owner/${id}.pdf`,
+          storage_provider: "r2",
+          file_type: "pdf",
+          size_bytes: 1024,
+          status: "uploading",
+          created_at: new Date().toISOString(),
+        },
+        error: null,
+      });
+      const intentRes = await POST(
+        request("documents/upload-intent", {
+          name: "giao-trinh.pdf",
+          size: 1024,
+          subject: "calculus",
+          key: id,
+        }),
+      );
+      expect(intentRes.status).toBe(201);
+      const intentBody = await intentRes.json();
+      expect(intentBody.upload.provider).toBe("r2");
+      expect(intentBody.upload.url).toContain("https://acct123.r2.cloudflarestorage.com/learnstep-documents/");
+      expect(mocks.rpc).toHaveBeenLastCalledWith("app_upload_intent", {
+        p_name: "giao-trinh.pdf",
+        p_size: 1024,
+        p_subject: "calculus",
+        p_key: id,
+        p_provider: "r2",
+      });
+
+      mocks.rpc
+        .mockResolvedValueOnce({
+          data: {
+            storage_path: `authenticated-owner/${id}.pdf`,
+            storage_provider: "r2",
+            file_type: "pdf",
+            name: "giao-trinh.pdf",
+          },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { class_b_ops: 1 }, error: null });
+      const fileRes = await GET(request(`documents/${id}/file?page=3`));
+      expect(fileRes.status).toBe(307);
+      expect(fileRes.headers.get("location")).toContain("https://acct123.r2.cloudflarestorage.com/learnstep-documents/");
+      expect(fileRes.headers.get("location")).toContain("#page=3");
+      expect(mocks.rpc).toHaveBeenLastCalledWith("app_consume_storage_op", { p_kind: "class_b", p_count: 1 });
+
+      mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "STORAGE_QUOTA_REACHED" } });
+      expect(
+        (
+          await POST(
+            request("documents/upload-intent", {
+              name: "giao-trinh.pdf",
+              size: 1024,
+              subject: "calculus",
+              key: id,
+            }),
+          )
+        ).status,
+      ).toBe(507);
+
+      mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: "STORAGE_OPS_LIMIT_REACHED" } });
+      expect(
+        (
+          await POST(
+            request("documents/upload-intent", {
+              name: "giao-trinh.pdf",
+              size: 1024,
+              subject: "calculus",
+              key: id,
+            }),
+          )
+        ).status,
+      ).toBe(429);
+    } finally {
+      delete process.env.R2_ACCOUNT_ID;
+      delete process.env.R2_BUCKET;
+      delete process.env.R2_ACCESS_KEY_ID;
+      delete process.env.R2_SECRET_ACCESS_KEY;
+    }
   });
 });

@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 from .config import Settings
 from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image, ollama_question_image
+from .r2 import R2Client
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
 from .rag import (
@@ -371,6 +372,44 @@ class Pipeline:
             timeout=60,
             headers=storage_headers,
         )
+        self.r2 = (
+            R2Client(
+                settings.r2_endpoint,
+                settings.r2_bucket,
+                settings.r2_access_key_id,
+                settings.r2_secret_access_key,
+                timeout=60.0,
+            )
+            if getattr(settings, "r2_configured", False)
+            else None
+        )
+
+    def _consume_r2_class_b(self):
+        if isinstance(self.conn, psycopg.Connection):
+            with self.conn.transaction():
+                self.conn.execute("select app_private.consume_storage_op('class_b', 1)")
+
+    def _open_document_stream(self, doc):
+        if doc.get("storage_provider") == "r2":
+            if self.r2 is None:
+                raise RuntimeError("Cloudflare R2 is required to read this document.")
+            self._consume_r2_class_b()
+            return self.r2.stream_get(doc["storage_path"])
+        return self.storage.stream(
+            "GET", f"/storage/v1/object/authenticated/documents/{doc['storage_path']}"
+        )
+
+    def _delete_document_object(self, doc):
+        if doc.get("storage_provider") == "r2":
+            if self.r2 is None:
+                raise RuntimeError("Cloudflare R2 is required to delete this document.")
+            self.r2.delete(doc["storage_path"])
+            return
+        response = self.storage.request(
+            "DELETE", "/storage/v1/object/documents", json={"prefixes": [doc["storage_path"]]}
+        )
+        if response.status_code != 404:
+            response.raise_for_status()
 
     def _get_stream_conn(self):
         stream_conn = getattr(self, "_stream_conn", None)
@@ -408,9 +447,7 @@ class Pipeline:
                 "update public.documents set status='processing',error=null where id=%s and status in ('queued','processing')",
                 (doc["id"],),
             )
-        with self.storage.stream(
-            "GET", f"/storage/v1/object/authenticated/documents/{doc['storage_path']}"
-        ) as response:
+        with self._open_document_stream(doc) as response:
             response.raise_for_status()
             data = bytearray()
             for block in response.iter_bytes(65536):
@@ -489,11 +526,7 @@ class Pipeline:
             finish(self.conn, job)
             return
         self.vectors.delete(job["user_id"], doc["id"], doc["vector_collection"])
-        response = self.storage.request(
-            "DELETE", "/storage/v1/object/documents", json={"prefixes": [doc["storage_path"]]}
-        )
-        if response.status_code != 404:
-            response.raise_for_status()
+        self._delete_document_object(doc)
         with self.conn.transaction():
             guard(self.conn, job)
             self.conn.execute("select id from public.documents where id=%s for update", (doc["id"],))
@@ -506,14 +539,10 @@ class Pipeline:
         # Re-sweep tombstones until the last possible upload token has expired,
         # then do one final durable cleanup even after a long worker outage.
         rows = self.conn.execute(
-            "select id,storage_path,upload_cleanup_after from public.documents where status='deleted' and not upload_cleanup_done limit 100"
+            "select id,storage_path,storage_provider,upload_cleanup_after from public.documents where status='deleted' and not upload_cleanup_done limit 100"
         ).fetchall()
         for row in rows:
-            response = self.storage.request(
-                "DELETE", "/storage/v1/object/documents", json={"prefixes": [row["storage_path"]]}
-            )
-            if response.status_code != 404:
-                response.raise_for_status()
+            self._delete_document_object(row)
             self.conn.execute(
                 "update public.documents set upload_cleanup_done=true where id=%s and status='deleted' and upload_cleanup_after<now()",
                 (row["id"],),
@@ -713,7 +742,7 @@ class Pipeline:
 
     def question_vision(self, job, image_versions):
         rows = self.conn.execute(
-            """select id,index_version,storage_path from public.documents where id=any(%s::uuid[]) and user_id=%s
+            """select id,index_version,storage_path,storage_provider from public.documents where id=any(%s::uuid[]) and user_id=%s
                and status='ready' and file_type in ('pdf','png','jpg','jpeg','webp') and name like 'Ảnh câu hỏi - %%' order by id""",
             (list(image_versions), job["user_id"]),
         ).fetchall()
@@ -724,9 +753,7 @@ class Pipeline:
             guard(self.conn, job)
             try:
                 data = bytearray()
-                with self.storage.stream(
-                    "GET", f"/storage/v1/object/authenticated/documents/{doc['storage_path']}"
-                ) as response:
+                with self._open_document_stream(doc) as response:
                     response.raise_for_status()
                     for block in response.iter_bytes(65536):
                         data.extend(block)

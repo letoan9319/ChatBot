@@ -342,7 +342,10 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
   async function uploadPrivateDocument(file: File, subject: string, key = crypto.randomUUID()) {
     const result = await api<{
       document: StudyDocument;
-      upload: { path: string; token: string } | null;
+      upload:
+        | { provider: "r2"; url: string; contentType: string }
+        | { provider?: "supabase"; path: string; token: string }
+        | null;
     }>("documents/upload-intent", "POST", {
       name: file.name,
       size: file.size,
@@ -350,19 +353,34 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
       key,
     });
     if (result.upload) {
-      const contentType = mimeForFilename(file.name) ?? file.type;
-      const { error } = await browserClient()
-        .storage.from("documents")
-        .uploadToSignedUrl(result.upload.path, result.upload.token, file, {
-          contentType,
-        });
+      let uploadFailed = false;
+      if (result.upload.provider === "r2" && "url" in result.upload) {
+        try {
+          const response = await fetch(result.upload.url, {
+            method: "PUT",
+            headers: { "Content-Type": result.upload.contentType },
+            body: file,
+          });
+          uploadFailed = !response.ok;
+        } catch {
+          uploadFailed = true;
+        }
+      } else if ("path" in result.upload) {
+        const contentType = mimeForFilename(file.name) ?? file.type;
+        const { error } = await browserClient()
+          .storage.from("documents")
+          .uploadToSignedUrl(result.upload.path, result.upload.token, file, {
+            contentType,
+          });
+        uploadFailed = Boolean(error);
+      }
       // A lost upload response may still have committed the object. The API verifies it.
       try {
         await api(`documents/${result.document.id}/complete`, "POST", {
           key: crypto.randomUUID(),
         });
       } catch (completeError) {
-        if (error)
+        if (uploadFailed)
           throw new Error(
             "Tải file thất bại. Xóa bản tải dở trong danh sách rồi thử lại.",
           );

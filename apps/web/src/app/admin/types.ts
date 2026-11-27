@@ -23,8 +23,24 @@ export type AdminAuditEntry = {
   created_at: string;
 };
 
+export type AdminStorageQuota = {
+  month_key: string;
+  used_bytes: number;
+  storage_limit_bytes: number;
+  storage_free_tier_bytes: number;
+  class_a_ops: number;
+  class_a_limit: number;
+  class_a_free_tier: number;
+  class_b_ops: number;
+  class_b_limit: number;
+  class_b_free_tier: number;
+  r2_documents: number;
+  supabase_documents: number;
+};
+
 export type AdminOverview = {
   counts: AdminCounts;
+  storage_quota?: AdminStorageQuota;
   recent_audit: AdminAuditEntry[];
 };
 

@@ -179,6 +179,49 @@ export function AdminConsole({
         </div>
       </section>
 
+      {overview.storage_quota && (() => {
+        const q = overview.storage_quota;
+        const usedGb = (q.used_bytes / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+        const limitGb = (q.storage_limit_bytes / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 });
+        const freeGb = (q.storage_free_tier_bytes / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 0 });
+        const pct = (value: number, max: number) =>
+          max > 0 ? Math.min(100, Math.round((value / max) * 1000) / 10) : 0;
+        const quotaCards = [
+          {
+            label: `Dung lượng R2 (chốt chặn 90% = ${limitGb} / ${freeGb} GB)`,
+            value: `${usedGb} GB (${pct(q.used_bytes, q.storage_limit_bytes)}%)`,
+          },
+          {
+            label: `Class A tháng ${q.month_key} (chốt chặn ${q.class_a_limit.toLocaleString("vi-VN")})`,
+            value: `${q.class_a_ops.toLocaleString("vi-VN")} (${pct(q.class_a_ops, q.class_a_limit)}%)`,
+          },
+          {
+            label: `Class B tháng ${q.month_key} (chốt chặn ${q.class_b_limit.toLocaleString("vi-VN")})`,
+            value: `${q.class_b_ops.toLocaleString("vi-VN")} (${pct(q.class_b_ops, q.class_b_limit)}%)`,
+          },
+          {
+            label: "Phân bổ tệp (R2 / Supabase)",
+            value: `${q.r2_documents} / ${q.supabase_documents}`,
+          },
+        ];
+        return (
+          <section className={styles.section} aria-labelledby="admin-storage-quota-heading">
+            <div className={styles.sectionHeading}>
+              <h2 id="admin-storage-quota-heading">Chốt chặn an toàn lưu trữ R2 (90%)</h2>
+              <span>Tự động chặn ghi/đọc khi chạm 90% hạn mức miễn phí</span>
+            </div>
+            <div className={styles.metricsGrid}>
+              {quotaCards.map((card) => (
+                <div className={styles.metricCard} key={card.label}>
+                  <span className={styles.metricLabel}>{card.label}</span>
+                  <strong className={styles.metricValue}>{card.value}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
       <section className={styles.section} aria-labelledby="admin-roles-heading">
         <div className={styles.sectionHeading}>
           <h2 id="admin-roles-heading">Quản lý phân quyền người dùng</h2>

@@ -51,6 +51,7 @@ before(async () => {
     "202611270001_learning_plans_delete.sql",
     "202611280001_course_lessons.sql",
     "202611280002_native_question_images.sql",
+    "202611280003_r2_storage_quota.sql",
   ]) {
     const sql = await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
     await db.exec(sql.replace("create extension if not exists pgmq;", "")
@@ -952,4 +953,61 @@ test("native question images stay in original format with 3 MB cap and subject e
   const conv = await rpc(user, "app_create_conversation", [randomUUID()]);
   const job = await rpc(user, "app_send_message", [conv, "Giải giúp bài này", [pngDoc.id], randomUUID(), "documents", "physics"]);
   assert.equal(job.kind, "chat");
+});
+
+test("R2 90% free-tier safety caps block writes and reads before exceeding limits while allowing deletes", async () => {
+  const user = await learner();
+  const admin = await learner();
+  await db.query("insert into user_roles(user_id,role) values($1,'admin')", [admin]);
+
+  // Verify default 90% limits: 9 GB storage, 900k Class A, 9M Class B.
+  const initial = await rpc(admin, "app_admin_overview", []);
+  assert.equal(initial.storage_quota.storage_limit_bytes, 9000000000);
+  assert.equal(initial.storage_quota.class_a_limit, 900000);
+  assert.equal(initial.storage_quota.class_b_limit, 9000000);
+
+  // Tighten limits in test to exercise hard stops deterministically.
+  await db.query(
+    `update app_private.storage_quota_limits
+     set storage_limit_bytes = 250000, class_a_limit = 2, class_b_limit = 2
+     where id = 1`,
+  );
+  try {
+    const first = await rpc(user, "app_upload_intent", ["r2-a.pdf", 200000, "calculus", randomUUID(), "r2"]);
+    assert.equal(first.storage_provider, "r2");
+    await db.query("update documents set status='ready' where id=$1", [first.id]);
+    const fileInfo = await rpc(user, "app_document_file", [first.id]);
+    assert.equal(fileInfo.storage_provider, "r2");
+
+    // Second upload exceeding 250 KB storage cap must be blocked with STORAGE_QUOTA_REACHED.
+    await assert.rejects(
+      rpc(user, "app_upload_intent", ["r2-b.pdf", 60000, "calculus", randomUUID(), "r2"]),
+      /STORAGE_QUOTA_REACHED/,
+    );
+
+    // Deleting first document reclaims space; second upload now fits within storage cap (uses Class A op #2).
+    await db.query("update documents set status='deleted' where id=$1", [first.id]);
+    const second = await rpc(user, "app_upload_intent", ["r2-c.pdf", 100000, "calculus", randomUUID(), "r2"]);
+    assert.equal(second.storage_provider, "r2");
+
+    // Class A cap (2) is now exhausted -> third R2 upload blocked with STORAGE_OPS_LIMIT_REACHED.
+    await assert.rejects(
+      rpc(user, "app_upload_intent", ["r2-d.pdf", 10000, "calculus", randomUUID(), "r2"]),
+      /STORAGE_OPS_LIMIT_REACHED/,
+    );
+
+    // Class B cap (2) allows 2 ops and blocks the 3rd.
+    await rpc(user, "app_consume_storage_op", ["class_b", 1]);
+    await rpc(user, "app_consume_storage_op", ["class_b", 1]);
+    await assert.rejects(
+      rpc(user, "app_consume_storage_op", ["class_b", 1]),
+      /STORAGE_OPS_LIMIT_REACHED/,
+    );
+  } finally {
+    await db.query(
+      `update app_private.storage_quota_limits
+       set storage_limit_bytes = 9000000000, class_a_limit = 900000, class_b_limit = 9000000
+       where id = 1`,
+    );
+  }
 });

@@ -4,6 +4,12 @@ import { groupReactionOptions } from "@/core/group-reactions";
 import { learningPlanSchema } from "@/core/learning-plan";
 import { lessonIdSchema, lessonSaveSchema, quizSubmitSchema } from "@/core/course";
 import { sessionClient, storageAdmin } from "@/core/supabase-server";
+import {
+  createR2SignedDownloadUrl,
+  createR2SignedUploadUrl,
+  headR2Object,
+  isR2Configured,
+} from "@/core/r2-storage";
 import { profileSchema, USERNAME_HELP } from "@/core/profile";
 import { avatarIds, stickerIds } from "@/core/pixel-packs";
 import { checkMutationRequest, readJsonBody, RequestError } from "@/core/request-security";
@@ -56,6 +62,14 @@ const failures: Record<string, [number, string]> = {
   GROUP_OWNER: [409, "Chủ nhóm không thể rời nhóm học."],
   LAST_ADMIN: [409, "Không thể thu hồi quyền của quản trị viên cuối cùng."],
   INVALID_INPUT: [400, "Dữ liệu quản trị không hợp lệ."],
+  STORAGE_QUOTA_REACHED: [
+    507,
+    "Dung lượng lưu trữ đã đạt chốt chặn an toàn 90% hạn mức miễn phí (9 GB / 10 GB). Vui lòng xóa bớt tài liệu hoặc liên hệ quản trị viên.",
+  ],
+  STORAGE_OPS_LIMIT_REACHED: [
+    429,
+    "Lưu lượng thao tác lưu trữ tháng này đã đạt chốt chặn an toàn 90% hạn mức miễn phí. Vui lòng thử lại vào tháng sau hoặc liên hệ quản trị viên.",
+  ],
 };
 
 const adminRoleUpdateSchema = z.object({
@@ -500,14 +514,31 @@ async function handle(request: NextRequest) {
           const { data: doc, error } = await db.rpc("app_document_file", { p_id: id });
           checkRepository(error);
           if (!doc) throw new ApiError(404, "Không tìm thấy tài liệu.");
-          const { data: signed, error: signError } = await db.storage.from("documents").createSignedUrl(
-            doc.storage_path, 120, doc.file_type === "docx" ? { download: doc.name } : undefined,
-          );
-          check(signError);
-          if (!signed?.signedUrl) throw new ApiError(404, "Tệp tài liệu không còn khả dụng.");
+          let signedUrl: string;
+          if (doc.storage_provider === "r2") {
+            if (!isR2Configured()) {
+              throw new ApiError(503, "Dịch vụ lưu trữ tệp R2 chưa được cấu hình.");
+            }
+            const { error: opError } = await db.rpc("app_consume_storage_op", {
+              p_kind: "class_b",
+              p_count: 1,
+            });
+            check(opError);
+            signedUrl = createR2SignedDownloadUrl(doc.storage_path, {
+              expiresSeconds: 120,
+              downloadName: doc.file_type === "docx" ? doc.name : undefined,
+            });
+          } else {
+            const { data: signed, error: signError } = await db.storage.from("documents").createSignedUrl(
+              doc.storage_path, 120, doc.file_type === "docx" ? { download: doc.name } : undefined,
+            );
+            check(signError);
+            if (!signed?.signedUrl) throw new ApiError(404, "Tệp tài liệu không còn khả dụng.");
+            signedUrl = signed.signedUrl;
+          }
           const page = request.nextUrl.searchParams.get("page");
           const suffix = doc.file_type === "pdf" && page ? `#page=${z.coerce.number().int().min(1).max(200).parse(page)}` : "";
-          const response = NextResponse.redirect(`${signed.signedUrl}${suffix}`, 307);
+          const response = NextResponse.redirect(`${signedUrl}${suffix}`, 307);
           response.headers.set("Cache-Control", "private, no-store");
           return response;
         }
@@ -540,13 +571,16 @@ async function handle(request: NextRequest) {
           check(ocrError);
           if (!online) throw new ApiError(503, "Worker OCR đang tạm dừng. Hãy thử lại khi máy đọc ảnh hoạt động.");
         }
-        requireStorageConfiguration();
-        const { data: doc, error } = await db.rpc("app_upload_intent", {
+        const useR2 = isR2Configured();
+        if (!useR2) requireStorageConfiguration();
+        const intentArgs: Record<string, unknown> = {
           p_name: value.name,
           p_size: value.size,
           p_subject: value.subject,
           p_key: value.key,
-        });
+        };
+        if (useR2) intentArgs.p_provider = "r2";
+        const { data: doc, error } = await db.rpc("app_upload_intent", intentArgs);
         check(error);
         if (doc.status !== "uploading")
           return json({ document: doc, upload: null });
@@ -557,6 +591,12 @@ async function handle(request: NextRequest) {
             409,
             "Phiên tải lên đã hết hạn. Xác nhận file đã tải hoặc xóa bản tải dở và thử lại.",
           );
+        if (doc.storage_provider === "r2" || useR2) {
+          const contentType = fileTypeMime(doc.file_type);
+          if (!contentType) throw new ApiError(400, "Định dạng tệp không được hỗ trợ.");
+          const url = createR2SignedUploadUrl(doc.storage_path, contentType, 3600);
+          return json({ document: doc, upload: { provider: "r2", url, contentType } }, 201);
+        }
         const { data: upload, error: uploadError } =
           await storageAdmin().createSignedUploadUrl(doc.storage_path, {
             upsert: false,
@@ -581,17 +621,36 @@ async function handle(request: NextRequest) {
         check(docError);
         if (!doc) throw new ApiError(404, "Không tìm thấy tài liệu.");
         if (action === "complete" && doc.status === "uploading") {
-          requireStorageConfiguration();
-          const { data: info, error: infoError } = await storageAdmin().info(
-            doc.storage_path,
-          );
-          if (infoError || !info)
-            throw new ApiError(400, "File chưa được tải lên thành công.");
           const expectedType = fileTypeMime(doc.file_type);
+          let uploadedSize: number;
+          let uploadedType: string | null;
+          if (doc.storage_provider === "r2") {
+            if (!isR2Configured()) {
+              throw new ApiError(503, "Dịch vụ lưu trữ tệp R2 chưa được cấu hình.");
+            }
+            const { error: opError } = await db.rpc("app_consume_storage_op", {
+              p_kind: "class_b",
+              p_count: 1,
+            });
+            check(opError);
+            const info = await headR2Object(doc.storage_path);
+            if (!info) throw new ApiError(400, "File chưa được tải lên thành công.");
+            uploadedSize = info.size;
+            uploadedType = info.contentType;
+          } else {
+            requireStorageConfiguration();
+            const { data: info, error: infoError } = await storageAdmin().info(
+              doc.storage_path,
+            );
+            if (infoError || !info)
+              throw new ApiError(400, "File chưa được tải lên thành công.");
+            uploadedSize = Number(info.size);
+            uploadedType = info.contentType ?? null;
+          }
           if (
             !expectedType ||
-            Number(info.size) !== Number(doc.size_bytes) ||
-            info.contentType !== expectedType
+            uploadedSize !== Number(doc.size_bytes) ||
+            uploadedType !== expectedType
           )
             throw new ApiError(
               400,
