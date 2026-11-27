@@ -998,3 +998,104 @@ def test_cross_subject_history_and_authorized_source_carry_over(monkeypatch):
     )
     assert stale == []
 
+
+def test_curriculum_first_priority_expands_to_web_when_subject_refinement_misses_library_and_blocks_off_scope(monkeypatch):
+    from study_worker.rag import OUT_OF_SCOPE_MESSAGE
+    from study_worker.retrieval import curriculum_covers_query, detect_explicit_subject, extract_search_terms
+
+    # 1. Stripping generic course modifier prevents false-positive preface hits on "tích" in "gradient trong giải tích".
+    assert detect_explicit_subject("gradient trong giải tích") == "calculus"
+    assert extract_search_terms("gradient trong giải tích") == ["gradient"]
+    preface_chunk = {
+        "id": "preface-1",
+        "document_id": "calc-1",
+        "document_name": "Giải tích 1 Giáo trình (trang 1-45).pdf",
+        "subject": "calculus",
+        "content": "Lời tựa cuốn sách phân tích một cách toàn cục chương trình năm nhất.",
+        "vector_score": 0.42,
+    }
+    assert curriculum_covers_query("gradient trong giải tích", [preface_chunk]) is False
+
+    # 2. Follow-up "gradient trong giải tích" after Turn 1 Physics hit checks Calculus library first, finds 0 coverage,
+    #    and automatically expands to academic web search.
+    history_rows = [
+        {"id": "u-0", "role": "user", "content": "Gradient là gì", "status": "completed"},
+        {"id": "a-0", "role": "assistant", "content": "Trong vật lý, gradient từ trường... [S1].", "status": "completed"},
+    ]
+    web_calls = []
+    sample_web = {
+        "url": "https://vi.wikipedia.org/?curid=10",
+        "title": "Gradient",
+        "content": "Trong giải tích vectơ, gradient của hàm vô hướng f(x,y) là vectơ đạo hàm riêng.",
+        "kind": "wikipedia",
+        "provider": "Wikipedia",
+    }
+    monkeypatch.setattr(
+        worker_main,
+        "search_web",
+        lambda *args, **kwargs: web_calls.append((args, kwargs)) or ([sample_web], []),
+    )
+    monkeypatch.setattr(worker_main, "search_illustrations", lambda *_a, **_k: [])
+
+    pipeline, executed = _make_chat_pipeline(
+        has_chunk=False,
+        answer_text="Trong giải tích, gradient của f(x,y) là vectơ đạo hàm riêng [S1].",
+        history_rows=history_rows,
+    )
+    pipeline.chat({
+        "id": "job-p1", "queue_id": 30, "user_id": "student-1", "message_id": "msg-p1", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-1",
+            "question": "gradient trong giải tích",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": None,
+        },
+    })
+    # Verified: queried shared library scoped to effective_subject == 'calculus' FIRST, then fell back to web search.
+    catalog_queries = [params for sql, params in executed if "from public.knowledge_documents k" in sql and "vector_collection=%s" in sql]
+    assert catalog_queries[0][-2:] == ("calculus", "calculus")
+    assert len(web_calls) == 1
+    assert "gradient" in web_calls[0][0][0].casefold()
+    saved_web = [params[0].obj for sql, params in executed if "set web_sources=%s" in sql][0]
+    assert saved_web[0]["title"] == "Gradient"
+
+    # 3. Post-generation fallback: if library returned a chunk that looked lexically similar, but LLM could not cite it
+    #    (used == []), worker automatically triggers Stage 2 web search and regenerates with citation.
+    web_calls.clear()
+    responses = iter([
+        "Gradient là vectơ chỉ hướng tăng nhanh nhất.",
+        "[]",
+        "Theo nguồn bổ trợ [S2], gradient là vectơ đạo hàm riêng.",
+    ])
+    pipeline2, executed2 = _make_chat_pipeline(has_chunk=True, history_rows=[])
+    pipeline2.models.generate = lambda _p, on_reset=None, **_o: (x for x in [next(responses)])
+    pipeline2.save_partial = lambda *_a, **_k: None
+    pipeline2.chat({
+        "id": "job-p2", "queue_id": 31, "user_id": "student-1", "message_id": "msg-p2", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-2", "user_message_id": "u-2",
+            "question": "Đạo hàm theo hướng và gradient liên hệ thế nào?",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": "calculus",
+        },
+    })
+    assert len(web_calls) == 1
+    saved_web2 = [params[0].obj for sql, params in executed2 if "set web_sources=%s" in sql][0]
+    assert saved_web2[0]["label"] == "S2"
+
+    # 4. Out-of-academic-scope query is refused immediately without embedding or calling search_web.
+    web_calls.clear()
+    embed_calls = []
+    pipeline3, executed3 = _make_chat_pipeline(has_chunk=False, history_rows=[])
+    pipeline3.models.embed = lambda texts, query=False: embed_calls.append(texts) or [[0.1] * 4]
+    pipeline3.chat({
+        "id": "job-oos", "queue_id": 32, "user_id": "student-1", "message_id": "msg-oos", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-3", "user_message_id": "u-3",
+            "question": "hôm nay trời bao nhiêu độ",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": None,
+        },
+    })
+    assert embed_calls == []
+    assert web_calls == []
+    completed_oos = [params[0] for sql, params in executed3 if "update public.messages set content=%s,status='completed'" in sql][0]
+    assert completed_oos == OUT_OF_SCOPE_MESSAGE
+

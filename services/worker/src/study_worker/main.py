@@ -21,6 +21,7 @@ from .openrouter import OutputLimit, ProviderError
 from .rag import (
     ILLUSTRATION_REQUEST,
     NO_EVIDENCE,
+    OUT_OF_SCOPE_MESSAGE,
     STUDENT_WORK_CHECK,
     SUBJECTS,
     allows_general_knowledge,
@@ -32,13 +33,24 @@ from .rag import (
     first_image_hint,
     follow_up_history,
     follow_up_query,
+    is_out_of_academic_scope,
+    is_scope_refusal,
     normalize_citation_marks,
     review_missing_citations,
     should_reason,
     strict_document_query,
     validate_citations,
 )
-from .retrieval import clean_retrieval_query, expand_stub_chunks, extract_search_terms, is_meta_document_query, lexical_search_chunks, rerank_curriculum_candidates
+from .retrieval import (
+    clean_retrieval_query,
+    curriculum_covers_query,
+    detect_explicit_subject,
+    expand_stub_chunks,
+    extract_search_terms,
+    is_meta_document_query,
+    lexical_search_chunks,
+    rerank_curriculum_candidates,
+)
 from .web_search import extract_topic_phrase, search_illustrations, search_web
 
 LOG = logging.getLogger("study_worker")
@@ -488,6 +500,7 @@ class Pipeline:
         non_image_owners,
         non_image_versions,
         using_shared_catalog,
+        effective_subject=None,
     ):
         if not thread_history or not non_image_doc_ids:
             return []
@@ -535,6 +548,7 @@ class Pipeline:
                 or doc_id not in non_image_owners
                 or str(row.get("user_id") or "") != str(non_image_owners[doc_id])
                 or row.get("index_version") != non_image_versions.get(doc_id)
+                or (effective_subject and row.get("subject") and row.get("subject") != effective_subject)
             ):
                 continue
             seen.add((doc_id, chunk_id))
@@ -547,28 +561,15 @@ class Pipeline:
         payload = job["payload"]
         mode = payload.get("mode", "documents")
         subject = payload.get("subject")
+        question = payload["question"]
+        explicit_subject = detect_explicit_subject(question)
+        effective_subject = subject or explicit_subject
         guard(self.conn, job)
         image_documents = self.chat_documents(job)
         image_doc_set = set(image_documents or ())
         document_ids = payload["document_ids"]
         versions = payload["versions"]
         owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in document_ids}
-        using_shared_catalog = not document_ids and mode in ("library", "search", "research")
-        if using_shared_catalog:
-            catalog = self.conn.execute(
-                """select d.id,d.user_id,d.index_version from public.knowledge_documents k
-                join public.documents d on d.id=k.document_id where d.status='ready'
-                and d.embedding_profile=%s and d.vector_collection=%s
-                and (%s::text is null or d.subject=%s)""",
-                (self.settings.embedding_profile, self.vectors.collection, subject, subject),
-            ).fetchall()
-            document_ids = [str(row["id"]) for row in catalog]
-            versions = {str(row["id"]): row["index_version"] for row in catalog}
-            owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
-        non_image_doc_ids = [doc_id for doc_id in document_ids if str(doc_id) not in image_doc_set]
-        non_image_owners = {str(doc_id): owners[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in owners}
-        non_image_versions = {str(doc_id): versions[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in versions}
-        question = payload["question"]
         raw_history = self.conn.execute(
             """select role,content,id,status from public.messages
             where conversation_id=%s and user_id=%s
@@ -583,6 +584,31 @@ class Pipeline:
                 job["user_id"],
             ),
         ).fetchall()[::-1]
+        if not image_documents and not document_ids and is_out_of_academic_scope(question, raw_history):
+            with self.conn.transaction():
+                guard(self.conn, job)
+                self.chat_documents(job, lock=True)
+                self.conn.execute(
+                    "update public.messages set content=%s,status='completed',generation_provider=%s where id=%s",
+                    (OUT_OF_SCOPE_MESSAGE, self.settings.ai_provider, job["message_id"]),
+                )
+                finish(self.conn, job)
+            return
+        using_shared_catalog = not document_ids and mode in ("library", "search", "research")
+        if using_shared_catalog:
+            catalog = self.conn.execute(
+                """select d.id,d.user_id,d.index_version from public.knowledge_documents k
+                join public.documents d on d.id=k.document_id where d.status='ready'
+                and d.embedding_profile=%s and d.vector_collection=%s
+                and (%s::text is null or d.subject=%s)""",
+                (self.settings.embedding_profile, self.vectors.collection, effective_subject, effective_subject),
+            ).fetchall()
+            document_ids = [str(row["id"]) for row in catalog]
+            versions = {str(row["id"]): row["index_version"] for row in catalog}
+            owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
+        non_image_doc_ids = [doc_id for doc_id in document_ids if str(doc_id) not in image_doc_set]
+        non_image_owners = {str(doc_id): owners[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in owners}
+        non_image_versions = {str(doc_id): versions[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in versions}
         history = follow_up_history(question, raw_history)
         anchor = history[0] if history and history[0]["role"] == "user" else None
         prior_images = self.follow_up_images(job, anchor["id"]) if (anchor and not image_documents) else {}
@@ -590,6 +616,7 @@ class Pipeline:
         search_query = clean_retrieval_query(query) or query
         candidates = []
         vector_scores = {}
+        carried_chunks = []
         if non_image_doc_ids:
             vector = self.models.embed([search_query], query=True)[0]
             hits = self.vectors.search(job["user_id"], non_image_doc_ids, non_image_versions, vector, non_image_owners)
@@ -614,7 +641,7 @@ class Pipeline:
                         point.get("document_id"),
                         point.get("user_id"),
                         non_image_versions.get(point.get("document_id")),
-                        subject, subject,
+                        effective_subject, effective_subject,
                         using_shared_catalog,
                         job["user_id"],
                     ),
@@ -628,7 +655,7 @@ class Pipeline:
                 self.conn,
                 job["user_id"],
                 non_image_doc_ids,
-                subject,
+                effective_subject,
                 using_shared_catalog,
                 non_image_owners,
                 non_image_versions,
@@ -645,7 +672,7 @@ class Pipeline:
                 candidates = rerank_curriculum_candidates(
                     search_query,
                     candidates,
-                    subject=subject,
+                    subject=effective_subject,
                     min_score=getattr(self.settings, "min_score", 0.35),
                     vector_scores=vector_scores,
                 )
@@ -654,23 +681,24 @@ class Pipeline:
                     candidates = rerank_curriculum_candidates(
                         search_query,
                         candidates,
-                        subject=subject,
+                        subject=effective_subject,
                         min_score=getattr(self.settings, "min_score", 0.35),
                         vector_scores=vector_scores,
                     )
             if history:
-                carried = self.carry_over_chunks(
+                carried_chunks = self.carry_over_chunks(
                     job,
                     history,
                     non_image_doc_ids,
                     non_image_owners,
                     non_image_versions,
                     using_shared_catalog,
+                    effective_subject=effective_subject,
                 )
-                if carried:
+                if carried_chunks:
                     seen_keys = {(str(item.get("document_id") or ""), str(item.get("id") or "")) for item in candidates}
                     extras = [
-                        item for item in carried
+                        item for item in carried_chunks
                         if (str(item.get("document_id") or ""), str(item.get("id") or "")) not in seen_keys
                     ]
                     candidates = [*candidates[:3], *extras[:2], *candidates[3:]]
@@ -700,6 +728,7 @@ class Pipeline:
         external_search = mode in ("search", "research")
         notices = []
         illustrations = []
+        did_web_search = False
         topic_question = contextualize_search_question(question, history)
         has_topic = bool(extract_topic_phrase(topic_question))
         explicit_illustration = bool(ILLUSTRATION_REQUEST.search(question))
@@ -708,8 +737,16 @@ class Pipeline:
             if history
             else (explicit_illustration or concept_request(question))
         )
+        can_expand_web = (
+            mode in ("documents", "library")
+            and has_topic
+            and not image_versions
+            and not strict_document_query(question)
+            and not is_meta_document_query(topic_question)
+        )
         if external_search and has_topic:
-            terms = f"{topic_question} {SUBJECTS[subject]}" if subject in SUBJECTS else topic_question
+            did_web_search = True
+            terms = f"{topic_question} {SUBJECTS[effective_subject]}" if effective_subject in SUBJECTS else topic_question
             results, notices = search_web(
                 terms,
                 mode,
@@ -719,15 +756,23 @@ class Pipeline:
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
             candidates = merge_curriculum_and_web(candidates, web, mode)
-        elif mode in ("documents", "library") and has_topic and not image_versions and not strict_document_query(question):
+        elif can_expand_web:
             explicit_web = explicit_web_request(question)
+            carried_for_work_check = bool(carried_chunks and STUDENT_WORK_CHECK.search(question))
+            curriculum_sufficient = carried_for_work_check or curriculum_covers_query(
+                topic_question, candidates, vector_scores=vector_scores
+            )
             need_web_text = explicit_web or (
-                not candidates
-                and not is_meta_document_query(topic_question)
+                not curriculum_sufficient
                 and bool(extract_search_terms(search_query))
             )
             if need_web_text:
-                terms = f"{topic_question} {SUBJECTS[subject]}" if subject in SUBJECTS else topic_question
+                did_web_search = True
+                terms = (
+                    f"{topic_question} {SUBJECTS[effective_subject]}"
+                    if effective_subject in SUBJECTS
+                    else topic_question
+                )
                 results, web_notices = search_web(
                     terms,
                     "search",
@@ -737,14 +782,14 @@ class Pipeline:
                 illustrations = [source for source in results if source["kind"] == "image"]
                 web = [source for source in results if source["kind"] != "image"]
                 if web:
-                    candidates = merge_curriculum_and_web(candidates, web, "search" if explicit_web else mode)
+                    candidates = merge_curriculum_and_web(candidates, web, "search")
                 if explicit_web:
                     notices = web_notices
             elif want_illustrations:
                 illustrations = search_illustrations(
                     topic_question,
                     self.settings.searxng_url,
-                    subject_label=SUBJECTS.get(subject, ""),
+                    subject_label=SUBJECTS.get(effective_subject, ""),
                 )
         guard(self.conn, job)
         self.chat_documents(job)
@@ -755,7 +800,7 @@ class Pipeline:
             candidates,
             self.models.count,
             mode,
-            subject=subject,
+            subject=effective_subject,
             reasoning=(reason or external_search) and not image_versions,
             conversation_history=raw_history,
             new_question_image=bool(image_documents),
@@ -862,6 +907,64 @@ class Pipeline:
                             check_review_active,
                         )
                     answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
+                    if (
+                        not used
+                        and can_expand_web
+                        and not did_web_search
+                        and not is_scope_refusal(answer)
+                        and bool(extract_search_terms(search_query))
+                    ):
+                        did_web_search = True
+                        terms = (
+                            f"{topic_question} {SUBJECTS[effective_subject]}"
+                            if effective_subject in SUBJECTS
+                            else topic_question
+                        )
+                        results, _ = search_web(
+                            terms,
+                            "search",
+                            self.settings.searxng_url,
+                            image_question=topic_question if (want_illustrations and not illustrations) else "",
+                        )
+                        web = [source for source in results if source["kind"] != "image"]
+                        if not illustrations:
+                            illustrations = [source for source in results if source["kind"] == "image"]
+                        if web:
+                            candidates = merge_curriculum_and_web(candidates, web, "search")
+                            prompt, selected = build_prompt(
+                                question,
+                                history,
+                                candidates,
+                                self.models.count,
+                                mode,
+                                subject=effective_subject,
+                                reasoning=reason and not image_versions,
+                                conversation_history=raw_history,
+                                new_question_image=bool(image_documents),
+                            )
+                            reset_answer()
+                            try:
+                                with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
+                                    for token in tokens:
+                                        if self.heartbeat.lost.is_set():
+                                            guard(self.conn, job)
+                                            raise LostLease()
+                                        answer += token
+                                        if time.monotonic() - last_flush >= 0.5:
+                                            if token and not image_documents:
+                                                self.save_partial(job, answer)
+                                            else:
+                                                guard(self.conn, job)
+                                            last_flush = time.monotonic()
+                            except OutputLimit:
+                                truncated = True
+                            answer = close_visual_block(answer, question)
+                            answer = normalize_citation_marks(answer)
+                            if answer.strip() and not re.search(r"\[S\d+\]", answer):
+                                answer = review_missing_citations(question, answer, selected, self.models)
+                            answer, used = validate_citations(answer, selected, allow_uncited=allow_uncited)
+                    if is_scope_refusal(answer):
+                        illustrations = []
                     if answer != NO_EVIDENCE:
                         if truncated:
                             answer += "\n\n*Đã chạm giới hạn độ dài. Bạn có thể hỏi tiếp về phần còn lại.*"

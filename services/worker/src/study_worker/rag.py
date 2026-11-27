@@ -18,7 +18,13 @@ SUBJECTS = {
 }
 
 NO_EVIDENCE = "Mình chưa tìm thấy thông tin đủ phù hợp trong các tài liệu đã chọn. Bạn hãy làm rõ câu hỏi hoặc chọn thêm tài liệu liên quan."
+OUT_OF_SCOPE_MESSAGE = (
+    "Mình là trợ giảng học tập của LearnStep, chỉ hỗ trợ các nội dung trong phạm vi học tập "
+    "(Giải tích, Đại số tuyến tính, Vật lý đại cương và các tài liệu học tập được chọn). "
+    "Bạn hãy đặt câu hỏi liên quan đến môn học hoặc bài tập cần giải nhé."
+)
 SYSTEM = """Bạn là trợ giảng hỗ trợ sinh viên Việt Nam học Giải tích, Đại số tuyến tính và Vật lý đại cương.
+Phạm vi hỗ trợ nghiêm ngặt: Chỉ giải đáp câu hỏi phục vụ học tập thuộc Giải tích, Đại số tuyến tính, Vật lý đại cương, kiến thức Toán - Lý nền tảng liên quan, phương pháp ôn tập các môn này, hoặc nội dung nằm trong tài liệu học tập được cung cấp. Nếu câu hỏi nằm ngoài phạm vi học tập (thời tiết thực tế, tin tức thời sự, giá cả thị trường, giải trí, đời sống cá nhân, hoặc tác vụ không phục vụ môn học), hãy từ chối ngắn gọn, lịch sự trong 1–2 câu và mời người học quay lại nội dung bài học; không trả lời nội dung ngoài phạm vi và không hướng dẫn cách tra cứu ngoài lề.
 Ưu tiên định nghĩa, ký hiệu và công thức từ học liệu trường (authority: curriculum) trước nguồn ngoài (web_supplement); chuẩn hóa ký hiệu theo học liệu trường.
 Chỉ đánh dấu nhận định dựa trên nguồn bằng nhãn thật sự xuất hiện trong danh sách nguồn. Nếu danh sách rỗng, viết hoàn toàn không dùng nhãn nguồn.
 Dùng $...$ hoặc $$...$$ cho công thức LaTeX, kể cả phân số, và không đặt công thức trong dấu mã nội tuyến. Không dùng HTML, hình ảnh hoặc liên kết ngoài.
@@ -77,6 +83,8 @@ FOLLOW_UP = re.compile(
     r"|^\s*(?:vậy(?:\s+thì|\s+nên|\s+là|\s+suy\s+ra|\s+[a-zA-Z0-9\\$])|thế\s+thì|rồi\s+sao|tức\s+là|"
     r"ý\s+(?:mình|tôi|em)\s+là|từ\s+đó|suy\s+ra)\b"
     r"|^\s*(?:áp\s+dụng\s+(?:vào|cho)|so\s+sánh\s+với|khác\s+gì\s+(?:so\s+)?với|liên\s+hệ\s+(?:giữa|với))\b"
+    r"|^\s*(?:trong|theo|ở|đối\s+với)\s+(?:môn\s+|lĩnh\s+vực\s+)?(?:giải\s+tích|đại\s+số(?:\s+tuyến\s+tính)?|"
+    r"vật\s+l[ýí](?:\s+đại\s+cương)?|toán(?:\s+học|\s+cao\s+cấp)?|cơ\s+học|điện\s+từ|quang\s+học|nhiệt\s+học)\b"
     r"|\b(?:nếu\s+(?:thay|đổi|cho|đặt|lấy)|trường\s+hợp\s+[^\n?.!]{1,60}\bthì\s+sao)\b"
     r"|\b(?:cho\s+(?:mình\s+|tôi\s+|em\s+)?(?:một\s+)?ví\s+dụ|ví\s+dụ\s+(?:tính\s+)?tại\b|ý\s+nghĩa\s+(?:hình\s+học|vật\s+lý))\b"
     r"|\b(?:của|vào|cho|từ|với|theo)\s+nó\b"
@@ -233,6 +241,74 @@ def _stopped_partial_tail(history):
     return ""
 
 
+_ACADEMIC_SIGNAL_RE = re.compile(
+    r"(?:"
+    r"[$\\^=]|(?:\b\d+\s*[+\-*/=<>]\s*\d+\b)"
+    r"|\b(?:hàm(?:\s+số)?|đạo\s+hàm|vi\s+phân|tích\s+phân|nguyên\s+hàm|giới\s+hạn|chuỗi|cực\s+trị|gradient|"
+    r"ma\s+trận|định\s+thức|vect(?:or|ơ)|không\s+gian|tuyến\s+tính|trị\s+riêng|trực\s+giao|"
+    r"xác\s+suất|biến\s+ngẫu\s+nhiên|phương\s+sai|kỳ\s+vọng|phân\s+phối|"
+    r"vận\s+tốc|gia\s+tốc|lực|động\s+lượng|năng\s+lượng|công\s+suất|mô\s*men|dao\s+động|sóng|"
+    r"điện\s+trường|từ\s+trường|điện\s+tích|dòng\s+điện|nhiệt\s+động|entropy|áp\s+suất|chất\s+lưu|quang\s+học|"
+    r"phương\s+trình|bất\s+đẳng\s+thức|định\s+lý|định\s+luật|công\s+thức|biểu\s+thức|hệ\s+số|tham\s+số|"
+    r"bài\s+tập|bài\s+toán|đề\s+bài|chứng\s+minh|giải\s+tích|đại\s+số|vật\s+l[ýí]|toán|tài\s+liệu|giáo\s+trình|chương|ôn\s+tập)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_OUT_OF_SCOPE_QUERY_RE = re.compile(
+    r"(?:"
+    r"\b(?:hôm\s+nay|ngày\s+mai|bây\s+giờ|hiện\s+tại|tuần\s+này)\s+trời\b"
+    r"|\b(?:dự\s+báo\s+thời\s+tiết|thời\s+tiết\s+(?:hôm\s+nay|ngày\s+mai|ở|tại))\b"
+    r"|\b(?:giá\s+(?:vàng|xăng|dầu|đô|usd|bitcoin|crypto|cổ\s+phiếu|nhà\s+đất|iphone)|tỷ\s+giá\s+hôm\s+nay|chứng\s+khoán\s+hôm\s+nay)\b"
+    r"|\b(?:kết\s+quả\s+(?:xổ\s+số|bóng\s+đá|trận\s+đấu)|lịch\s+thi\s+đấu\s+bóng\s+đá|soi\s+kèo|lô\s+đề|tử\s+vi|bói\s+toán|cung\s+hoàng\s+đạo)\b"
+    r"|\b(?:cách\s+nấu|công\s+thức\s+nấu\s+ăn|quán\s+ăn\s+ngon|tư\s+vấn\s+(?:tình\s+cảm|hẹn\s+hò|du\s+lịch|thời\s+trang|làm\s+đẹp)|"
+    r"tin\s+tức\s+(?:showbiz|giải\s+trí|thời\s+sự|chính\s+trị)|viết\s+(?:thơ\s+tình|truyện\s+ngôn\s+tình|status\s+thả\s+thính))\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_SCOPE_REFUSAL_RE = re.compile(
+    r"(?:ngoài\s+phạm\s+vi(?:\s+học\s+tập|\s+hỗ\s+trợ|\s+kiến\s+thức)?|"
+    r"không\s+thuộc\s+phạm\s+vi(?:\s+học\s+tập|\s+kiến\s+thức|\s+môn\s+học)?|"
+    r"chỉ\s+hỗ\s+trợ\s+các\s+(?:nội\s+dung|câu\s+hỏi)\s+trong\s+phạm\s+vi\s+học\s+tập)",
+    re.IGNORECASE,
+)
+
+
+def is_out_of_academic_scope(question, history=()):
+    stripped = (question or "").strip()
+    if not stripped or _ACADEMIC_SIGNAL_RE.search(stripped):
+        return False
+    if history and follow_up_history(stripped, history):
+        return False
+    return bool(_OUT_OF_SCOPE_QUERY_RE.search(stripped))
+
+
+def is_scope_refusal(answer):
+    return bool(_SCOPE_REFUSAL_RE.search(answer or ""))
+
+
+def _shares_recent_topic(question, history):
+    if not history:
+        return False
+    q_topic = extract_topic_phrase(question)
+    if not q_topic:
+        return False
+    q_words = {
+        w.casefold() for w in re.findall(r"[^\W_]{3,}", q_topic, re.UNICODE)
+        if w.casefold() not in {"giải", "tích", "đại", "số", "tuyến", "tính", "vật", "lý", "lí", "cương", "toán"}
+    }
+    if not q_words:
+        return False
+    for msg in reversed(history):
+        if msg.get("role") != "user":
+            continue
+        prev_topic = extract_topic_phrase(msg.get("content") or "")
+        prev_words = {w.casefold() for w in re.findall(r"[^\W_]{3,}", prev_topic, re.UNICODE)}
+        return bool(q_words & prev_words)
+    return False
+
+
 def follow_up_history(question, history):
     """Keep turns back to the most recent standalone question."""
     if not history:
@@ -240,12 +316,23 @@ def follow_up_history(question, history):
     stripped = question.strip()
     last = history[-1]
     interrupted_tail = last.get("status") in ("stopped", "interrupted") or last.get("role") == "user"
-    if not FOLLOW_UP.search(stripped):
+    is_short_refinement = (
+        len(stripped.split()) <= 7
+        and not EXERCISE_REQUEST.search(stripped)
+        and not re.search(r"\blà\s+gì\b", stripped, re.IGNORECASE)
+        and _shares_recent_topic(stripped, history)
+    )
+    if not FOLLOW_UP.search(stripped) and not is_short_refinement:
         if not (interrupted_tail and not EXERCISE_REQUEST.search(stripped)):
             return []
     for index in range(len(history) - 1, -1, -1):
         message = history[index]
-        if message["role"] == "user" and not FOLLOW_UP.search(message["content"].strip()):
+        msg_text = message["content"].strip()
+        if (
+            message["role"] == "user"
+            and not FOLLOW_UP.search(msg_text)
+            and not (index > 0 and len(msg_text.split()) <= 7 and _shares_recent_topic(msg_text, history[:index]))
+        ):
             return history[index:]
     return history
 
@@ -1164,6 +1251,8 @@ def validate_citations(answer, sources, *, allow_uncited=False):
         ]
     if not used:
         if allow_uncited and answer.strip():
+            if is_scope_refusal(answer):
+                return answer.rstrip(), []
             return answer.rstrip() + "\n\n*Kiến thức tổng quát · Không có trích dẫn tài liệu.*", []
         return NO_EVIDENCE, []
     return answer, used

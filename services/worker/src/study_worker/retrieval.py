@@ -64,6 +64,24 @@ _META_BOILERPLATE_RE = re.compile(
     r"^(?:b[aà]i\s*t[aậ]p|c[aâ]u\s*h[oỏ]i|đ[eề]\s*b[aà]i|y[eê]u\s*c[aầ]u|t[aà]i\s*li[eệ]u\s*hi[eệ]n\s*c[oó])\s*:\s*",
     re.IGNORECASE,
 )
+_EXPLICIT_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("calculus", r"\b(?:giải\s+tích(?:\s+(?:[123]|i{1,3}|nhiều\s+biến|hàm\s+nhiều\s+biến))?|toán\s+cao\s+cấp)\b"),
+    ("linear-algebra", r"\bđại\s+số\s+tuyến\s+tính(?:\s+(?:[12]|i{1,2}))?\b"),
+    ("physics", r"\bvật\s+l[ýí](?:\s+đại\s+cương)?(?:\s+(?:[123]|i{1,3}))?\b"),
+)
+
+
+def detect_explicit_subject(query: str) -> str | None:
+    """Return a canonical subject code when the user explicitly names a single course subject."""
+    cleaned = clean_retrieval_query(query)
+    if not cleaned:
+        return None
+    matched = [
+        subj
+        for subj, pattern in _EXPLICIT_SUBJECT_PATTERNS
+        if re.search(pattern, cleaned, flags=re.IGNORECASE)
+    ]
+    return matched[0] if len(matched) == 1 else None
 
 
 def _strip_accents(text: str) -> str:
@@ -105,12 +123,8 @@ def is_meta_document_query(query: str) -> bool:
     return any(re.search(pattern, folded) for pattern in META_DOCUMENT_PATTERNS)
 
 
-def extract_search_terms(query: str) -> list[str]:
-    """Extract distinctive keywords preserving Vietnamese diacritics, ranking longer terms first."""
-    cleaned = clean_retrieval_query(query)
-    if not cleaned:
-        return []
-    raw_tokens = re.findall(r"[0-9A-Za-zÀ-ỹ]+", cleaned)
+def _tokenize_search_terms(text: str) -> list[str]:
+    raw_tokens = re.findall(r"[0-9A-Za-zÀ-ỹ]+", text)
     collected: list[tuple[int, int, str]] = []
     seen_folded: set[str] = set()
     for idx, token in enumerate(raw_tokens):
@@ -124,6 +138,20 @@ def extract_search_terms(query: str) -> list[str]:
             collected.append((-weight, idx, lower))
     collected.sort()
     return [term for _, _, term in collected[:18]]
+
+
+def extract_search_terms(query: str) -> list[str]:
+    """Extract distinctive keywords preserving Vietnamese diacritics, stripping course-name modifiers when possible."""
+    cleaned = clean_retrieval_query(query)
+    if not cleaned:
+        return []
+    without_subjects = cleaned
+    for _, pattern in _EXPLICIT_SUBJECT_PATTERNS:
+        without_subjects = re.sub(pattern, " ", without_subjects, flags=re.IGNORECASE)
+    core_terms = _tokenize_search_terms(without_subjects)
+    if core_terms:
+        return core_terms
+    return _tokenize_search_terms(cleaned)
 
 
 def infer_subject_hint(query: str) -> str | None:
@@ -370,6 +398,8 @@ def rerank_curriculum_candidates(
             score += 0.06
 
         doc_subject = item.get("subject")
+        if subject and doc_subject and doc_subject != subject:
+            continue
         if subject_hint and doc_subject:
             if doc_subject == subject_hint:
                 score += 0.12
@@ -400,3 +430,27 @@ def rerank_curriculum_candidates(
     if len(selected) < 5 and overflow:
         selected.extend(overflow[: 5 - len(selected)])
     return selected
+
+
+def curriculum_covers_query(
+    query: str,
+    candidates: list[dict],
+    *,
+    vector_scores: dict[tuple[str, str], float] | None = None,
+) -> bool:
+    """Return True when retrieved curriculum chunks substantively cover the query's core topic."""
+    if not candidates:
+        return False
+    if is_meta_document_query(query):
+        return True
+    terms = extract_search_terms(query)
+    if not terms:
+        return True
+    scores = vector_scores or {}
+    for item in candidates:
+        key = (str(item.get("document_id") or ""), str(item.get("id") or ""))
+        vec = float(scores.get(key, item.get("vector_score") or 0.0))
+        lex = _lexical_overlap_score(query, item)
+        if lex >= 0.3 or vec >= 0.65:
+            return True
+    return False
