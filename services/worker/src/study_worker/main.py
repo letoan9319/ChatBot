@@ -232,10 +232,137 @@ def merge_curriculum_and_web(candidates, web, mode):
     return candidates
 
 
+class _StreamProgressFlusher:
+    """Coalesce thinking and partial-answer DB writes off the model token reader thread."""
+
+    def __init__(self, pipeline, job, *, async_enabled=None):
+        self.pipeline = pipeline
+        self.job = job
+        self.async_enabled = (
+            isinstance(getattr(pipeline, "conn", None), psycopg.Connection)
+            if async_enabled is None
+            else bool(async_enabled)
+        )
+        self._lock = threading.Lock()
+        self._wakeup = threading.Event()
+        self._closing = threading.Event()
+        self._thinking = None
+        self._partial = None
+        self._need_guard = False
+        self._fatal = None
+        self._thread = None
+        self._last_sync_think = 0.0
+        self._last_sync_partial = time.monotonic()
+
+    def start(self):
+        if self.async_enabled and self._thread is None:
+            self._closing.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        return self
+
+    def raise_if_failed(self):
+        if self.pipeline.heartbeat.lost.is_set():
+            if not self.async_enabled:
+                guard(self.pipeline.conn, self.job)
+            raise LostLease()
+        with self._lock:
+            err = self._fatal
+        if err is not None:
+            raise err
+
+    def push_thinking(self, elapsed, content, *, force=False):
+        self.raise_if_failed()
+        if not self.async_enabled:
+            now = time.monotonic()
+            if force or elapsed is not None or now - self._last_sync_think >= 0.6:
+                self.pipeline.save_thinking(self.job, elapsed, content)
+                self._last_sync_think = time.monotonic()
+            return
+        with self._lock:
+            prev = self._thinking
+            merged_elapsed = (
+                prev[0] if (prev is not None and prev[0] is not None and elapsed is None) else elapsed
+            )
+            self._thinking = (merged_elapsed, content)
+            self._wakeup.set()
+
+    def push_partial(self, content):
+        self.raise_if_failed()
+        if not self.async_enabled:
+            if time.monotonic() - self._last_sync_partial >= 0.5:
+                self.pipeline.save_partial(self.job, content)
+                self._last_sync_partial = time.monotonic()
+            return
+        with self._lock:
+            self._partial = content
+            self._wakeup.set()
+
+    def touch_guard(self):
+        self.raise_if_failed()
+        if not self.async_enabled:
+            if time.monotonic() - self._last_sync_partial >= 0.5:
+                guard(self.pipeline.conn, self.job)
+                self._last_sync_partial = time.monotonic()
+            return
+        with self._lock:
+            self._need_guard = True
+            self._wakeup.set()
+
+    def drain(self):
+        if not self.async_enabled:
+            self.raise_if_failed()
+            return
+        self._closing.set()
+        self._wakeup.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=15)
+            self._thread = None
+        self.raise_if_failed()
+
+    def _run(self):
+        while True:
+            self._wakeup.wait(timeout=0.25)
+            with self._lock:
+                self._wakeup.clear()
+                thinking_item = self._thinking
+                partial_item = self._partial
+                need_guard = self._need_guard
+                closing_now = self._closing.is_set()
+                self._thinking = None
+                self._partial = None
+                self._need_guard = False
+                if self._fatal is not None:
+                    return
+            if thinking_item is None and partial_item is None and not need_guard:
+                if closing_now:
+                    return
+                continue
+            try:
+                conn = self.pipeline._get_stream_conn()
+                if thinking_item is not None:
+                    self.pipeline._save_thinking_on(conn, self.job, thinking_item[0], thinking_item[1])
+                if partial_item is not None:
+                    self.pipeline._save_partial_on(conn, self.job, partial_item)
+                elif thinking_item is None and need_guard:
+                    guard(conn, self.job)
+            except (ChatStopped, LostLease, Cancelled, IndexMismatch) as exc:
+                with self._lock:
+                    self._fatal = exc
+                return
+            except Exception as exc:
+                LOG.warning("stream_flush_failed error_type=%s", type(exc).__name__)
+                self.pipeline.close_stream_conn()
+            if not closing_now:
+                self._closing.wait(0.15)
+
+
 class Pipeline:
     def __init__(self, settings, conn, models, vectors, heartbeat):
         self.settings, self.conn = settings, conn
         self.models, self.vectors, self.heartbeat = models, vectors, heartbeat
+        self._stream_conn = None
         storage_headers = {"apikey": settings.supabase_key}
         if not settings.supabase_key.startswith("sb_secret_"):
             storage_headers["Authorization"] = f"Bearer {settings.supabase_key}"
@@ -244,6 +371,20 @@ class Pipeline:
             timeout=60,
             headers=storage_headers,
         )
+
+    def _get_stream_conn(self):
+        stream_conn = getattr(self, "_stream_conn", None)
+        if stream_conn is None or stream_conn.closed:
+            stream_conn = connect(self.settings)
+            self._stream_conn = stream_conn
+        return stream_conn
+
+    def close_stream_conn(self):
+        stream_conn = getattr(self, "_stream_conn", None)
+        if stream_conn is not None:
+            with suppress(Exception):
+                stream_conn.close()
+            self._stream_conn = None
 
     def document(self, job):
         if self.heartbeat.lost.is_set():
@@ -378,7 +519,13 @@ class Pipeline:
                 (row["id"],),
             )
 
-    def chat_documents(self, job, lock=False):
+    def _check_job_row(self, job, row):
+        if job.get("kind") == "chat" and (not row or row.get("error") == "USER_STOPPED"):
+            raise ChatStopped()
+        if not row or row["lease_token"] != job["lease_token"] or row["status"] != "running":
+            raise LostLease()
+
+    def chat_documents_on(self, conn, job, lock=False):
         ids = job["payload"]["document_ids"]
         if not ids and job["payload"].get("mode") in ("search", "research", "library"):
             if self.heartbeat.lost.is_set():
@@ -392,7 +539,7 @@ class Pipeline:
             "where (user_id=%s or exists(select 1 from public.knowledge_documents k where k.document_id=d.id)) "
             "and id=any(%s::uuid[]) order by id" + (" for share" if lock else "")
         )
-        rows = self.conn.execute(
+        rows = conn.execute(
             query,
             (job["user_id"], ids),
         ).fetchall()
@@ -413,11 +560,58 @@ class Pipeline:
         return [str(row["id"]) for row in rows
                 if str(row["user_id"]) == str(job["user_id"]) and is_question_image(row)]
 
-    def save_partial(self, job, content):
-        with self.conn.transaction():
-            guard(self.conn, job)
-            self.chat_documents(job, lock=True)
-            self.conn.execute(
+    def chat_documents(self, job, lock=False):
+        return self.chat_documents_on(getattr(self, "conn", None), job, lock=lock)
+
+    def _save_partial_on(self, conn, job, content):
+        if self.heartbeat.lost.is_set():
+            raise LostLease()
+        if (
+            isinstance(conn, psycopg.Connection)
+            and not job["payload"]["document_ids"]
+            and job["payload"].get("mode") in ("search", "research", "library")
+        ):
+            row = conn.execute(
+                """with active_job as (
+                       select lease_token, status, error
+                       from public.jobs
+                       where id = %s
+                       for update
+                   ),
+                   updated as (
+                       update public.messages m
+                       set content = %s,
+                           status = 'generating',
+                           thinking_started_at = case when %s then clock_timestamp() else coalesce(m.thinking_started_at, m.created_at, clock_timestamp()) end,
+                           thinking_ms = case when %s then null
+                               else coalesce(m.thinking_ms, greatest(0, round(extract(epoch from (clock_timestamp() - coalesce(m.thinking_started_at, m.created_at, clock_timestamp()))) * 1000))::integer) end,
+                           thinking_content = case when %s then null else m.thinking_content end
+                       from active_job j
+                       where m.id = %s
+                         and m.user_id = %s
+                         and j.lease_token = %s
+                         and j.status = 'running'
+                         and coalesce(j.error, '') <> 'USER_STOPPED'
+                       returning m.id
+                   )
+                   select lease_token, status, error from active_job""",
+                (
+                    job["id"],
+                    content,
+                    not content,
+                    not content,
+                    not content,
+                    job["message_id"],
+                    job["user_id"],
+                    job["lease_token"],
+                ),
+            ).fetchone()
+            self._check_job_row(job, row)
+            return
+        with conn.transaction():
+            guard(conn, job)
+            self.chat_documents_on(conn, job, lock=True)
+            conn.execute(
                 """update public.messages set content=%s,status='generating',
                    thinking_started_at=case when %s then clock_timestamp() else coalesce(thinking_started_at, created_at, clock_timestamp()) end,
                    thinking_ms=case when %s then null
@@ -427,13 +621,61 @@ class Pipeline:
                 (content, not content, not content, not content, job["message_id"], job["user_id"]),
             )
 
-    def save_thinking(self, job, elapsed, content=None):
-        clipped = content[:32000] if content else None
-        with self.conn.transaction():
-            guard(self.conn, job)
-            self.chat_documents(job, lock=True)
-            if elapsed is None:
-                self.conn.execute(
+    def save_partial(self, job, content):
+        self._save_partial_on(self.conn, job, content)
+
+    def _save_thinking_on(self, conn, job, elapsed, content=None):
+        if self.heartbeat.lost.is_set():
+            raise LostLease()
+        clipped = content[:64000] if content else None
+        elapsed_val = None if elapsed is None else max(0, int(elapsed))
+        if (
+            isinstance(conn, psycopg.Connection)
+            and not job["payload"]["document_ids"]
+            and job["payload"].get("mode") in ("search", "research", "library")
+        ):
+            row = conn.execute(
+                """with active_job as (
+                       select lease_token, status, error
+                       from public.jobs
+                       where id = %s
+                       for update
+                   ),
+                   updated as (
+                       update public.messages m
+                       set thinking_started_at = coalesce(m.thinking_started_at, clock_timestamp()),
+                           thinking_ms = case when %s::integer is null then null else %s::integer end,
+                           thinking_content = coalesce(%s, m.thinking_content)
+                       from active_job j
+                       where m.id = %s
+                         and m.user_id = %s
+                         and m.role = 'assistant'
+                         and m.status = 'generating'
+                         and (%s::integer is null or m.thinking_started_at is not null)
+                         and j.lease_token = %s
+                         and j.status = 'running'
+                         and coalesce(j.error, '') <> 'USER_STOPPED'
+                       returning m.id
+                   )
+                   select lease_token, status, error from active_job""",
+                (
+                    job["id"],
+                    elapsed_val,
+                    elapsed_val,
+                    clipped,
+                    job["message_id"],
+                    job["user_id"],
+                    elapsed_val,
+                    job["lease_token"],
+                ),
+            ).fetchone()
+            self._check_job_row(job, row)
+            return
+        with conn.transaction():
+            guard(conn, job)
+            self.chat_documents_on(conn, job, lock=True)
+            if elapsed_val is None:
+                conn.execute(
                     """update public.messages
                        set thinking_started_at=coalesce(thinking_started_at, clock_timestamp()),
                            thinking_ms=null,
@@ -442,14 +684,17 @@ class Pipeline:
                     (clipped, job["message_id"], job["user_id"]),
                 )
             else:
-                self.conn.execute(
+                conn.execute(
                     """update public.messages
                        set thinking_ms=%s,
                            thinking_content=coalesce(%s, thinking_content)
                        where id=%s and user_id=%s and role='assistant' and status='generating'
                          and thinking_started_at is not null""",
-                    (max(0, elapsed), clipped, job["message_id"], job["user_id"]),
+                    (elapsed_val, clipped, job["message_id"], job["user_id"]),
                 )
+
+    def save_thinking(self, job, elapsed, content=None):
+        self._save_thinking_on(self.conn, job, elapsed, content)
 
     def follow_up_images(self, job, user_message_id):
         rows = self.conn.execute(
@@ -857,39 +1102,31 @@ class Pipeline:
         if generated:
             answer = ""
             thinking_text = ""
-            last_thinking_flush = 0.0
-            last_flush = time.monotonic()
+            flusher = _StreamProgressFlusher(self, job)
 
             def reset_answer():
-                nonlocal answer, thinking_text, last_thinking_flush, last_flush
+                nonlocal answer, thinking_text
+                flusher.drain()
                 answer = ""
                 thinking_text = ""
-                last_thinking_flush = 0.0
                 self.save_partial(job, answer)
-                last_flush = time.monotonic()
+                flusher.start()
 
             options = {"research": True} if mode == "research" else {}
             if (reason or live_thinking) and getattr(self.models, "supports_thinking_progress", False):
                 def on_thinking(elapsed):
-                    nonlocal last_thinking_flush
-                    self.save_thinking(job, elapsed, format_thinking_payload(thinking_text))
-                    last_thinking_flush = time.monotonic()
+                    flusher.push_thinking(elapsed, format_thinking_payload(thinking_text), force=True)
 
                 options["on_thinking"] = on_thinking
                 if getattr(self.models, "supports_thinking_stream", False):
                     def on_thinking_token(piece):
-                        nonlocal thinking_text, last_thinking_flush
-                        if not piece or len(thinking_text) >= 32000:
+                        nonlocal thinking_text
+                        if not piece:
                             return
                         was_empty = not thinking_text
-                        thinking_text = (thinking_text + piece)[:32000]
-                        now = time.monotonic()
-                        if was_empty or now - last_thinking_flush >= 0.35:
-                            if self.heartbeat.lost.is_set():
-                                guard(self.conn, job)
-                                raise LostLease()
-                            self.save_thinking(job, None, format_thinking_payload(thinking_text))
-                            last_thinking_flush = now
+                        if len(thinking_text) < 64000:
+                            thinking_text = (thinking_text + piece)[:64000]
+                        flusher.push_thinking(None, format_thinking_payload(thinking_text), force=was_empty)
 
                     options["on_thinking_token"] = on_thinking_token
             if image_versions and getattr(self.models, "supports_question_vision", False):
@@ -905,22 +1142,21 @@ class Pipeline:
                             "\n\nViết lại câu trả lời. Gắn trích dẫn đúng nhãn từ danh sách nguồn ngay sau "
                             "nhận định được hỗ trợ. Dùng nguồn có liên quan và bỏ các nhận định thiếu cơ sở."
                         )
+                    flusher.start()
                     try:
                         with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
                             for token in tokens:
-                                if self.heartbeat.lost.is_set():
-                                    guard(self.conn, job)
-                                    raise LostLease()
+                                flusher.raise_if_failed()
                                 answer += token
-                                if time.monotonic() - last_flush >= 0.5:
-                                    if token and not image_documents:
-                                        self.save_partial(job, answer)
-                                    else:
-                                        guard(self.conn, job)
-                                    last_flush = time.monotonic()
+                                if token and not image_documents:
+                                    flusher.push_partial(answer)
+                                else:
+                                    flusher.touch_guard()
                     except OutputLimit:
                         truncated = True
                         LOG.info("chat_output_limit job_id=%s", job["id"])
+                    finally:
+                        flusher.drain()
                     if (
                         image_documents
                         and not concept_request(question, history)
@@ -987,18 +1223,16 @@ class Pipeline:
                             try:
                                 with closing(self.models.generate(prompt, on_reset=reset_answer, **options)) as tokens:
                                     for token in tokens:
-                                        if self.heartbeat.lost.is_set():
-                                            guard(self.conn, job)
-                                            raise LostLease()
+                                        flusher.raise_if_failed()
                                         answer += token
-                                        if time.monotonic() - last_flush >= 0.5:
-                                            if token and not image_documents:
-                                                self.save_partial(job, answer)
-                                            else:
-                                                guard(self.conn, job)
-                                            last_flush = time.monotonic()
+                                        if token and not image_documents:
+                                            flusher.push_partial(answer)
+                                        else:
+                                            flusher.touch_guard()
                             except OutputLimit:
                                 truncated = True
+                            finally:
+                                flusher.drain()
                             answer = close_visual_block(answer, question)
                             answer = normalize_citation_marks(answer)
                             if answer.strip() and not re.search(r"\[S\d+\]", answer):
@@ -1203,6 +1437,7 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
         finally:
             heartbeat.stopped.set()
             heartbeat.join(timeout=20)
+            pipeline.close_stream_conn()
             pipeline.storage.close()
             models.close()
             vectors.client.close()

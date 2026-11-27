@@ -88,7 +88,7 @@
 .thoughtStream { margin: 4px 0 8px; }
 .thoughtTitle { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 600; letter-spacing: .01em; color: var(--ux-ink-2); }
 .thoughtBody {
-  max-height: 280px;
+  max-height: 380px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -98,4 +98,7 @@
   line-height: 1.6;
   color: var(--ux-ink-2);
 }
-.u453.done .thoughtBody { color: var(--ux-ink-3); }
+.u453.done .thoughtBody {
+  max-height: 520px;
+  color: var(--ux-ink-3);
+}

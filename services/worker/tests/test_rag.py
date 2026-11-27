@@ -711,3 +711,70 @@ def test_elliptical_visual_followup_preserves_multiturn_gradient_context_and_avo
     assert '"type":"vector"' in messages[-1]["content"]
     assert '"grid":true' in messages[-1]["content"]
 
+
+def test_stream_progress_flusher_coalesces_tokens_without_stalling_producer_and_propagates_stop():
+    import threading
+    import time
+    from types import SimpleNamespace
+    import pytest
+    from study_worker.main import ChatStopped, _StreamProgressFlusher
+
+    recorded_thinking = []
+    recorded_partial = []
+
+    class SlowRemoteStub:
+        def __init__(self):
+            self.heartbeat = SimpleNamespace(lost=threading.Event())
+            self.stop_requested = False
+
+        def _get_stream_conn(self):
+            return "stub-conn"
+
+        def close_stream_conn(self):
+            pass
+
+        def _save_thinking_on(self, _conn, _job, elapsed, content=None):
+            time.sleep(0.06)
+            if self.stop_requested:
+                raise ChatStopped()
+            recorded_thinking.append((elapsed, content))
+
+        def _save_partial_on(self, _conn, _job, content):
+            time.sleep(0.06)
+            if self.stop_requested:
+                raise ChatStopped()
+            recorded_partial.append(content)
+
+    stub = SlowRemoteStub()
+    job = {"id": "j1", "kind": "chat", "lease_token": "t1"}
+    flusher = _StreamProgressFlusher(stub, job, async_enabled=True).start()
+
+    # 200 rapid thinking tokens do not block the producer thread even when DB writes take 60ms each.
+    t0 = time.monotonic()
+    acc = ""
+    for i in range(200):
+        acc += f"w{i} "
+        flusher.push_thinking(None, acc)
+    producer_ms = (time.monotonic() - t0) * 1000
+    assert producer_ms < 80, f"Producer stalled for {producer_ms:.1f}ms"
+
+    flusher.push_thinking(1450, acc)
+    flusher.push_partial("Final partial answer")
+    flusher.drain()
+
+    # Coalesced into a handful of bursts rather than 200 sequential DB writes, preserving final elapsed & text.
+    assert 1 <= len(recorded_thinking) < 15
+    assert recorded_thinking[-1] == (1450, acc)
+    assert recorded_partial[-1] == "Final partial answer"
+
+    # USER_STOPPED detected on the background writer aborts the producer immediately.
+    stub.stop_requested = True
+    flusher2 = _StreamProgressFlusher(stub, job, async_enabled=True).start()
+    flusher2.push_thinking(None, "next thought")
+    with pytest.raises(ChatStopped):
+        for _ in range(30):
+            time.sleep(0.02)
+            flusher2.raise_if_failed()
+        flusher2.drain()
+
+
