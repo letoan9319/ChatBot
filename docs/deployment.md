@@ -29,26 +29,14 @@ Tra cứu kho chung tự động cần migration `202611130001_chat_shared_libra
 
 ## Chạy worker trên máy cá nhân
 
-### Worker dự phòng trên Render Free
+### Lưu trữ tệp trên Cloudflare R2 (chốt chặn 90% hạn mức miễn phí)
 
-Tạo **Web Service** với **Language** là Python, **Root Directory** là `services/worker`, **Build Command** là `uv sync --frozen --no-dev --python 3.12` và **Start Command** là `uv run --frozen --no-dev python -m study_worker.render_service`. Đặt **Health Check Path** thành `/healthz`.
-
-Điền các biến phía Render theo [mẫu worker](../services/worker/.env.render.example). Dùng Supabase Session pooler và áp dụng migration `202611140001_deploy_generation_provider.sql` trước khi bật worker cloud. OpenRouter dùng `OPENROUTER_API_KEY` cho Nemotron 3 Embed 1B và collection riêng. DeepSeek dùng `DEPLOY_API_KEY` để gọi Deploy.com. Xóa biến `ALLOW_PAID_DEEPSEEK` cũ trên Render và đặt `CHAT_MODEL=deepseek-ai/deepseek-v4.1-flash-1017`. Chỉ dùng endpoint NVIDIA Free với câu hỏi và tài liệu được phép gửi ra ngoài, không chứa thông tin cá nhân hay thông tin mật. [API DeepSeek trên Deploy.com](https://docs.deploy.com/deepseek-v4-1-flash-1017)
-
-Để chuyển kho chung, dùng cùng cấu hình OpenRouter và Qdrant với worker Render, sau đó chạy từ `services/worker`:
+Đặt cùng bộ biến `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` trên Vercel và `services/worker/.env`. Migration `202611280003_r2_storage_quota.sql` khóa cứng ngưỡng 90% của gói miễn phí R2 (9 GB lưu trữ, 900.000 Class A ops/tháng và 9.000.000 Class B ops/tháng theo UTC) để không phát sinh phí vượt mức; thao tác xóa luôn được phép để giải phóng dung lượng. Để chuyển dữ liệu cũ từ Supabase Storage sang R2, chạy từ `services/worker`:
 
 ```powershell
-uv run --env-file .env.render python -m study_worker.reindex_shared --limit 5
-uv run --env-file .env.render python -m study_worker.reindex_shared
+uv run python -m study_worker.migrate_to_r2 --dry-run
+uv run python -m study_worker.migrate_to_r2 --delete-source
 ```
-
-Lệnh lấy văn bản từ các đoạn đã lưu trong Supabase và tiếp tục từ các vector đã tạo. Kiểm tra chất lượng truy xuất trên câu hỏi tiếng Việt có nguồn chuẩn. Khi sẵn sàng chuyển, dừng worker hiện tại rồi chạy lại với `--activate` để cập nhật metadata kho chung. Giữ cùng cấu hình embedding cho mọi worker đọc chung hàng đợi. Các tệp riêng dùng BGE-M3 cần kế hoạch chuyển riêng trước khi đổi worker production. Lệnh chuyển kho chung giữ lại vector BGE-M3 cũ.
-
-Nếu đã điền `EMBED_MODEL` ở Render hoặc trong file môi trường riêng, cập nhật thành `nvidia/nemotron-3-embed-1b:free`. Tên collection thực tế bao gồm dấu vân tay của model và số chiều. Có thể tạo chỉ mục mới song song với chỉ mục cũ.
-
-Sau khi Render báo dịch vụ hoạt động, đặt `CLOUD_WORKER_URL` và `WORKER_WAKE_SECRET` trên Vercel. Cả hai bên dùng cùng một secret ngẫu nhiên tối thiểu 32 byte. Vercel chỉ gọi Render khi Supabase báo worker offline. Worker đang giữ khóa hàng đợi tiếp tục xử lý đến khi nhả khóa. Render tự dừng vòng lặp sau 150 giây không có việc. Tệp gốc vẫn đi qua Supabase Storage. Văn bản được gửi đến OpenRouter để tạo embedding và các đoạn truy xuất được gửi sang Deploy.com khi cần trả lời.
-
-Thử với worker local đã tắt. Gửi một câu hỏi không chọn tệp, mở nguồn, rồi tải một PDF/DOCX và kiểm tra tệp chuyển sang **Sẵn sàng**. Gói Free có thể mất khoảng một phút để khởi động lại. [Render Free](https://render.com/docs/free)
 
 ### Kiểm thử toàn bộ trên local
 
@@ -105,7 +93,7 @@ $env:SEARXNG_SECRET = [Convert]::ToHexString([System.Security.Cryptography.Rando
 docker compose -p learnstep-search -f services/search/compose.yaml up -d --no-recreate
 ~~~
 
-Biến SEARXNG_SECRET là chuỗi ngẫu nhiên cho container, được tạo tại máy. Worker Ollama mặc định gọi http://127.0.0.1:8888. Có thể đặt SEARXNG_URL trong file môi trường của worker rồi khởi động lại. Nếu worker Render cần tìm web đa trang, đặt SEARXNG_URL trỏ tới một máy chủ SearXNG riêng có HTTPS và bảo vệ truy cập ở tầng hạ tầng. Render thiếu cấu hình hoặc khi nguồn web gián đoạn sẽ dùng Wikipedia dự phòng và báo trong câu trả lời.
+Biến SEARXNG_SECRET là chuỗi ngẫu nhiên cho container, được tạo tại máy. Worker Ollama mặc định gọi http://127.0.0.1:8888. Có thể đặt SEARXNG_URL trong file môi trường của worker rồi khởi động lại. Khi thiếu cấu hình SearXNG hoặc nguồn web gián đoạn, hệ thống sẽ dùng Wikipedia dự phòng và báo rõ trong câu trả lời.
 
 Nghiên cứu tra thêm bài tạp chí có tóm tắt qua [Crossref](https://www.crossref.org/documentation/retrieve-metadata/rest-api/) và gắn liên kết DOI. Cả hai chế độ chỉ gửi từ khóa từ câu hỏi hiện tại ra ngoài. [Tài liệu SearXNG](https://docs.searxng.org/dev/search_api.html)
 

@@ -55,24 +55,13 @@ async function api<T>(url: string, method = "GET", data?: unknown): Promise<T> {
   } catch {
     response = await fetch(`/api/${url}`, options);
   }
-  let result = await response.json();
-  if (result.code === "WORKER_STARTING") {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      const status = await fetch("/api/status").then(r => r.ok ? r.json() : null).catch(() => null);
-      if (!status?.online) continue;
-      response = await fetch(`/api/${url}`, options);
-      result = await response.json();
-      break;
-    }
-  }
+  const result = await response.json();
   if (!response.ok)
     throw new Error(result.error || "Không thể kết nối. Vui lòng thử lại.");
   return result;
 }
 type WorkerStatus = {
   online: boolean;
-  cloudAvailable?: boolean;
   provider: "ollama" | "openrouter" | "ollama_with_openrouter_fallback" | null;
   ocrAvailable?: boolean;
   activeChat: { id: string; conversation_id: string; temporary?: boolean } | null;
@@ -452,7 +441,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
   }
   async function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!(worker.online || worker.cloudAvailable) || (!question.trim() && !questionImage) || sending.current || worker.activeChat) return;
+    if (!worker.online || (!question.trim() && !questionImage) || sending.current || worker.activeChat) return;
 
     const epoch = conversationEpoch.current;
     const submittedDraft = question;
@@ -774,7 +763,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
             </section>
             <section id="library-documents" className={styles.librarySection} hidden={libraryView !== "documents"} aria-label="Tài liệu">
               <DocumentRepository documents={documents} selected={selected} loading={loading} error={dataError}
-                online={worker.online || Boolean(worker.cloudAvailable)} uploading={uploading} onChoose={choose} onUpload={upload}
+                online={worker.online} uploading={uploading} onChoose={choose} onUpload={upload}
                 onAction={documentAction} onRefresh={refresh} />
             </section>
             <section id="library-history" className={styles.historyList} hidden={libraryView !== "history"} aria-label="Lịch sử hội thoại">
@@ -979,12 +968,12 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
               <label className="sr-only" htmlFor="question">Câu hỏi của bạn</label>
               <ChatMascot docked={docked} sending={busy} />
               <ChatPromptBox inactive={activeChatHere ? stopping
-                : !(worker.online || worker.cloudAvailable) || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
+                : !worker.online || busy || Boolean(worker.activeChat) || (!question.trim() && !questionImage)}
                 label={activeChatHere ? (stopping ? "Đang dừng…" : "Dừng")
                   : readingImage ? "Đang đọc ảnh…" : busy ? "Đang gửi…" : "Gửi"}
                 onStop={activeChatHere ? () => void stopChat(activeChatHere.id) : undefined}
                 tools={<>
-                  <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
+                  <ChatDocumentMenu selected={selected.length} canUpload={worker.online && !uploading && documents.length < 20}
                     onChoose={() => showLibrary("knowledge")} onUpload={file => upload(file, chatSubject || "calculus")} />
                 <SelectField label="Môn học" value={chatSubject} compact disabled={busy}
                   options={[{ value: "", label: "Tất cả môn học" }, ...Object.entries(subjects).map(([value, label]) => ({ value, label }))]}
@@ -1034,9 +1023,8 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                 </div>}
               </ChatPromptBox>
               <div className={styles.composerFooter} id="composer-hint">
-                <span>{loading ? "Đang kết nối…" : !worker.online ? worker.cloudAvailable
-                  ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
-                  : "AI tạm dừng · Bạn có thể xem lại hội thoại."
+                <span>{loading ? "Đang kết nối…" : !worker.online
+                  ? "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
                     : selected.length ? "Ưu tiên tài liệu đã chọn và tự động mở rộng khi cần."
                       : chatSubject ? `Tự động kết hợp học liệu môn ${subjects[chatSubject]} với nguồn mở và hình minh họa.`

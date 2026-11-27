@@ -187,7 +187,6 @@ if ($Mode -eq 'Local') {
         # Windows PowerShell 5.1 removes empty environment entries. Prevent the
         # worker from then loading cloud values from its own .env file.
         PYTHON_DOTENV_DISABLED = '1'; BGE_EMBEDDINGS_URL = ''
-        CLOUD_WORKER_URL = 'http://127.0.0.1'; WORKER_WAKE_SECRET = ''
         CHAT_MODEL = 'qwen3.5:4b-q4_K_M'; EMBED_MODEL = 'bge-m3'
     }
     foreach ($name in @('CHAT_MODEL', 'EMBED_MODEL')) {

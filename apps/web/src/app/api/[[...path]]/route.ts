@@ -1,4 +1,4 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { groupReactionOptions } from "@/core/group-reactions";
 import { learningPlanSchema } from "@/core/learning-plan";
@@ -135,35 +135,6 @@ const json = (data: unknown, status = 200) =>
     status,
     headers: { "Cache-Control": "private, no-store" },
   });
-
-function cloudWorker() {
-  const url = process.env.CLOUD_WORKER_URL;
-  const secret = process.env.WORKER_WAKE_SECRET;
-  if (!url || !secret || secret.length < 32) return null;
-  try {
-    const target = new URL("/wake", url);
-    return target.protocol === "https:" ? { target, secret } : null;
-  } catch {
-    return null;
-  }
-}
-
-function wakeCloudWorker(worker: NonNullable<ReturnType<typeof cloudWorker>>) {
-  after(async () => {
-    try {
-      const response = await fetch(worker.target, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${worker.secret}` },
-        redirect: "error",
-        signal: AbortSignal.timeout(75_000),
-        cache: "no-store",
-      });
-      if (!response.ok) console.warn("Cloud worker wake rejected", response.status);
-    } catch {
-      console.warn("Cloud worker wake unavailable");
-    }
-  });
-}
 
 async function handle(request: NextRequest) {
   try {
@@ -494,7 +465,6 @@ async function handle(request: NextRequest) {
       return json({
         online: Boolean(data),
         ocrAvailable: ocrAvailable === true,
-        ...(cloudWorker() ? { cloudAvailable: true } : {}),
         provider: ["openrouter", "ollama", "ollama_with_openrouter_fallback"].includes(provider) ? provider : null,
         activeChat: active
           ? { id: active.id, conversation_id: active.payload.conversation_id, ...(active.payload.temporary ? { temporary: true } : {}) }
@@ -779,13 +749,6 @@ async function handle(request: NextRequest) {
     }
     throw new ApiError(404, "Không tìm thấy API.");
   } catch (error) {
-    if (error instanceof ApiError && error.code === "WORKER_OFFLINE" && request.method !== "GET") {
-      const worker = cloudWorker();
-      if (worker) {
-        wakeCloudWorker(worker);
-        return json({ code: "WORKER_STARTING", error: "Worker dự phòng đang khởi động. Vui lòng thử lại." }, 503);
-      }
-    }
     if (error instanceof z.ZodError)
       return json(
         {

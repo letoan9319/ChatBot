@@ -18,13 +18,13 @@ LearnStep là trợ giảng tiếng Việt cho Giải tích, Đại số tuyến
 | Thành phần | Vai trò |
 | --- | --- |
 | [`apps/web`](apps/web) | Giao diện và API Next.js trên Vercel |
-| [`supabase`](supabase) | Auth, PostgreSQL, Storage riêng tư và hàng đợi PGMQ |
-| [`services/worker`](services/worker) | Worker Python trên máy cá nhân hoặc Render, xử lý tài liệu và câu hỏi |
+| [`supabase`](supabase) | Auth, PostgreSQL và hàng đợi PGMQ |
+| Cloudflare R2 | Lưu tệp tài liệu riêng tư với chốt chặn cứng 90% hạn mức miễn phí (9 GB, 900k Class A, 9M Class B) |
+| [`services/worker`](services/worker) | Worker Python trên máy cá nhân, xử lý tài liệu và câu hỏi |
 | Qdrant | Lưu và tìm kiếm vector. Chạy bằng Docker ở local hoặc dùng Qdrant Cloud cho production. |
 | Ollama local | Qwen 3.5 4B sinh câu trả lời và BGE-M3 tạo embedding theo mặc định. |
-| Render dự phòng | OpenRouter tạo embedding Nemotron. Deploy.com sinh câu trả lời DeepSeek. |
 
-Trình duyệt tải tệp trực tiếp lên Supabase Storage. Worker nhận việc từ hàng đợi Supabase. Vercel có thể đánh thức worker Render khi production không nhận được heartbeat. [Kiến trúc và API](docs/architecture.md) · [Bộ sơ đồ](docs/diagrams/README.md)
+Trình duyệt tải tệp trực tiếp lên Cloudflare R2 (hoặc Supabase Storage ở chế độ local) bằng URL ký tạm thời. Worker nhận việc từ hàng đợi Supabase. [Kiến trúc và API](docs/architecture.md) · [Bộ sơ đồ](docs/diagrams/README.md)
 
 ## Khởi động nhanh toàn hệ thống
 
@@ -81,31 +81,12 @@ Nếu bản chạy production nằm ở worktree phát hành:
 .\scripts\start-learnstep.ps1 -Mode Production -Checkout .\tmp\document-catalog-release
 ```
 
-Chuẩn bị cấu hình cloud từ [mẫu worker](services/worker/.env.example) nếu đây là lần chạy đầu. Điền Project URL, khóa máy chủ, chuỗi **Session pooler cổng 5432**, URL và khóa Qdrant. Với MinerU, đặt `MINERU_PYTHON` và `MINERU_MODEL_PATH` theo bản cài trên máy. Khi lệnh hoàn tất, mở [LearnStep production](https://learnstep-gamma.vercel.app/study). Log nằm trong `tmp/start-learnstep/production/` của checkout đang chạy. [Cấu hình Vercel, Supabase Cloud và migration](docs/deployment.md#vercel)
-
-## 3. Bật Render dự phòng cho production
-
-Tạo một **Web Service** Python trên Render với repo này và nhánh `main`.
-
-| Mục | Giá trị |
-| --- | --- |
-| Root Directory | `services/worker` |
-| Build Command | `uv sync --frozen --no-dev --python 3.12` |
-| Start Command | `uv run --frozen --no-dev python -m study_worker.render_service` |
-| Health Check Path | `/healthz` |
-| Environment | `PYTHON_VERSION=3.12.16` và các biến trong [mẫu Render](services/worker/.env.render.example) |
-
-Điền kết nối cloud trong Render. `OPENROUTER_API_KEY` dùng cho embedding `nvidia/nemotron-3-embed-1b:free`. `DEPLOY_API_KEY` dùng cho chat `deepseek-ai/deepseek-v4.1-flash-1017`. Giữ `CHAT_FALLBACK_PROVIDER=none` trên Render. Tạo một `WORKER_WAKE_SECRET` ngẫu nhiên tối thiểu 32 byte và đặt cùng giá trị ở Render và Vercel. Trên Vercel, thêm `CLOUD_WORKER_URL` bằng URL gốc của dịch vụ Render, rồi redeploy. Chỉ đưa file mẫu lên Git.
-
-Áp dụng migration production và [chuẩn bị chỉ mục Nemotron](docs/deployment.md#worker-dự-phòng-trên-render-free) trước khi thử tra cứu bằng cấu hình cloud. Chỉ mục BGE-M3 và Nemotron dùng collection khác nhau. Worker nào nhận việc sẽ tra trong collection tương ứng với model của nó. Khi chuyển hẳn kho sang Nemotron, cấu hình các worker dùng cùng profile và xử lý riêng các tài liệu cá nhân đã lập chỉ mục bằng model trước đó.
-
-Kiểm tra `/healthz` trả HTTP `200`, sau đó thử khi worker Ollama production đã dừng và heartbeat hết hiệu lực. Gửi một câu hỏi trên Vercel, mở trích dẫn và thử tải một PDF/DOCX được phép gửi qua API embedding. HTTP `200` ở `/healthz` chỉ xác nhận dịch vụ Render đã mở cổng. Yêu cầu đầu tiên có thể chờ Render Free khởi động.
+Chuẩn bị cấu hình cloud từ [mẫu worker](services/worker/.env.example) nếu đây là lần chạy đầu. Điền Project URL, khóa máy chủ, chuỗi **Session pooler cổng 5432**, URL/khóa Qdrant và cấu hình Cloudflare R2 (`R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`). Với MinerU, đặt `MINERU_PYTHON` và `MINERU_MODEL_PATH` theo bản cài trên máy. Khi lệnh hoàn tất, mở [LearnStep production](https://learnstep-gamma.vercel.app/study). Log nằm trong `tmp/start-learnstep/production/`. [Cấu hình Vercel, Supabase Cloud, Cloudflare R2 và migration](docs/deployment.md#vercel)
 
 ### Nếu AI báo tạm dừng
 
 - **Local online, production offline.** Kiểm tra worker đã nạp đúng file môi trường. `../../.env` là cấu hình local. `.env` trong `services/worker` là cấu hình cloud cho worker chạy trên máy bạn.
 - **Chạy worker lần hai gặp `RuntimeError`.** Kiểm tra phiên đang chạy và log `worker_ready`. Nếu cùng hàng đợi đã có worker giữ khóa thì tiếp tục dùng phiên đó.
-- **Render build được nhưng không chạy.** Xem dòng `ValueError` trong log khởi động và đối chiếu tên biến với mẫu Render. Nếu lỗi trước khi mở cổng, kiểm tra cấu hình trước khi thử lại `/healthz`.
 
 ## Kiểm thử
 
