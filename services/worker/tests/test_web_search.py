@@ -449,3 +449,135 @@ def test_searxng_images_accepts_wikimedia_and_same_origin_proxy_only():
     assert [img["label"] for img in images] == ["I1", "I2"]
     assert images[0]["thumbnail"].startswith("https://upload.wikimedia.org/wikipedia/commons/")
     assert images[1]["thumbnail"] == "http://127.0.0.1:8888/image_proxy?url=https%3A%2F%2Fphysics.edu%2Fpendulum.png&h=deadbeef"
+
+
+def test_clean_image_terms_rejects_pure_followup_and_conversational_filler(monkeypatch):
+    for filler in (
+        "Chi tiết hơn đi",
+        "Giải thích rõ hơn được không?",
+        "Cho thêm ví dụ đi",
+        "Là gì?",
+        "Tiếp tục nhé!",
+    ):
+        assert web_search._clean_image_terms(filler) == ""
+
+    assert web_search._clean_image_terms("Gradient là gì") == "Gradient"
+    assert web_search._clean_image_terms("Chi tiết máy là gì?") == "Chi tiết máy"
+
+    def fail_if_called(_request):
+        raise AssertionError("No HTTP call should occur for pure conversational filler")
+
+    client = httpx.Client(transport=httpx.MockTransport(fail_if_called))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    assert web_search.search_illustrations("Chi tiết hơn đi") == []
+
+
+def test_wikipedia_illustrations_ignore_unrelated_or_sibling_search_hits(monkeypatch):
+    requested_en_titles = []
+    requested_commons_titles = []
+
+    def respond(request):
+        if request.url.host == "vi.wikipedia.org":
+            return httpx.Response(200, json={"query": {"pages": [
+                {
+                    "index": 1,
+                    "pageid": 10,
+                    "title": "Gradient",
+                    "extract": "Trong giải tích vectơ, gradient của một trường vô hướng là một trường vectơ.",
+                    "langlinks": [{"lang": "en", "title": "Gradient"}],
+                },
+                {
+                    "index": 2,
+                    "pageid": 11,
+                    "title": "Khuếch tán",
+                    "extract": "Khuếch tán là sự chuyển động của các hạt từ vùng nồng độ cao sang thấp.",
+                    "pageimage": "DiffusionMicroMacro.png",
+                    "langlinks": [{"lang": "en", "title": "Diffusion"}],
+                },
+                {
+                    "index": 3,
+                    "pageid": 12,
+                    "title": "Tiết kiệm",
+                    "extract": "Tiết kiệm là phần thu nhập không đưa vào tiêu dùng.",
+                    "pageimage": "Piggy_bank2.jpg",
+                    "langlinks": [{"lang": "en", "title": "Saving"}],
+                },
+                {
+                    "index": 4,
+                    "pageid": 13,
+                    "title": "Bóng đá",
+                    "extract": "Bóng đá là môn thể thao đồng đội.",
+                    "pageimage": "Football_in_Bloomington,_Indiana,_1995.jpg",
+                    "langlinks": [{"lang": "en", "title": "Association football"}],
+                },
+            ]}})
+        if request.url.host == "en.wikipedia.org":
+            requested_en_titles.append(request.url.params.get("titles"))
+            return httpx.Response(200, json={"query": {"pages": [{
+                "pageid": 20,
+                "title": "Gradient",
+                "pageimage": "Gradient2.svg",
+            }]}})
+        assert request.url.host == "commons.wikimedia.org"
+        if request.url.params.get("titles"):
+            requested_commons_titles.append(request.url.params["titles"])
+            return httpx.Response(200, json={"query": {"pages": [{
+                "pageid": 301,
+                "title": "File:Gradient2.svg",
+                "imageinfo": [{
+                    "width": 640,
+                    "height": 480,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Gradient2.svg/640px-Gradient2.svg.png",
+                    "extmetadata": {
+                        "Artist": {"value": "Math Illustrator"},
+                        "LicenseShortName": {"value": "CC BY-SA 4.0"},
+                        "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+                    },
+                }],
+            }]}})
+        return httpx.Response(200, json={"query": {"pages": []}})
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    images = web_search.search_illustrations("Gradient là gì")
+    assert requested_en_titles == ["Gradient"]
+    assert all("Piggy_bank2" not in t and "Football" not in t and "Diffusion" not in t for t in requested_commons_titles)
+    assert [img["title"] for img in images] == ["Gradient2"]
+
+
+def test_commons_images_requires_all_core_keywords_for_two_word_topics():
+    def respond(request):
+        assert request.url.host == "commons.wikimedia.org"
+        metadata = {
+            "Artist": {"value": "Author"},
+            "LicenseShortName": {"value": "CC BY-SA 4.0"},
+            "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+        }
+        return httpx.Response(200, json={"query": {"pages": [
+            {
+                "index": 1,
+                "pageid": 1,
+                "title": "File:Sphere_in_Stokes_regime.png",
+                "imageinfo": [{
+                    "width": 600,
+                    "height": 400,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Sphere_in_Stokes_regime.png",
+                    "extmetadata": metadata,
+                }],
+            },
+            {
+                "index": 2,
+                "pageid": 2,
+                "title": "File:Stokes_theorem_surface.svg",
+                "imageinfo": [{
+                    "width": 600,
+                    "height": 400,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Stokes_theorem_surface.svg/640px-Stokes_theorem_surface.svg.png",
+                    "extmetadata": metadata,
+                }],
+            },
+        ]}})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        images = web_search._commons_images(client, "Stokes theorem")
+    assert [img["title"] for img in images] == ["Stokes_theorem_surface"]

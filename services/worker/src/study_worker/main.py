@@ -26,6 +26,7 @@ from .rag import (
     build_prompt,
     close_visual_block,
     concept_request,
+    contextualize_search_question,
     explicit_web_request,
     first_image_hint,
     follow_up_history,
@@ -37,7 +38,7 @@ from .rag import (
     validate_citations,
 )
 from .retrieval import clean_retrieval_query, expand_stub_chunks, extract_search_terms, is_meta_document_query, lexical_search_chunks, rerank_curriculum_candidates
-from .web_search import search_illustrations, search_web
+from .web_search import extract_topic_phrase, search_illustrations, search_web
 
 LOG = logging.getLogger("study_worker")
 LOCK_ID = 706294811
@@ -616,34 +617,39 @@ class Pipeline:
         external_search = mode in ("search", "research")
         notices = []
         illustrations = []
-        if external_search:
-            base_question = (
-                " ".join(extract_search_terms(search_query)[:10]) or question
-                if history
-                else question
-            )
-            terms = f"{base_question} {SUBJECTS[subject]}" if subject in SUBJECTS else base_question
+        topic_question = contextualize_search_question(question, history)
+        has_topic = bool(extract_topic_phrase(topic_question))
+        explicit_illustration = bool(ILLUSTRATION_REQUEST.search(question))
+        want_illustrations = has_topic and (
+            explicit_illustration
+            if history
+            else (explicit_illustration or concept_request(question))
+        )
+        if external_search and has_topic:
+            terms = f"{topic_question} {SUBJECTS[subject]}" if subject in SUBJECTS else topic_question
             results, notices = search_web(
-                terms, mode, self.settings.searxng_url, image_question=question if mode == "search" else "",
+                terms,
+                mode,
+                self.settings.searxng_url,
+                image_question=topic_question if (mode == "search" and want_illustrations) else "",
             )
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
             candidates = merge_curriculum_and_web(candidates, web, mode)
-        elif mode in ("documents", "library") and not image_versions and not strict_document_query(question):
+        elif mode in ("documents", "library") and has_topic and not image_versions and not strict_document_query(question):
             explicit_web = explicit_web_request(question)
             need_web_text = explicit_web or (
                 not candidates
-                and not is_meta_document_query(question)
+                and not is_meta_document_query(topic_question)
                 and bool(extract_search_terms(search_query))
             )
-            need_illustrations = concept_request(question, history) or bool(ILLUSTRATION_REQUEST.search(question))
             if need_web_text:
-                terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
+                terms = f"{topic_question} {SUBJECTS[subject]}" if subject in SUBJECTS else topic_question
                 results, web_notices = search_web(
                     terms,
                     "search",
                     self.settings.searxng_url,
-                    image_question=question if (need_illustrations or explicit_web) else "",
+                    image_question=topic_question if (want_illustrations or (explicit_web and not history)) else "",
                 )
                 illustrations = [source for source in results if source["kind"] == "image"]
                 web = [source for source in results if source["kind"] != "image"]
@@ -651,9 +657,9 @@ class Pipeline:
                     candidates = merge_curriculum_and_web(candidates, web, "search" if explicit_web else mode)
                 if explicit_web:
                     notices = web_notices
-            elif need_illustrations:
+            elif want_illustrations:
                 illustrations = search_illustrations(
-                    question,
+                    topic_question,
                     self.settings.searxng_url,
                     subject_label=SUBJECTS.get(subject, ""),
                 )
@@ -820,6 +826,8 @@ class Pipeline:
                 }
                 for item in used_web
             ]
+            if not generated or answer == NO_EVIDENCE:
+                illustrations = []
             if web_sources or illustrations or mode in ("search", "research"):
                 self.conn.execute(
                     "update public.messages set web_sources=%s where id=%s",

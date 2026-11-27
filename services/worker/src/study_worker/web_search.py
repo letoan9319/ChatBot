@@ -106,6 +106,7 @@ _GENERIC_IMAGE_TOKENS = frozenset({
     "disambig", "disambiguation", "ambox", "padlock", "favicon",
     "wikimedia", "wikipedia", "wikibooks", "wikiversity", "wiktionary", "wikidata",
     "nuvola", "badge", "emblem", "placeholder", "portal",
+    "header", "headers", "banner", "banners", "button", "buttons", "wallpaper",
 })
 _GENERIC_IMAGE_PHRASES = (
     "commons logo", "question book", "edit clear", "crystal clear",
@@ -115,9 +116,74 @@ _GENERIC_IMAGE_PHRASES = (
 _IMAGE_STOPWORDS = frozenset({
     "diagram", "image", "illustration", "picture", "photo", "figure", "graph",
     "hình", "ảnh", "minh", "họa", "là", "gì", "của", "và", "về", "trong", "cho",
-    "một", "các", "cách", "khái", "niệm", "định", "nghĩa", "giải", "thích",
-    "mô", "phỏng", "vẽ", "the", "and", "for", "with", "what", "is", "of", "in", "on", "to", "a", "an",
+    "một", "các", "cách", "the", "and", "for", "with", "what", "is", "of", "in", "on", "to", "a", "an",
 })
+_CONVERSATIONAL_WORDS_NFC = frozenset({
+    "là", "gì", "sao", "nào", "ai", "đâu", "thế", "như", "vậy", "rồi",
+    "hãy", "vui", "lòng", "giúp", "mình", "tôi", "em", "bạn",
+    "cho", "hỏi", "xem", "biết", "hiểu", "với", "nhé", "nha", "đi", "nữa",
+    "thêm", "hơn", "tiếp", "tục", "nốt", "được", "không", "chưa", "ạ", "ơi",
+    "của", "và", "về", "trong", "một", "các", "những", "này", "đó", "ấy",
+    "what", "is", "are", "how", "why", "explain", "more", "please", "detail", "details",
+})
+_FOLLOWUP_IMAGE_FILLER_RE = re.compile(
+    r"(?:"
+    r"\b(?:giải thích|nói|trình bày|phân tích|minh họa)\s+"
+    r"(?:lại|rõ hơn|kỹ hơn|kĩ hơn|chi tiết hơn|cụ thể hơn|dễ hiểu hơn|ngắn gọn hơn|đơn giản hơn|sâu hơn|thêm|tiếp|nốt)\b"
+    r"|\b(?:chi tiết|rõ|kỹ|kĩ|cụ thể|dễ hiểu|ngắn gọn|đơn giản|sâu)\s+hơn\b"
+    r"|\b(?:cho\s+)?thêm\s+ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
+    r"|\bví\s+dụ\s+(?:khác|thực tế|thêm)\b"
+    r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|hoàn thành nốt|đang dở|nốt đi)\b"
+    r"|\b(?:được không|phải không|vậy ạ|thì sao|thế còn|vậy còn)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _fold_ascii(text):
+    normalized = unicodedata.normalize("NFD", text or "")
+    stripped = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    return stripped.replace("đ", "d").replace("Đ", "D").casefold()
+
+
+def _topic_tokens(text):
+    cleaned = unicodedata.normalize("NFC", text or "")
+    tokens = []
+    for word in re.findall(r"[^\W_]+", cleaned, re.UNICODE):
+        low = word.casefold()
+        if low in _CONVERSATIONAL_WORDS_NFC or low in {"của", "và", "về", "trong", "cho", "một", "các", "the", "and", "of", "in", "on", "to", "for", "with", "a", "an"}:
+            continue
+        folded = _fold_ascii(low)
+        if folded:
+            tokens.append(folded)
+    return tokens
+
+
+def _select_illustration_wiki_pages(pages, topic_text):
+    target_tokens = _topic_tokens(_clean_image_terms(topic_text))
+    if not target_tokens:
+        return []
+    target_set = set(target_tokens)
+    tier1 = []
+    for page in pages:
+        core_title = re.sub(r"\s*\([^)]*\)\s*$", "", _plain(page.get("title")))
+        title_set = set(_topic_tokens(core_title))
+        if title_set and target_set <= title_set and len(title_set - target_set) <= 1:
+            tier1.append(page)
+    if tier1:
+        return tier1
+    if len(target_tokens) < 2:
+        return []
+    tier2 = []
+    for page in pages:
+        core_title = re.sub(r"\s*\([^)]*\)\s*$", "", _plain(page.get("title")))
+        title_set = set(_topic_tokens(core_title))
+        if not (title_set and title_set < target_set and target_tokens[-1] in title_set):
+            continue
+        first_sentence = _plain(page.get("extract") or "").split(".")[0]
+        if target_set <= set(_topic_tokens(first_sentence)):
+            tier2.append(page)
+    return tier2
 
 
 def _plain(value):
@@ -304,7 +370,7 @@ def _valid_http_url(url):
     )
 
 
-def _wikipedia_query(http, terms, *, host="https://vi.wikipedia.org"):
+def _wikipedia_query(http, terms, *, host="https://vi.wikipedia.org", topic_hint=""):
     response = http.get(host + "/w/api.php", params={
         "action": "query", "format": "json", "formatversion": 2,
         "generator": "search", "gsrsearch": terms, "gsrnamespace": 0, "gsrlimit": 4,
@@ -316,19 +382,27 @@ def _wikipedia_query(http, terms, *, host="https://vi.wikipedia.org"):
     data = response.json()
     if "error" in data:
         raise ValueError("Wikipedia search returned an error")
+    ordered_pages = sorted(data.get("query", {}).get("pages", []), key=lambda item: item.get("index", 0))
+    target_tokens = set(_topic_tokens(_clean_image_terms(topic_hint or terms)))
     sources = []
+    for page in ordered_pages:
+        page_id = page.get("pageid")
+        title = _plain(page.get("title"))
+        extract = _plain(page.get("extract"))
+        if len(ordered_pages) > 1 and target_tokens:
+            combined_tokens = set(_topic_tokens(f"{title} {extract[:350]}"))
+            if not (target_tokens & combined_tokens):
+                continue
+        if isinstance(page_id, int):
+            source = _source(f"{host}/?curid={page_id}", title, extract, "wikipedia", "Wikipedia")
+            if source:
+                sources.append(source)
     page_images = []
     en_titles = []
     seen_files = set()
     seen_en = set()
-    for page in sorted(data.get("query", {}).get("pages", []), key=lambda item: item.get("index", 0)):
-        page_id = page.get("pageid")
+    for page in _select_illustration_wiki_pages(ordered_pages, topic_hint or terms):
         title = _plain(page.get("title"))
-        if isinstance(page_id, int):
-            source = _source(f"{host}/?curid={page_id}", title,
-                             _plain(page.get("extract")), "wikipedia", "Wikipedia")
-            if source:
-                sources.append(source)
         page_image = _plain(page.get("pageimage"))
         if page_image:
             file_title = page_image if page_image.startswith("File:") else f"File:{page_image}"
@@ -410,11 +484,12 @@ def _strip_vn_question_filler(text):
 
 
 def _clean_image_terms(text):
-    cleaned = (text or "").strip()
+    cleaned = unicodedata.normalize("NFC", (text or "").strip())
+    cleaned = _FOLLOWUP_IMAGE_FILLER_RE.sub(" ", cleaned)
     cleaned = re.sub(
-        r"^(?:hãy |vui lòng |giúp (?:mình|tôi) )?"
-        r"(?:giải thích|cho (?:mình|tôi) (?:biết|xem)|tìm hiểu|minh họa|vẽ|mô phỏng|trình bày|what is|explain)\s+"
-        r"(?:(?:giúp )?(?:mình|tôi) )?"
+        r"^(?:hãy |vui lòng |giúp (?:mình|tôi|em) )?"
+        r"(?:giải thích|cho (?:mình|tôi|em) (?:biết|xem|hỏi)|tìm (?:hiểu|kiếm(?:\s+trên\s+web)?)|tra cứu(?:\s+trên\s+web)?|minh họa|vẽ|mô phỏng|trình bày|what is|explain)\s+"
+        r"(?:(?:giúp )?(?:mình|tôi|em) )?"
         r"(?:(?:bằng )?(?:hình minh họa|hình ảnh|sơ đồ|đồ thị|biểu đồ)\s+)?"
         r"(?:(?:khái niệm|định nghĩa|nguyên lý|hiện tượng) )?(?:về |của )?",
         "",
@@ -428,7 +503,21 @@ def _clean_image_terms(text):
         cleaned,
         flags=re.I,
     )
-    return _query_terms(cleaned)
+    for pattern in _VN_SUBJECT_FILLERS:
+        candidate = _strip_phrase(cleaned, pattern)
+        if candidate != cleaned and _core_keyword_count(candidate) >= 1:
+            cleaned = candidate
+    words = re.findall(r"[^\W_]+", cleaned, re.UNICODE)
+    while words and words[0].casefold() in _CONVERSATIONAL_WORDS_NFC:
+        words.pop(0)
+    while words and words[-1].casefold() in _CONVERSATIONAL_WORDS_NFC:
+        words.pop()
+    if not words or all(word.casefold() in _CONVERSATIONAL_WORDS_NFC for word in words):
+        return ""
+    return " ".join(words[:32])[:350]
+
+
+extract_topic_phrase = _clean_image_terms
 
 
 def _commons_image_item(page, *, require_keywords=None):
@@ -446,8 +535,11 @@ def _commons_image_item(page, *, require_keywords=None):
         return None
     title = raw_title.removeprefix("File:").rsplit(".", 1)[0]
     if require_keywords is not None:
-        title_words = set(_query_terms(title).casefold().split())
-        if require_keywords and not (require_keywords & title_words):
+        if not require_keywords:
+            return None
+        title_words = set(_topic_tokens(title))
+        min_overlap = len(require_keywords) if len(require_keywords) <= 2 else len(require_keywords) - 1
+        if len(require_keywords & title_words) < min_overlap:
             return None
         if (title_words & {"background", "wallpaper", "texture"}) - require_keywords:
             return None
@@ -552,6 +644,9 @@ def _commons_images(http, terms, *, extra_queries=()):
             queries.append(cleaned)
     images = []
     for query in queries:
+        keywords = set(_topic_tokens(query)) - {"diagram", "image", "illustration", "picture", "photo", "figure", "graph"}
+        if not keywords:
+            continue
         result = http.get("https://commons.wikimedia.org/w/api.php", params={
             "action": "query", "format": "json", "formatversion": 2,
             "generator": "search", "gsrsearch": query, "gsrnamespace": 6, "gsrlimit": 8,
@@ -559,7 +654,6 @@ def _commons_images(http, terms, *, extra_queries=()):
             "iiextmetadatafilter": "Artist|LicenseShortName|LicenseUrl",
         }, timeout=5)
         result.raise_for_status()
-        keywords = set(query.casefold().split()) - _IMAGE_STOPWORDS
         found = []
         for page in sorted(result.json().get("query", {}).get("pages", []), key=lambda item: item.get("index", 0)):
             item = _commons_image_item(page, require_keywords=keywords)
@@ -595,7 +689,7 @@ def _is_same_origin_proxy(thumbnail, base_url):
 
 
 def _searxng_images(http, base_url, terms):
-    if not base_url or not terms:
+    if not base_url or not terms or not _topic_tokens(terms):
         return []
     base = base_url.rstrip("/")
     result = http.get(base + "/search", params={
@@ -668,17 +762,21 @@ def _collect_illustrations(
     titles = list(en_titles)
     if lookup_wiki:
         with suppress(httpx.HTTPError, ValueError):
-            _, vi_files, vi_en = _wikipedia_query(http, image_terms)
+            _, vi_files, vi_en = _wikipedia_query(http, image_terms, topic_hint=image_terms)
             files.extend(vi_files)
             titles.extend(vi_en)
         if not files and not titles and subject_label:
             with suppress(httpx.HTTPError, ValueError):
-                _, subj_files, subj_en = _wikipedia_query(http, f"{image_terms} {subject_label}")
+                _, subj_files, subj_en = _wikipedia_query(
+                    http, f"{image_terms} {subject_label}", topic_hint=image_terms,
+                )
                 files.extend(subj_files)
                 titles.extend(subj_en)
         if not files and not titles:
             with suppress(httpx.HTTPError, ValueError):
-                _, en_files, en_found = _wikipedia_query(http, image_terms, host="https://en.wikipedia.org")
+                _, en_files, en_found = _wikipedia_query(
+                    http, image_terms, host="https://en.wikipedia.org", topic_hint=image_terms,
+                )
                 files.extend(en_files)
                 titles.extend(en_found)
     if titles and len(files) < 2:
@@ -738,19 +836,38 @@ def search_web(question, mode, searxng_url="", *, image_question=""):
                 notices.append("Chưa cấu hình tìm kiếm web đa trang.")
             if not web:
                 wiki_failed = False
+                core_topic = image_terms or _clean_image_terms(terms)
                 try:
-                    web, wiki_pageimages, wiki_en_titles = _wikipedia_query(http, terms)
+                    web, wiki_pageimages, wiki_en_titles = _wikipedia_query(http, terms, topic_hint=core_topic)
                 except (httpx.HTTPError, ValueError):
                     wiki_failed = True
                 if not web and not wiki_failed and len(terms.split()) >= 3 and focused != terms:
                     stripped = _strip_vn_question_filler(terms)
                     if stripped and stripped != terms:
                         with suppress(httpx.HTTPError, ValueError):
-                            web = _wikipedia(http, stripped)
+                            web, wiki_pageimages, wiki_en_titles = _wikipedia_query(
+                                http, stripped, topic_hint=core_topic,
+                            )
+                if (
+                    not wiki_failed
+                    and core_topic
+                    and core_topic.casefold() != terms.casefold()
+                    and not (wiki_pageimages or wiki_en_titles)
+                    and not any(
+                        set(_topic_tokens(core_topic)) <= set(_topic_tokens(item.get("title", "")))
+                        for item in web
+                    )
+                ):
+                    with suppress(httpx.HTTPError, ValueError):
+                        exact_web, wiki_pageimages, wiki_en_titles = _wikipedia_query(
+                            http, core_topic, topic_hint=core_topic,
+                        )
+                        if exact_web:
+                            web = exact_web + web
                 if wiki_failed:
                     with suppress(httpx.HTTPError, ValueError):
                         web, wiki_pageimages, wiki_en_titles = _wikipedia_query(
-                            http, terms, host="https://en.wikipedia.org"
+                            http, terms, host="https://en.wikipedia.org", topic_hint=core_topic,
                         )
                 if web:
                     notices.append("Nguồn web dự phòng từ Wikipedia.")

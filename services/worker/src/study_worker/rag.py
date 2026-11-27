@@ -253,6 +253,41 @@ def follow_up_query(question, history, count):
     return "\n".join(part for part in (history[0]["content"], question, step) if part)
 
 
+_FOLLOWUP_STRIP_RE = re.compile(
+    r"(?:"
+    r"\b(?:hãy|vui lòng|làm ơn)\b"
+    r"|\b(?:cho|giúp)\s+(?:mình|tôi|em)\s*(?:hỏi|xem|biết|hiểu|thêm)?\b"
+    r"|\b(?:giải thích|nói|trình bày|phân tích|làm|viết|trả lời|giải|minh họa)\s+"
+    r"(?:lại|rõ hơn|kỹ hơn|kĩ hơn|chi tiết hơn|cụ thể hơn|dễ hiểu hơn|ngắn gọn hơn|đơn giản hơn|sâu hơn|thêm|tiếp|nốt)\b"
+    r"|\b(?:chi tiết|rõ|kỹ|kĩ|cụ thể|dễ hiểu|ngắn gọn|đơn giản|sâu)\s+hơn\b"
+    r"|\b(?:chưa hiểu|không hiểu|khó hiểu|mơ hồ|làm rõ|đi sâu|nói sâu|phân tích sâu)\b"
+    r"|\b(?:cho\s+)?thêm\s+ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
+    r"|\bví\s+dụ\s+(?:khác|thực tế|thêm)\b"
+    r"|\b(?:minh họa\s+thêm|bằng\s+hình(?:\s+minh\s+họa|\s+ảnh)?|hình\s+minh\s+họa|hình\s+ảnh)\b"
+    r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|hoàn thành nốt|đang dở|nốt đi)\b"
+    r"|\b(?:thế còn|vậy còn|còn|thì sao|như vậy|ở trên|vừa rồi|vừa nêu|được không|phải không|vậy ạ)\b"
+    r"|\b(?:đi|nhé|nha|ạ|nữa|thêm|xem|với|thế|vậy)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def contextualize_search_question(question, history):
+    if not history or history[0].get("role") != "user":
+        return question
+    anchor = (history[0].get("content") or "").strip()
+    if not anchor:
+        return question
+    cleaned = _FOLLOWUP_STRIP_RE.sub(" ", question or "")
+    extra_words = [
+        word for word in re.findall(r"[^\W_]+", cleaned, re.UNICODE)
+        if len(word) >= 2 and word.casefold() not in anchor.casefold()
+    ]
+    if not extra_words:
+        return anchor
+    return f"{anchor} {' '.join(extra_words[:8])}"
+
+
 def _prompt_history(question, history, count, budget):
     if not history or budget <= 0:
         return []

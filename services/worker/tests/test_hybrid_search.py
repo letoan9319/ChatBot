@@ -586,7 +586,7 @@ def test_pipeline_chat_stopped_flushes_buffered_answer(monkeypatch):
     assert stopped_updates == [("Thứ nguyên ", "msg-3", "student-1", "stopped")]
 
 
-def _make_chat_pipeline(*, has_chunk=True, answer_text="Định nghĩa chuẩn [S1]."):
+def _make_chat_pipeline(*, has_chunk=True, answer_text="Định nghĩa chuẩn [S1].", history_rows=()):
     executed = []
 
     class FakeTransaction:
@@ -622,7 +622,7 @@ def _make_chat_pipeline(*, has_chunk=True, answer_text="Định nghĩa chuẩn [
             if "join public.knowledge_documents k" in sql and "order by d.id for share" in sql:
                 return SimpleNamespace(fetchall=lambda: [{"id": "doc-1", "index_version": 2}])
             if "from public.messages" in sql and "sequence <" in sql:
-                return SimpleNamespace(fetchall=lambda: [])
+                return SimpleNamespace(fetchall=lambda: list(reversed(history_rows)))
             if "from public.document_chunks c" in sql and has_chunk:
                 return SimpleNamespace(fetchone=lambda: {
                     "id": "chunk-1",
@@ -776,4 +776,106 @@ def test_unified_chat_routing_illustrations_strict_docs_explicit_web_and_researc
     assert research_calls[0][1]["image_question"] == ""
     completed = [params[0] for sql, params in executed if "update public.messages set content=%s,status='completed'" in sql][0]
     assert "Nguồn web dự phòng từ Wikipedia." in completed
+
+
+def test_followup_in_library_mode_contextualizes_web_search_and_suppresses_unrequested_images(monkeypatch):
+    history_rows = [
+        {"id": "u-0", "role": "user", "content": "Gradient là gì", "status": "completed"},
+        {"id": "a-0", "role": "assistant", "content": "Gradient của trường vô hướng là trường vectơ [S1].", "status": "completed"},
+    ]
+    sample_web = {
+        "url": "https://vi.wikipedia.org/?curid=10",
+        "title": "Gradient",
+        "content": "Trong giải tích vectơ, gradient là một trường vectơ.",
+        "kind": "wikipedia",
+        "provider": "Wikipedia",
+    }
+    sample_image = {
+        "kind": "image",
+        "label": "I1",
+        "title": "Gradient2",
+        "url": "https://commons.wikimedia.org/?curid=301",
+        "thumbnail": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Gradient2.svg/640px-Gradient2.svg.png",
+        "creator": "Math Author",
+        "license_name": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    }
+
+    web_calls = []
+    ill_calls = []
+    monkeypatch.setattr(
+        worker_main,
+        "search_web",
+        lambda *args, **kwargs: (
+            web_calls.append((args, kwargs))
+            or ([sample_web] + ([sample_image] if kwargs.get("image_question") else []), [])
+        ),
+    )
+    monkeypatch.setattr(
+        worker_main,
+        "search_illustrations",
+        lambda *args, **kwargs: ill_calls.append((args, kwargs)) or [sample_image],
+    )
+
+    # Case A: "Chi tiết hơn đi" follow-up with no curriculum chunk -> searches web for "Gradient", NO unrequested images.
+    pipeline, executed = _make_chat_pipeline(
+        has_chunk=False,
+        answer_text="Gradient biểu diễn hướng tăng nhanh nhất [S1].",
+        history_rows=history_rows,
+    )
+    pipeline.chat({
+        "id": "job-f1", "queue_id": 10, "user_id": "student-1", "message_id": "msg-f1", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-1",
+            "question": "Chi tiết hơn đi",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": "calculus",
+        },
+    })
+    assert len(web_calls) == 1
+    assert "gradient" in web_calls[0][0][0].casefold()
+    assert "chi tiết hơn" not in web_calls[0][0][0].casefold()
+    assert web_calls[0][1]["image_question"] == ""
+    assert ill_calls == []
+    saved_web = [params[0].obj for sql, params in executed if "set web_sources=%s" in sql][0]
+    assert [item["kind"] for item in saved_web] == ["wikipedia"]
+
+    # Case B: Follow-up WITH curriculum chunk ("Chi tiết hơn đi") -> does NOT call search_illustrations again.
+    web_calls.clear()
+    ill_calls.clear()
+    pipeline_hit, _ = _make_chat_pipeline(
+        has_chunk=True,
+        answer_text="Theo giáo trình [S1], gradient vuông góc đường mức.",
+        history_rows=history_rows,
+    )
+    pipeline_hit.chat({
+        "id": "job-f2", "queue_id": 11, "user_id": "student-1", "message_id": "msg-f2", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-2",
+            "question": "Chi tiết hơn đi",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": "calculus",
+        },
+    })
+    assert web_calls == []
+    assert ill_calls == []
+
+    # Case C: Follow-up EXPLICITLY requesting an illustration -> contextualizes topic to "Gradient"!
+    web_calls.clear()
+    ill_calls.clear()
+    pipeline_ill, executed_ill = _make_chat_pipeline(
+        has_chunk=True,
+        answer_text="Hình minh họa gradient trên mặt cong [S1].",
+        history_rows=history_rows,
+    )
+    pipeline_ill.chat({
+        "id": "job-f3", "queue_id": 12, "user_id": "student-1", "message_id": "msg-f3", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-3",
+            "question": "Cho mình xem hình minh họa chi tiết hơn",
+            "document_ids": [], "versions": {}, "mode": "library", "subject": "calculus",
+        },
+    })
+    assert len(ill_calls) == 1
+    assert "gradient" in ill_calls[0][0][0].casefold()
+    saved_ill = [params[0].obj for sql, params in executed_ill if "set web_sources=%s" in sql][0]
+    assert [item["title"] for item in saved_ill] == ["Gradient2"]
 
