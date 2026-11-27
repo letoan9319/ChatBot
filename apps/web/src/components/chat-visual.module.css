@@ -1,5 +1,5 @@
 .visual { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-alt); }
-.visual figcaption { margin-bottom: 10px; font-weight: 750; overflow-wrap: anywhere; }
+.visual figcaption { margin-bottom: 10px; font-weight: 750; overflow-wrap: anywhere; color: var(--text); }
 .visual .flow, .visual .chart { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .visual .flow { gap: 20px; justify-items: stretch; max-width: 420px; }
 .visual .flow li { position: relative; margin: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); overflow-wrap: anywhere; }
@@ -26,23 +26,349 @@
 .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .plot .zero { stroke-dasharray: 4 3; }
 
-.contours { display: grid; grid-template-columns: minmax(0, 270px) minmax(0, 1fr); gap: 12px; align-items: center; }
-.contours svg { display: block; width: 100%; }
-.contours circle { fill: none; stroke: var(--control-line); stroke-width: 1.35; }
-.contours circle[data-level="2"] { stroke: var(--secondary-edge); stroke-width: 2; }
-.contours text { fill: var(--text); font-size: 12px; paint-order: stroke; stroke: var(--surface-alt); stroke-width: 4px; }
-.contours .tangent { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 4 4; }
-.contours .gradientArrow { fill: none; stroke: var(--primary-edge); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.contours .origin { fill: var(--primary-edge); stroke: var(--surface-alt); }
-.visual .contourLegend { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.contourLegend li { display: flex; align-items: center; gap: 8px; margin: 0; }
-.gradientKey, .tangentKey { flex: 0 0 22px; border-top: 2px solid var(--primary-edge); }
-.tangentKey { border-top-color: var(--muted); border-top-style: dashed; }
 .concept { max-width: 600px; font-size: 13px; }
 .conceptCenter { display: inline-block; padding: 7px 12px; border-radius: 8px; background: var(--primary-soft); color: var(--primary-edge); }
 .visual .conceptBranches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); gap: 8px; padding: 0; margin: 10px 0 0; list-style: none; }
 .conceptBranches li { display: grid; gap: 3px; min-width: 0; margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-inline-start: 2px solid var(--primary-edge); border-radius: 8px; overflow-wrap: anywhere; }
-@media (max-width: 540px) {
-  .contours { grid-template-columns: 1fr; }
-  .contours svg { max-width: 270px; justify-self: center; }
+
+/* Interactive STEM FunctionPlot & VectorDiagram */
+.stemPlot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 600px;
+}
+
+.readoutBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 24px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.readoutCoord {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.readoutHint {
+  color: var(--muted);
+}
+
+.readoutItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.swatchDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--primary-edge);
+}
+
+.readoutItem[data-tone="secondary"] .swatchDot { background: var(--secondary-edge); }
+.readoutItem[data-tone="info"] .swatchDot { background: var(--info-ink); }
+.readoutItem[data-tone="warn"] .swatchDot { background: var(--yellow-accent); }
+.readoutItem[data-tone="neutral"] .swatchDot { background: var(--control-line); }
+
+.stemSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  touch-action: none;
+  user-select: none;
+}
+
+.plotBg {
+  fill: var(--surface);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.gridLine {
+  stroke: var(--line);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.tickMark {
+  stroke: var(--control-line);
+  stroke-width: 1;
+}
+
+.tickLabel {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.axisLine {
+  stroke: var(--control-line);
+  stroke-width: 1.5;
+}
+
+.axisArrow {
+  fill: var(--control-line);
+}
+
+.axisName {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.curveLine {
+  fill: none;
+  stroke: var(--primary-edge);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.curveLine[data-tone="secondary"] { stroke: var(--secondary-edge); }
+.curveLine[data-tone="info"] { stroke: var(--info-ink); }
+.curveLine[data-tone="warn"] { stroke: var(--yellow-accent); }
+.curveLine[data-tone="neutral"] { stroke: var(--control-line); }
+
+.shadeArea {
+  fill: var(--primary-edge);
+  fill-opacity: 0.18;
+  stroke: none;
+}
+
+.shadeArea[data-tone="secondary"] { fill: var(--secondary-edge); }
+.shadeArea[data-tone="info"] { fill: var(--info-ink); }
+.shadeArea[data-tone="warn"] { fill: var(--yellow-accent); }
+.shadeArea[data-tone="neutral"] { fill: var(--control-line); }
+
+.tangentLine {
+  stroke: var(--yellow-accent);
+  stroke-width: 1.8;
+  stroke-dasharray: 6 4;
+}
+
+.tangentDot {
+  fill: var(--yellow-accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.pointDot {
+  fill: var(--primary-edge);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.pointLabel {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.crosshairLine {
+  stroke: var(--control-line);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+
+.hoverDot {
+  fill: var(--primary-edge);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.hoverDot[data-tone="secondary"] { fill: var(--secondary-edge); }
+.hoverDot[data-tone="info"] { fill: var(--info-ink); }
+.hoverDot[data-tone="warn"] { fill: var(--yellow-accent); }
+.hoverDot[data-tone="neutral"] { fill: var(--control-line); }
+
+/* Vector & Free-Body Diagram */
+.planeLine {
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.planeHatch {
+  stroke: var(--control-line);
+  stroke-width: 1.1;
+}
+
+.angleRefLine {
+  stroke: var(--muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+
+.angleArc {
+  fill: none;
+  stroke: var(--info-ink);
+  stroke-width: 1.5;
+}
+
+.angleLabel {
+  fill: var(--info-ink);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.bodyBox {
+  fill: var(--surface-alt);
+  stroke: var(--line-strong);
+  stroke-width: 2;
+}
+
+.bodyLabel {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.originDot {
+  fill: var(--text);
+}
+
+.vectorGroup {
+  --vec-color: var(--primary-edge);
+}
+
+.vectorGroup[data-tone="secondary"] { --vec-color: var(--secondary-edge); }
+.vectorGroup[data-tone="info"] { --vec-color: var(--info-ink); }
+.vectorGroup[data-tone="warn"] { --vec-color: var(--yellow-accent); }
+.vectorGroup[data-tone="neutral"] { --vec-color: var(--control-line); }
+
+.vectorShaft {
+  stroke: var(--vec-color);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.vectorHead {
+  fill: var(--vec-color);
+}
+
+.vectorLabel {
+  fill: var(--vec-color);
+  font-size: 12px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  --leg-color: var(--primary-edge);
+}
+
+.legendItem[data-tone="secondary"] { --leg-color: var(--secondary-edge); }
+.legendItem[data-tone="info"] { --leg-color: var(--info-ink); }
+.legendItem[data-tone="warn"] { --leg-color: var(--yellow-accent); }
+.legendItem[data-tone="neutral"] { --leg-color: var(--control-line); }
+
+.legendLine {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--leg-color);
+  flex-shrink: 0;
+}
+
+.legendDashed {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed var(--leg-color);
+  flex-shrink: 0;
+}
+
+.legendShade {
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--leg-color);
+  opacity: 0.35;
+  border: 1px solid var(--leg-color);
+  flex-shrink: 0;
+}
+
+/* Streaming placeholder */
+.loadingVisual {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface-alt);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.loadingBars {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.loadingBars span {
+  display: block;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.loadingBars span:nth-child(1) { width: 70%; }
+.loadingBars span:nth-child(2) { width: 88%; }
+.loadingBars span:nth-child(3) { width: 52%; }
+
+@media (max-width: 560px) {
+  .visual {
+    padding: 12px;
+  }
+
+  .readoutBar {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+
+  .legend {
+    font-size: 11px;
+    gap: 5px 10px;
+  }
 }

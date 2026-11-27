@@ -33,7 +33,7 @@ Web dùng npm workspace với Node.js 22 trở lên. Worker dùng Python từ 3.
 3. Chỉ dùng tài liệu sẵn sàng, đúng chủ sở hữu, phiên bản chỉ mục, embedding profile và collection. Worker kiểm tra lease và trạng thái một lần nữa trước khi công bố. Giữ idempotency khi retry và cleanup.
 4. OCR sai cần sửa đầu ra trích xuất hoặc xử lý lại file gốc. [reindex_shared.py](services/worker/src/study_worker/reindex_shared.py) tạo embedding từ chunk đã lưu. Khi đổi model embedding, xây chỉ mục mới và kiểm tra truy xuất trước khi chuyển.
 
-Ảnh dán vào chat AI được web đóng gói thành PDF cá nhân, xử lý ingest rồi gắn vào lượt hỏi. Worker MinerU đưa OCR vào prompt cho model đọc đề. Khả năng xử lý phụ thuộc vào worker thực sự nhận job. Weights nằm trong vùng lưu trữ của máy chạy model. Dùng ollama list, CHAT_MODEL, MINERU_PYTHON và MINERU_MODEL_PATH để kiểm tra cấu hình. [Notebook OCR Kaggle](notebooks/learnstep_kaggle_ocr.ipynb) và [Final_Docs](Final_Docs) là tài nguyên làm việc cho OCR theo lô.
+Ảnh dán vào chat AI được web đóng gói thành PDF cá nhân, xử lý ingest rồi gắn vào lượt hỏi. Khi chạy Ollama local với qwen3.5:4b-q4_K_M, model đọc trực tiếp ảnh đề bài bằng vision; MinerU được dùng cho PDF scan và làm nhánh OCR dự phòng khi model chat không hỗ trợ vision. Khả năng xử lý phụ thuộc vào worker thực sự nhận job. Weights nằm trong vùng lưu trữ của máy chạy model. Dùng ollama list, CHAT_MODEL, MINERU_PYTHON và MINERU_MODEL_PATH để kiểm tra cấu hình. [Notebook OCR Kaggle](notebooks/learnstep_kaggle_ocr.ipynb) và [Final_Docs](Final_Docs) là tài nguyên làm việc cho OCR theo lô.
 
 ## Luồng hỏi đáp và quyền truy cập
 
@@ -65,7 +65,7 @@ Pop-Location
 
 npm test gồm kiểm thử web và PostgreSQL nhúng. Khi kiểm tra model thật, báo rõ đã thử trực tiếp model, worker với DB hay toàn tuyến từ giao diện.
 
-[Web production trên Vercel](https://learnstep-gamma.vercel.app/study) dùng Supabase Cloud và Qdrant Cloud. Cấu hình local từng kiểm tra gồm Ollama qwen3:4b-instruct, BGE-M3 cho embedding và MinerU cho OCR. Render có cấu hình dự phòng dùng NVIDIA Nemotron embedding qua OpenRouter và DeepSeek chat qua Deploy.com. Kiểm tra embedding profile/collection và phạm vi dữ liệu được phép gửi trước khi đổi worker dùng chung hàng đợi. Xem [hướng dẫn triển khai](docs/deployment.md).
+[Web production trên Vercel](https://learnstep-gamma.vercel.app/study) dùng Supabase Cloud và Qdrant Cloud. Cấu hình local hiện dùng Ollama qwen3.5:4b-q4_K_M (kèm vision cho ảnh đề bài), BGE-M3 cho embedding và MinerU cho PDF scan hoặc fallback OCR. Render có cấu hình dự phòng dùng NVIDIA Nemotron embedding qua OpenRouter và DeepSeek chat qua Deploy.com. Kiểm tra embedding profile/collection và phạm vi dữ liệu được phép gửi trước khi đổi worker dùng chung hàng đợi. Xem [hướng dẫn triển khai](docs/deployment.md).
 
 Giữ file .env và credentials ngoài Git. Chia sẻ cấu hình qua các file .env.example. Worker cloud cần PostgreSQL hỗ trợ kết nối theo session, thường qua Session pooler cổng 5432. Khi AI báo tạm dừng, kiểm tra process chạy từ checkout nào, heartbeat, lease, schema, Ollama, Qdrant và log. Khi deploy, xác minh commit đã push, CI, deployment Vercel, migrations và phiên bản worker đang chạy.
 
@@ -73,11 +73,10 @@ Giữ file .env và credentials ngoài Git. Chia sẻ cấu hình qua các file 
 
 | Checkout hoặc tính năng | Bằng chứng tại thời điểm ghi |
 | --- | --- |
-| Checkout gốc | HEAD **b33c97a7**, có nhiều sửa đổi tracked và untracked. Giữ thay đổi local của người dùng. |
-| Mốc phát hành | Remote-tracking ref **origin/main** và worktree **tmp/document-catalog-release** cùng ở **01c6a44b** sau lần phát hành ngày 23/11/2026. Vercel production và worker Ollama đã chuyển sang bản này. Fetch và kiểm tra lại trước lần phát hành tiếp theo. |
+| Checkout gốc | Repo chính ở `C:/Users/letoan/Documents/GitHub/ChatBot` (đã dọn toàn bộ worktree thừa; các nhánh có commit chưa merge như `codex/group-image-release`, `codex/group-image-quotas`, `codex/chat-experience` vẫn được lưu an toàn trong git refs). |
+| Thư mục model local | Model đã finetune (`.gguf` hoặc LoRA `adapter/`) đặt tại `models/finetuned/`, đăng ký qua `scripts/register-finetuned-model.ps1` và trỏ `CHAT_MODEL` / `OLLAMA_THINKING_MODEL` sang tên model mới (ví dụ `qwen3.5:4b-learnstep`). |
 | Có ở mốc phát hành | Kho tài liệu gộp theo tập, trình đọc OCR, chat tạm thời/dừng/xóa phiên, phản ứng nhóm, dán ảnh vào nhóm, OCR ảnh gửi cho AI và gợi ý đầu tiên cho đề ảnh. |
 | Phát hành ngày 23/11/2026 | Dán LaTeX và hiển thị công thức trong tin nhắn người dùng, cùng bản vá trí nhớ hội thoại. Commit tính năng **0d0e685c**, commit SQL cố định **01c6a44b**. |
-| Luồng phát hành riêng | Worktree **tmp/chat-experience**, **tmp/group-composer-icons** và **tmp/group-image-release**. Đối chiếu diff từng nhánh trước khi chuyển thay đổi. Vercel Blob Private cho ảnh nhóm thuộc luồng riêng, cần xác minh trạng thái trước khi dùng. |
 
 **Bản vá gần nhất — trí nhớ hội thoại.** Worker đọc tối đa 24 tin nhắn cùng phiên và chủ sở hữu, gồm tin nhắn đã dừng có nội dung. Dựa vào mẫu hỏi tiếp tiếng Việt để tìm đề độc lập gần nhất. Khi lời giải dài, giữ đề gốc và ưu tiên đoạn đang được hỏi, gỡ nhãn trích dẫn cũ. Với đề ảnh, đối chiếu job gốc, quyền sở hữu và phiên bản OCR. Đã thử local qua worker và PostgreSQL với Ollama bằng bài đạo hàm ẩn, đề ảnh, đề độc lập và phiên mới. Lần kiểm thử gần nhất ghi nhận **80 bài worker qua ở checkout gốc** và **70 bài qua ở worktree phát hành**.
 

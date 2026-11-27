@@ -223,3 +223,229 @@ def test_search_web_retries_vietnamese_wikipedia_with_stripped_terms(monkeypatch
     assert sources[0]["kind"] == "wikipedia"
     assert sources[0]["title"] == "Thứ nguyên"
     assert "Nguồn web dự phòng từ Wikipedia." in notices
+
+
+def test_wikipedia_langlinks_and_pageimages_resolve_verified_commons_diagrams(monkeypatch):
+    seen_requests = []
+
+    def respond(request):
+        seen_requests.append(request)
+        if request.url.host == "vi.wikipedia.org":
+            assert request.url.params["prop"] == "extracts|pageimages|langlinks"
+            assert request.url.params["piprop"] == "name"
+            assert request.url.params["lllang"] == "en"
+            assert request.url.params["lllimit"] == "max"
+            return httpx.Response(200, json={"query": {"pages": [{
+                "index": 1,
+                "pageid": 10,
+                "title": "Hiệu ứng Doppler",
+                "extract": "Hiệu ứng Doppler mô tả sự thay đổi tần số sóng khi nguồn và người quan sát chuyển động tương đối.",
+                "pageimage": "Commons-logo.svg",
+                "langlinks": [{"lang": "en", "title": "Doppler effect"}],
+            }]}})
+        if request.url.host == "en.wikipedia.org":
+            assert request.url.params["titles"] == "Doppler effect"
+            assert request.url.params["prop"] == "pageimages"
+            return httpx.Response(200, json={"query": {"pages": [{
+                "pageid": 20,
+                "title": "Doppler effect",
+                "pageimage": "Doppler_effect_diagrammatic.svg",
+            }]}})
+        assert request.url.host == "commons.wikimedia.org"
+        if request.url.params.get("titles"):
+            return httpx.Response(200, json={"query": {"pages": [{
+                "pageid": 301,
+                "title": "File:Doppler_effect_diagrammatic.svg",
+                "imageinfo": [{
+                    "width": 640,
+                    "height": 420,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Doppler_effect_diagrammatic.svg/640px-Doppler_effect_diagrammatic.svg.png",
+                    "extmetadata": {
+                        "Artist": {"value": "Physics Illustrator"},
+                        "LicenseShortName": {"value": "CC BY-SA 4.0"},
+                        "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0/"},
+                    },
+                }],
+            }]}})
+        return httpx.Response(200, json={"query": {"pages": []}})
+
+    real_client = httpx.Client
+    client = real_client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    images = web_search.search_illustrations("Hiệu ứng Doppler là gì?")
+    assert len(images) == 1
+    assert images[0]["label"] == "I1"
+    assert images[0]["kind"] == "image"
+    assert images[0]["title"] == "Doppler_effect_diagrammatic"
+    assert images[0]["thumbnail"].startswith("https://upload.wikimedia.org/wikipedia/commons/")
+
+    def failing_respond(_request):
+        raise httpx.ConnectError("offline")
+
+    offline_client = real_client(transport=httpx.MockTransport(failing_respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: offline_client)
+    assert web_search.search_illustrations("Hiệu ứng Doppler là gì?") == []
+
+
+def test_commons_images_uses_english_langlinks_without_vietnamese_filename_rejection(monkeypatch):
+    commons_queries = []
+
+    def respond(request):
+        if request.url.host == "vi.wikipedia.org":
+            return httpx.Response(200, json={"query": {"pages": [{
+                "index": 1,
+                "pageid": 55,
+                "title": "Biến đổi Fourier",
+                "extract": "Biến đổi Fourier phân tích một hàm theo các thành phần tần số điều hòa cơ bản.",
+                "langlinks": [{"lang": "en", "title": "Fourier transform"}],
+            }]}})
+        if request.url.host == "en.wikipedia.org":
+            return httpx.Response(200, json={"query": {"pages": [{"pageid": 56, "title": "Fourier transform"}]}})
+        assert request.url.host == "commons.wikimedia.org"
+        commons_queries.append(request.url.params.get("gsrsearch"))
+        return httpx.Response(200, json={"query": {"pages": [{
+            "index": 1,
+            "pageid": 88,
+            "title": "File:Fourier_transform_time_and_frequency_domains.png",
+            "imageinfo": [{
+                "width": 800,
+                "height": 400,
+                "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Fourier_transform_time_and_frequency_domains.png/640px-Fourier_transform_time_and_frequency_domains.png",
+                "extmetadata": {
+                    "Artist": {"value": ""},
+                    "LicenseShortName": {"value": "Public domain"},
+                    "LicenseUrl": {"value": ""},
+                },
+            }],
+        }]}})
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(web_search.httpx, "Client", lambda **_: client)
+    sources, _ = web_search.search_web(
+        "Biến đổi Fourier là gì?",
+        "search",
+        image_question="Biến đổi Fourier là gì?",
+    )
+    images = [item for item in sources if item["kind"] == "image"]
+    assert commons_queries[0] == "Fourier transform"
+    assert len(images) == 1
+    assert images[0]["license_name"] == "Public domain"
+    assert images[0]["license_url"] == "https://creativecommons.org/publicdomain/mark/1.0/"
+
+
+def test_resolve_commons_files_filters_icons_flags_tiny_and_nonfree():
+    def respond(request):
+        assert request.url.host == "commons.wikimedia.org"
+        requested = request.url.params["titles"].split("|")
+        assert "File:Flag_of_Vietnam.svg" not in requested
+        assert "File:Question_book-new.svg" not in requested
+        assert "File:Commons-logo.svg" not in requested
+        return httpx.Response(200, json={"query": {"pages": [
+            {
+                "pageid": 10,
+                "title": "File:Tiny_diagram.png",
+                "imageinfo": [{
+                    "width": 80,
+                    "height": 80,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/a/a0/Tiny_diagram.png",
+                    "extmetadata": {
+                        "Artist": {"value": "Author"},
+                        "LicenseShortName": {"value": "CC BY 4.0"},
+                        "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0/"},
+                    },
+                }],
+            },
+            {
+                "pageid": 11,
+                "title": "File:Fair_use_cover.jpg",
+                "imageinfo": [{
+                    "width": 500,
+                    "height": 500,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/b/b1/Fair_use_cover.jpg",
+                    "extmetadata": {
+                        "Artist": {"value": "Publisher"},
+                        "LicenseShortName": {"value": "Fair use"},
+                        "LicenseUrl": {"value": "https://example.org/fair-use"},
+                    },
+                }],
+            },
+            {
+                "pageid": 12,
+                "title": "File:Vector_addition.svg",
+                "imageinfo": [{
+                    "width": 640,
+                    "height": 480,
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Vector_addition.svg/640px-Vector_addition.svg.png",
+                    "extmetadata": {
+                        "Artist": {"value": "Math Author"},
+                        "LicenseShortName": {"value": "CC BY 4.0"},
+                        "LicenseUrl": {"value": "https://creativecommons.org/licenses/by/4.0/"},
+                    },
+                }],
+            },
+        ]}})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        resolved = web_search._resolve_commons_files(
+            client,
+            [
+                "Flag_of_Vietnam.svg",
+                "Question_book-new.svg",
+                "Commons-logo.svg",
+                "Tiny_diagram.png",
+                "Fair_use_cover.jpg",
+                "Vector_addition.svg",
+            ],
+        )
+    assert len(resolved) == 1
+    assert resolved[0]["title"] == "Vector_addition"
+    assert resolved[0]["label"] == "I1"
+
+
+def test_searxng_images_accepts_wikimedia_and_same_origin_proxy_only():
+    def respond(request):
+        assert request.url.host == "127.0.0.1"
+        assert request.url.params["categories"] == "images"
+        return httpx.Response(200, json={"results": [
+            {
+                "title": "Harmonic oscillator diagram",
+                "url": "https://commons.wikimedia.org/wiki/File:Harmonic.svg",
+                "thumbnail_src": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Harmonic.svg/640px-Harmonic.svg.png",
+                "author": "Wiki User",
+                "license": "CC BY-SA 4.0",
+                "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+                "resolution": "640x480",
+            },
+            {
+                "title": "Third party host leak",
+                "url": "https://tracker.example/page",
+                "thumbnail_src": "https://tracker.example/pic.jpg",
+                "author": "Tracker",
+                "license": "CC BY 4.0",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "resolution": "800x600",
+            },
+            {
+                "title": "Tiny wiki icon",
+                "url": "https://commons.wikimedia.org/wiki/File:Tiny.png",
+                "thumbnail_src": "https://upload.wikimedia.org/wikipedia/commons/1/12/Tiny.png",
+                "author": "Wiki User",
+                "license": "CC BY 4.0",
+                "license_url": "https://creativecommons.org/licenses/by/4.0/",
+                "resolution": "64x64",
+            },
+            {
+                "title": "Proxied pendulum diagram",
+                "url": "https://physics.edu/pendulum",
+                "thumbnail_src": "/image_proxy?url=https%3A%2F%2Fphysics.edu%2Fpendulum.png&h=deadbeef",
+                "author": "Physics Dept",
+                "resolution": "600x400",
+            },
+        ]})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        images = web_search._searxng_images(client, "http://127.0.0.1:8888", "harmonic oscillator")
+    assert len(images) == 2
+    assert [img["label"] for img in images] == ["I1", "I2"]
+    assert images[0]["thumbnail"].startswith("https://upload.wikimedia.org/wikipedia/commons/")
+    assert images[1]["thumbnail"] == "http://127.0.0.1:8888/image_proxy?url=https%3A%2F%2Fphysics.edu%2Fpendulum.png&h=deadbeef"

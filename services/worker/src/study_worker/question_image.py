@@ -1,31 +1,95 @@
 from base64 import b64encode
 import json
 from pathlib import Path
+import re
 import subprocess  # nosec B404
 import tempfile
 import time
 
+import httpx
 import pymupdf
 
 from .documents import InvalidDocument, Section, clean_text
+
+QUESTION_OCR_PROMPT = (
+    "Transcribe all text, choices, and formulas from this exercise image in reading order. "
+    "Preserve Vietnamese diacritics exactly and write math/science formulas in LaTeX. "
+    "If there is a physics, chemistry, or geometry diagram, graph, or table, describe its labels, "
+    "values, and relationships concisely in Vietnamese. "
+    "Output only the transcription; do not solve, explain, or add commentary."
+)
 
 
 def is_question_image(doc):
     return doc.get("file_type") == "pdf" and doc.get("name", "").startswith("Ảnh câu hỏi - ")
 
 
-def extract_question_image(data, settings, check):
-    if not settings.mineru_available:
-        raise RuntimeError("MinerU is not configured")
-    if len(data) > 3 * 1024 * 1024 or not data.startswith(b"%PDF-"):
-        raise InvalidDocument("Ảnh câu hỏi phải là PDF một trang dưới 3 MB.")
-    try:
-        with pymupdf.open(stream=data, filetype="pdf") as pdf:
-            if pdf.needs_pass or len(pdf) != 1 or max(pdf[0].rect.width, pdf[0].rect.height) > 1800:
-                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
-    except (ValueError, RuntimeError) as exc:
-        raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.") from exc
+def _render_page_image(page, *, max_side, image_format="jpeg"):
+    side = max(page.rect.width, page.rect.height)
+    scale = min(2.0, max_side / side)
+    pixels = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False, colorspace=pymupdf.csRGB)
+    if image_format == "png":
+        raw = pixels.tobytes("png")
+    else:
+        raw = pixels.tobytes("jpeg", jpg_quality=92)
+    return b64encode(raw).decode("ascii")
 
+
+def _clean_ocr_text(raw: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", raw)
+    text = re.sub(r"<img\b[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return clean_text(text)
+
+
+def _extract_with_ollama_vision(image_b64, settings, check):
+    check()
+    try:
+        with httpx.Client(base_url=settings.ollama_url, timeout=httpx.Timeout(180, connect=10)) as client:
+            response = client.post(
+                "/api/chat",
+                json={
+                    "model": settings.chat_model,
+                    "stream": False,
+                    "think": False,
+                    "keep_alive": "5m",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": QUESTION_OCR_PROMPT,
+                            "images": [image_b64],
+                        }
+                    ],
+                    "options": {
+                        "num_ctx": 7168,
+                        "num_predict": 2048,
+                        "temperature": 0,
+                    },
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+    except httpx.TimeoutException as exc:
+        raise InvalidDocument("Đọc ảnh quá lâu. Hãy thử ảnh nhỏ và rõ hơn.") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError("Ollama vision OCR request failed") from exc
+    except ValueError as exc:
+        raise RuntimeError("Ollama vision OCR returned invalid response") from exc
+    check()
+    if result.get("error"):
+        raise RuntimeError("Ollama vision OCR failed")
+    if result.get("done_reason") == "length":
+        raise InvalidDocument("Nội dung ảnh quá dài để đọc trọn vẹn. Hãy cắt gọn từng câu hỏi rồi dán lại.")
+    if not result.get("done"):
+        raise RuntimeError("Ollama vision OCR did not complete")
+    raw = result.get("message", {}).get("content", "")
+    text = _clean_ocr_text(raw if isinstance(raw, str) else "")
+    if not text:
+        raise InvalidDocument("Không nhận dạng được nội dung ảnh. Hãy thử ảnh rõ hơn.")
+    return [Section(text, page=1)]
+
+
+def _extract_with_mineru(data, settings, check):
     runner = Path(__file__).with_name("mineru_runner.py")
     with tempfile.TemporaryDirectory(prefix="learnstep-question-") as directory:
         source = Path(directory) / "question.pdf"
@@ -53,8 +117,38 @@ def extract_question_image(data, settings, check):
     return [Section(text, page=1)]
 
 
-def ollama_question_image(data):
+def extract_question_image(data, settings, check):
+    use_vision = bool(getattr(settings, "question_vision_ocr_available", False))
+    use_mineru = bool(getattr(settings, "mineru_available", False))
+    if not use_vision and not use_mineru:
+        raise RuntimeError("Question OCR is not configured")
+    if len(data) > 3 * 1024 * 1024 or not data.startswith(b"%PDF-"):
+        raise InvalidDocument("Ảnh câu hỏi phải là PDF một trang dưới 3 MB.")
+    rendered_image = None
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as pdf:
+            if pdf.needs_pass or len(pdf) != 1:
+                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
+            page = pdf[0]
+            side = max(page.rect.width, page.rect.height)
+            if not 0 < side <= 1800:
+                raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.")
+            if use_vision:
+                rendered_image = _render_page_image(page, max_side=1400, image_format="png")
+    except InvalidDocument:
+        raise
+    except (ValueError, RuntimeError) as exc:
+        raise InvalidDocument("Không đọc được ảnh câu hỏi. Hãy dán lại ảnh gốc.") from exc
+
+    if use_vision:
+        return _extract_with_ollama_vision(rendered_image, settings, check)
+    return _extract_with_mineru(data, settings, check)
+
+
+def ollama_question_image(data, *, max_side=1280):
     """Render the authorized single-page question PDF for local vision."""
+    if max_side <= 0:
+        raise ValueError("max_side must be positive")
     if not data.startswith(b"%PDF-") or len(data) > 3 * 1024 * 1024:
         raise InvalidDocument("Ảnh câu hỏi không hợp lệ.")
     try:
@@ -65,8 +159,8 @@ def ollama_question_image(data):
             side = max(page.rect.width, page.rect.height)
             if not 0 < side <= 1800:
                 raise InvalidDocument("Kích thước ảnh câu hỏi không hợp lệ.")
-            scale = 1024 / side
-            pixels = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False, colorspace=pymupdf.csRGB)
-            return b64encode(pixels.tobytes("jpeg", jpg_quality=90)).decode("ascii")
+            return _render_page_image(page, max_side=max_side, image_format="jpeg")
+    except InvalidDocument:
+        raise
     except (ValueError, RuntimeError) as exc:
         raise InvalidDocument("Không thể đọc ảnh câu hỏi.") from exc

@@ -20,4 +20,12 @@ describe("study guide entry", () => {
     expect(new Set(guideTopicIds.map((id) => guideTopics[id].art)).size).toBe(7);
     expect(welcomeCards.map((card) => guideTopics[card.topic].art)).toEqual(["tutor", "library", "groups"]);
   });
+
+  it("describes the unified study chat flow without legacy mode switching", () => {
+    const studySteps = guideTopics.study.steps.join(" ");
+    expect(studySteps).not.toContain("Theo tài liệu");
+    expect(studySteps).not.toContain("Chọn Tìm kiếm");
+    expect(studySteps).toContain("đồ thị");
+    expect(studySteps).toContain("ảnh minh họa");
+  });
 });

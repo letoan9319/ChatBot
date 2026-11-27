@@ -269,3 +269,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local finetuned model weights and generated Modelfile
+models/**/*.gguf
+models/**/*.safetensors
+models/**/*.bin
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.onnx
+models/finetuned/adapter/
+models/finetuned/Modelfile
+models/finetuned/tokenizer.json

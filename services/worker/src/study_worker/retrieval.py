@@ -11,16 +11,15 @@ STOPWORDS = {
     "la", "gi", "nhu", "the", "nao", "cua", "trong", "cho", "voi", "tu", "den",
     "mot", "cac", "nhung", "nay", "do", "khi", "ma", "de", "va", "hay", "hoac",
     "duoc", "bi", "se", "da", "dang", "ve", "tai", "sao", "vi", "neu", "thi",
-    "co", "khong", "phai", "can", "tim", "tinh", "giai", "hay", "cho", "biet",
+    "co", "khong", "phai", "can", "tim", "tinh", "giai", "biet",
     "theo", "bai", "tap", "cau", "hoi", "muc", "phan", "chuong", "sach", "giao",
-    "trinh", "hoc", "phan", "noi", "dung", "tom", "tat", "giai", "thich", "neu",
-    "vi", "du", "minh", "hoa", "sau", "day", "tren", "duoi", "bang", "nhieu",
-    "bao", "the", "is", "are", "was", "were", "what", "which", "who", "how",
+    "trinh", "hoc", "noi", "dung", "tom", "tat", "thich",
+    "du", "minh", "hoa", "sau", "day", "tren", "duoi", "bang", "nhieu",
+    "bao", "is", "are", "was", "were", "what", "which", "who", "how",
     "why", "when", "where", "and", "or", "for", "with", "from", "that", "this",
     "into", "about", "using", "find", "solve", "explain", "define", "example",
-    "hom", "nay", "troi",
     "giua", "hai", "dau", "nam", "ngang", "dai", "rong", "cao", "qua",
-    "xac", "dinh", "biet", "rang",
+    "xac", "dinh", "rang",
 }
 
 SUBJECT_HINTS = {

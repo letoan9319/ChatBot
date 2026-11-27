@@ -10,9 +10,9 @@ export const guideTopics = {
     intro: "Hỏi về một khái niệm, gửi đề bài và mở nguồn để đối chiếu lời giải.",
     art: "tutor",
     steps: [
-      "Vào Học tập. Nhập câu hỏi hoặc dán ảnh đề bài vào ô chat, rồi chọn môn học nếu muốn thu hẹp phạm vi.",
-      "Chọn Theo tài liệu để tra kho chung hoặc các tài liệu bạn chọn qua nút cộng. Chọn Tìm kiếm để kết hợp học liệu trường với nguồn tham khảo mở từ web và bài báo khoa học.",
-      "Bấm Dừng khi muốn ngắt phản hồi. Chọn trích dẫn dưới câu trả lời hoặc mở Nguồn để xem đoạn trích, trang gốc hay liên kết tham khảo.",
+      "Vào Học tập. Nhập câu hỏi, dán ảnh đề bài hoặc yêu cầu vẽ đồ thị hàm số và sơ đồ lực vào ô chat; chọn môn học hoặc tài liệu qua nút cộng nếu muốn thu hẹp phạm vi.",
+      "Trợ giảng tự động ưu tiên tài liệu bạn chọn và kho học liệu chung, đồng thời tự mở rộng sang nguồn mở uy tín, ảnh minh họa và đồ thị tương tác khi cần làm rõ khái niệm.",
+      "Bấm Dừng khi muốn ngắt phản hồi. Chọn trích dẫn dưới câu trả lời, mở Nguồn để đối chiếu trang gốc, hoặc bấm vào ảnh minh họa để xem phóng to.",
     ],
     action: "Mở trợ giảng",
   },

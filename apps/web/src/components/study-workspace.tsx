@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { browserClient } from "@/core/supabase-browser";
-import { chatModes, MAX_FILE_SIZE, statuses, subjects, type ChatMode, type Subject } from "@/core/validation";
+import { MAX_FILE_SIZE, statuses, subjects, type Subject } from "@/core/validation";
 import type {
   Conversation,
   Message,
@@ -12,6 +12,7 @@ import type {
   SourceDetail,
   StudyDocument,
   StudyStreak,
+  WebSource,
 } from "@/core/types";
 import { Markdown } from "./markdown";
 import { resolveWebProvider, safeExternalUrl } from "@/core/web-source";
@@ -84,6 +85,7 @@ const location = (source: Source) =>
         .join(" · ");
 
 const ignoreReveal = () => {};
+const WIKIMEDIA_IMAGE_URL = /^https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\//;
 
 export function StudyWorkspace({ userId, username, permissions, initialAvatar, initialConversationId = null, initialLibrary = null, initialWelcome = false }: {
   userId: string;
@@ -123,7 +125,10 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
   const [questionImage, setQuestionImage] = useState<{ file: File; key: string; pdf?: File; documentId?: string } | null>(null);
   const [readingImage, setReadingImage] = useState(false);
   const [chatSubject, setChatSubject] = useState<Subject | "">("");
-  const [chatMode, setChatMode] = useState<ChatMode>("documents");
+  const [failedImages, setFailedImages] = useState<Record<string, true>>({});
+  const [previewImage, setPreviewImage] = useState<WebSource | null>(null);
+  const previewReturnFocus = useRef<HTMLElement | null>(null);
+  const previewCloseButton = useRef<HTMLButtonElement>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -292,6 +297,25 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
 
+  const closePreviewImage = useCallback(() => {
+    setPreviewImage(null);
+    const opener = previewReturnFocus.current;
+    previewReturnFocus.current = null;
+    requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!previewImage) return;
+    previewCloseButton.current?.focus({ preventScroll: true });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreviewImage();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewImage, closePreviewImage]);
+
   function changeChatSubject(subject: Subject | "") {
     setChatSubject(subject);
     if (subject) {
@@ -444,7 +468,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
           setConversationId(id);
         }
       }
-      const fingerprint = JSON.stringify([id, text, documentIds, chatMode, chatSubject]);
+      const fingerprint = JSON.stringify([id, text, documentIds, chatSubject]);
       const key = isCurrent() && requestIdentity.current?.fingerprint === fingerprint
         ? requestIdentity.current.key : crypto.randomUUID();
       if (isCurrent()) requestIdentity.current = { fingerprint, key };
@@ -453,7 +477,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
         return;
       }
       const job = await api<{ id: string; status: string }>(`conversations/${id}/messages`, "POST", {
-        question: text, documentIds, key, mode: chatMode, subject: chatSubject || undefined,
+        question: text, documentIds, key, subject: chatSubject || undefined,
       });
       if (isCurrent()) {
         ++refreshRequest.current;
@@ -547,6 +571,7 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
     setTab("chat");
     setQuestion("");
     setQuestionImage(null);
+    setPreviewImage(null);
     requestIdentity.current = null;
   }
   const allSources = messages
@@ -706,7 +731,6 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
             }}
             onAskLesson={(subject, lessonId) => {
               openConversation(null);
-              setChatMode("documents");
               setSelected([]);
               setChatSubject(subject);
               setQuestion(tutorPrompt(lessonId));
@@ -836,23 +860,65 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                       (() => { const safeUrl = safeExternalUrl(item.url); const provider = resolveWebProvider(item); return safeUrl ? <a key={item.label} data-authority="web" href={safeUrl} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title} · {provider}</a> : <span key={item.label} data-authority="web">[{item.label}] {item.title} · {provider}</span>; })()
                     ))}</div>
                   )}
-                  {message.status === "completed" && message.web_sources?.some(item => item.kind === "image") && (
-                    <div className={styles.chatImages} aria-label="Ảnh minh họa từ kết quả tìm kiếm">
-                      {message.web_sources.filter(item => item.kind === "image" &&
-                        /^https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/commons\//.test(item.thumbnail ?? "")).map(item => (
-                        <figure key={item.label}>
-                          <a href={item.url} target="_blank" rel="noopener noreferrer">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={item.thumbnail} alt={item.title} loading="lazy" referrerPolicy="no-referrer" />
-                          </a>
-                          <figcaption>
-                            <a href={item.url} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}</a>
-                            <small>{item.creator} · <a href={item.license_url} target="_blank" rel="noopener noreferrer">{item.license_name}</a></small>
-                          </figcaption>
-                        </figure>
-                      ))}
-                    </div>
-                  )}
+                  {message.status === "completed" && (() => {
+                    const visibleImages = (message.web_sources ?? []).filter(
+                      (item) =>
+                        item.kind === "image" &&
+                        Boolean(item.thumbnail) &&
+                        WIKIMEDIA_IMAGE_URL.test(item.thumbnail ?? "") &&
+                        !failedImages[item.thumbnail!],
+                    );
+                    if (!visibleImages.length) return null;
+                    return (
+                      <div className={styles.chatImages} aria-label="Ảnh minh họa từ kết quả tìm kiếm">
+                        {visibleImages.map((item) => {
+                          const safeUrl = safeExternalUrl(item.url);
+                          const safeLicenseUrl = item.license_url ? safeExternalUrl(item.license_url) : null;
+                          const thumbUrl = item.thumbnail!;
+                          return (
+                            <figure key={`${item.label}-${thumbUrl}`}>
+                              <button
+                                type="button"
+                                className={styles.chatImageButton}
+                                aria-label={`Phóng to ảnh minh họa: ${item.title}`}
+                                onClick={(event) => {
+                                  previewReturnFocus.current = event.currentTarget;
+                                  setPreviewImage(item);
+                                }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={thumbUrl}
+                                  alt={item.title}
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer"
+                                  onError={() => {
+                                    setFailedImages((previous) => (previous[thumbUrl] ? previous : { ...previous, [thumbUrl]: true }));
+                                  }}
+                                />
+                              </button>
+                              <figcaption>
+                                {safeUrl ? (
+                                  <a href={safeUrl} target="_blank" rel="noopener noreferrer">[{item.label}] {item.title}</a>
+                                ) : (
+                                  <span>[{item.label}] {item.title}</span>
+                                )}
+                                {(item.creator || item.license_name) && (
+                                  <small>
+                                    {item.creator}
+                                    {item.creator && item.license_name ? " · " : ""}
+                                    {item.license_name && (safeLicenseUrl ? (
+                                      <a href={safeLicenseUrl} target="_blank" rel="noopener noreferrer">{item.license_name}</a>
+                                    ) : item.license_name)}
+                                  </small>
+                                )}
+                              </figcaption>
+                            </figure>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {["failed", "interrupted"].includes(message.status) && <p className="inline-error">Lần trả lời này chưa hoàn tất. Bạn có thể gửi lại câu hỏi sau khi kiểm tra kết nối AI.</p>}
                   {message.content && <div className={styles.messageTools}>
                     <button type="button" onClick={() => void copyMessage(message)}>{copiedMessage === message.id ? "Đã sao chép" : "Sao chép"}</button>
@@ -872,15 +938,12 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                 tools={<>
                   <ChatDocumentMenu selected={selected.length} canUpload={Boolean(worker.online || worker.cloudAvailable) && !uploading && documents.length < 20}
                     onChoose={() => showLibrary("knowledge")} onUpload={file => upload(file, chatSubject || "calculus")} />
-                <SelectField label="Chế độ trả lời" value={chatMode} compact disabled={busy}
-                  options={Object.entries(chatModes).map(([value, label]) => ({ value, label }))}
-                  onChange={value => setChatMode(value as ChatMode)} />
                 <SelectField label="Môn học" value={chatSubject} compact disabled={busy}
                   options={[{ value: "", label: "Tất cả môn học" }, ...Object.entries(subjects).map(([value, label]) => ({ value, label }))]}
                   onChange={value => changeChatSubject(value as Subject | "")} />
                 </>}>
                 <textarea id="question" ref={questionInput} value={question} onChange={(event) => setQuestion(event.target.value)}
-                  placeholder={chatMode !== "documents" ? "Bạn muốn tìm hiểu điều gì?" : selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Hỏi trên kho tài liệu chung…"}
+                  placeholder={selected.length ? "Đặt câu hỏi từ tài liệu đã chọn…" : "Đặt câu hỏi, dán ảnh đề bài hoặc yêu cầu vẽ đồ thị…"}
                   maxLength={2000} rows={1} aria-describedby="composer-hint" onPaste={(event) => {
                     const field = event.currentTarget;
                     const math = pastedChatMath(event.clipboardData.getData("text/latex"), event.clipboardData.getData("text/plain"));
@@ -927,8 +990,9 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
                   ? "Worker dự phòng sẽ khởi động khi bạn gửi câu hỏi hoặc tải tệp."
                   : "AI tạm dừng · Bạn có thể xem lại hội thoại."
                   : worker.activeChat ? "Đang có câu hỏi chờ xử lý."
-                    : chatMode === "search" ? "Ưu tiên học liệu trường và tìm thêm từ Wikipedia, bài báo mở liên quan. Chỉ gửi từ khóa câu hỏi."
-                        : selected.length ? "Đang dùng tài liệu đã chọn." : chatSubject ? `Tự động tìm trong tài liệu chung môn ${subjects[chatSubject]}.` : "Tự động tìm trong tài liệu chung."}</span>
+                    : selected.length ? "Ưu tiên tài liệu đã chọn và tự động mở rộng khi cần."
+                      : chatSubject ? `Tự động kết hợp học liệu môn ${subjects[chatSubject]} với nguồn mở và hình minh họa.`
+                        : "Tự động kết hợp học liệu chung với nguồn mở và hình minh họa."}</span>
                 <span>{question.length}/2000</span>
               </div>
             </form>
@@ -977,6 +1041,66 @@ export function StudyWorkspace({ userId, username, permissions, initialAvatar, i
       </div>
       {guide && <StudyGuideDialog mode={guide} onClose={() => closeGuide()}
         onOpenFullGuide={() => finishWelcome("guide")} onNavigate={navigateFromGuide} />}
+      {previewImage && (() => {
+        const safeUrl = safeExternalUrl(previewImage.url);
+        const safeLicenseUrl = previewImage.license_url ? safeExternalUrl(previewImage.license_url) : null;
+        return (
+          <div
+            className={styles.lightboxBackdrop}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-image-preview-title"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) closePreviewImage();
+            }}
+          >
+            <div className={styles.lightboxDialog}>
+              <header className={styles.lightboxHeader}>
+                <h2 id="chat-image-preview-title">[{previewImage.label}] {previewImage.title}</h2>
+                <button
+                  ref={previewCloseButton}
+                  type="button"
+                  className={styles.quietButton}
+                  onClick={closePreviewImage}
+                >
+                  Đóng
+                </button>
+              </header>
+              <div className={styles.lightboxStage}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewImage.thumbnail}
+                  alt={previewImage.title}
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    if (previewImage.thumbnail) {
+                      const failedUrl = previewImage.thumbnail;
+                      setFailedImages((previous) => (previous[failedUrl] ? previous : { ...previous, [failedUrl]: true }));
+                    }
+                    closePreviewImage();
+                  }}
+                />
+              </div>
+              <footer className={styles.lightboxMeta}>
+                <div className={styles.lightboxCredit}>
+                  {previewImage.creator && <span>{previewImage.creator}</span>}
+                  {previewImage.creator && previewImage.license_name && <span aria-hidden="true">·</span>}
+                  {previewImage.license_name && (safeLicenseUrl ? (
+                    <a href={safeLicenseUrl} target="_blank" rel="noopener noreferrer">{previewImage.license_name}</a>
+                  ) : (
+                    <span>{previewImage.license_name}</span>
+                  ))}
+                </div>
+                {safeUrl && (
+                  <a className={styles.pdfLink} href={safeUrl} target="_blank" rel="noopener noreferrer">
+                    Mở nguồn gốc
+                  </a>
+                )}
+              </footer>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }

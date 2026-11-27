@@ -10,6 +10,25 @@ RESEARCH_OUTPUT_TOKENS = 5000
 RESEARCH_CONTEXT_TOKENS = 12288
 
 DEEPSEEK_FLASH = "deepseek-ai/deepseek-v4.1-flash-1017"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def is_qwen35_model(model: str) -> bool:
+    name = (model or "").strip().lower()
+    return "qwen3.5" in name
+
+
+def resolve_local_path(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute() or candidate.exists():
+        return str(candidate)
+    repo_candidate = REPO_ROOT / candidate
+    if repo_candidate.exists():
+        return str(repo_candidate)
+    return value
 
 
 @dataclass(frozen=True)
@@ -46,6 +65,14 @@ class Settings:
     def mineru_available(self):
         return (bool(self.mineru_python and self.mineru_model) and Path(self.mineru_python).is_file()
                 and (Path(self.mineru_model) / "config.json").is_file())
+
+    @property
+    def question_vision_ocr_available(self):
+        return self.ai_provider == "ollama" and is_qwen35_model(self.chat_model)
+
+    @property
+    def question_ocr_available(self):
+        return self.question_vision_ocr_available or self.mineru_available
 
     def fallback_settings(self):
         # Only the chat model is used in fallback mode. Embedding identity is unchanged.
@@ -86,7 +113,7 @@ class Settings:
             chat_model=chat_model,
             embed_model=os.getenv("EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free" if remote else "bge-m3").strip(),
             tokenizer_model=os.getenv("TOKENIZER_MODEL", "Qwen/Qwen3-4B"),
-            tokenizer_path=os.getenv("TOKENIZER_PATH", ""),
+            tokenizer_path=resolve_local_path(os.getenv("TOKENIZER_PATH", "")),
             min_score=float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35")),
             ai_provider=provider,
             openrouter_key=os.getenv("OPENROUTER_API_KEY", ""),
@@ -98,10 +125,10 @@ class Settings:
             cloud_embedding_key=os.getenv("BGE_EMBEDDINGS_KEY", ""),
             cloud_embedding_model=os.getenv("BGE_EMBEDDINGS_MODEL", "BAAI/bge-m3"),
             deploy_api_key=deploy_api_key,
-            thinking_model=os.getenv("OLLAMA_THINKING_MODEL", chat_model if not remote and chat_model.startswith("qwen3.5:") else "").strip(),
+            thinking_model=os.getenv("OLLAMA_THINKING_MODEL", chat_model if not remote and is_qwen35_model(chat_model) else "").strip(),
             searxng_url=os.getenv("SEARXNG_URL", "" if remote else "http://127.0.0.1:8888").strip().rstrip("/"),
-            mineru_python=os.getenv("MINERU_PYTHON", ""),
-            mineru_model=os.getenv("MINERU_MODEL_PATH", ""),
+            mineru_python=resolve_local_path(os.getenv("MINERU_PYTHON", "")),
+            mineru_model=resolve_local_path(os.getenv("MINERU_MODEL_PATH", "")),
         )
         if settings.searxng_url:
             search_url = urlparse(settings.searxng_url)

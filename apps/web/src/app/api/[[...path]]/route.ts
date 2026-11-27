@@ -658,8 +658,7 @@ async function handle(request: NextRequest) {
         }
         if (method === "POST") {
           const value = messageSchema.parse(await body());
-          const mode = value.mode ?? "documents";
-          const retrievalMode = mode === "documents" && !value.documentIds.length ? "library" : mode;
+          const retrievalMode = value.mode === "search" ? "search" : value.documentIds.length ? "documents" : "library";
           const { data, error } = await db.rpc("app_send_message", {
             p_conversation: id,
             p_question: value.question,

@@ -130,3 +130,153 @@ def test_thinking_tokens_stream_via_callback_and_reset_on_budget_fallback():
     assert resets == [True]
     assert answer == "ket qua cuoi"
     value.http.close()
+
+
+def test_consecutive_generates_unload_embed_model_only_once():
+    calls = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        calls.append((request.url.path, payload.get("model")))
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        return httpx.Response(200, content=b'{"message":{"content":"ok"},"done":true,"done_reason":"stop"}\n')
+
+    value = mocked(handler)
+    assert list(value.generate([{"role": "user", "content": "turn 1"}])) == ["ok"]
+    assert list(value.generate([{"role": "user", "content": "turn 2"}])) == ["ok"]
+    assert calls == [
+        ("/api/generate", "bge-m3"),
+        ("/api/chat", "qwen3:4b"),
+        ("/api/chat", "qwen3:4b"),
+    ]
+    value.http.close()
+
+
+def test_consecutive_embeds_unload_chat_model_only_once():
+    calls = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        calls.append((request.url.path, payload.get("model")))
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"embeddings": [[0.0] * 1024]})
+
+    value = mocked(handler)
+    assert len(value.embed(["chunk 1"])) == 1
+    assert len(value.embed(["chunk 2"])) == 1
+    assert calls == [
+        ("/api/generate", "qwen3:4b"),
+        ("/api/embed", "bge-m3"),
+        ("/api/embed", "bge-m3"),
+    ]
+    value.http.close()
+
+
+def test_unload_embed_before_vision_ocr_keeps_chat_warm_and_still_unloads_chat_for_later_embed():
+    calls = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        calls.append((request.url.path, payload.get("model")))
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        if request.url.path == "/api/embed":
+            return httpx.Response(200, json={"embeddings": [[0.0] * 1024]})
+        return httpx.Response(200, content=b'{"message":{"content":"ok"},"done":true,"done_reason":"stop"}\n')
+
+    value = mocked(handler)
+    value.settings.chat_model = "qwen3.5:4b-q4_K_M"
+    # Regular document ingest loads bge-m3 and unloads chat_model.
+    value.embed(["doc chunk"])
+    # Question-image vision OCR unloads embed_model, then direct vision OCR loads chat_model.
+    value.unload("bge-m3")
+    # Immediate question-image chat skips redundant embed_model unload.
+    assert list(value.generate([{"role": "user", "content": "solve"}])) == ["ok"]
+    # Later regular embed must still unload chat_model before loading bge-m3.
+    value.embed(["another doc chunk"])
+    assert calls == [
+        ("/api/generate", "qwen3.5:4b-q4_K_M"),
+        ("/api/embed", "bge-m3"),
+        ("/api/generate", "bge-m3"),
+        ("/api/chat", "qwen3.5:4b-q4_K_M"),
+        ("/api/generate", "qwen3.5:4b-q4_K_M"),
+        ("/api/embed", "bge-m3"),
+    ]
+    value.http.close()
+
+
+def test_failed_unload_does_not_skip_retry():
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        if request.url.path == "/api/generate":
+            attempts += 1
+            if attempts == 1:
+                return httpx.Response(500, json={"error": "temporary"})
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"embeddings": [[0.0] * 1024]})
+
+    value = mocked(handler)
+    with pytest.raises(httpx.HTTPStatusError):
+        value.embed(["chunk"])
+    assert len(value.embed(["chunk"])) == 1
+    assert attempts == 2
+    value.http.close()
+
+
+def test_thinking_uses_tighter_token_budget_than_research():
+    from study_worker.config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS
+    from study_worker.models import THINKING_CONTEXT_TOKENS, THINKING_OUTPUT_TOKENS
+
+    seen_options = []
+
+    def handler(request):
+        if request.url.path == "/api/generate":
+            return httpx.Response(200, json={})
+        payload = json.loads(request.content)
+        seen_options.append((payload["think"], payload["options"]))
+        return httpx.Response(200, content=b'{"message":{"content":"ok"},"done":true,"done_reason":"stop"}\n')
+
+    value = mocked(handler)
+    value.settings.thinking_model = "qwen3.5:4b-q4_K_M"
+    # Non-research thinking uses tighter context and output cap.
+    assert "".join(value.generate([{"role": "user", "content": "q"}], on_thinking=lambda _: None)) == "ok"
+    # Research thinking preserves full research budgets.
+    assert "".join(value.generate([{"role": "user", "content": "q"}], research=True, on_thinking=lambda _: None)) == "ok"
+    # Standard non-thinking preserves default chat budgets.
+    assert "".join(value.generate([{"role": "user", "content": "q"}])) == "ok"
+
+    assert seen_options[0][0] is True
+    assert seen_options[0][1]["num_ctx"] == THINKING_CONTEXT_TOKENS == 8192
+    assert seen_options[0][1]["num_predict"] == THINKING_OUTPUT_TOKENS == 4096
+
+    assert seen_options[1][0] is True
+    assert seen_options[1][1]["num_ctx"] == RESEARCH_CONTEXT_TOKENS
+    assert seen_options[1][1]["num_predict"] == RESEARCH_OUTPUT_TOKENS
+
+    assert seen_options[2][0] is False
+    assert seen_options[2][1]["num_ctx"] == 7168
+    assert seen_options[2][1]["num_predict"] == 3584
+    value.http.close()
+
+
+def test_finetuned_qwen35_model_name_supports_vision_and_relative_paths(monkeypatch):
+    from study_worker.config import REPO_ROOT, is_qwen35_model, resolve_local_path
+
+    assert is_qwen35_model("qwen3.5:4b-q4_K_M") is True
+    assert is_qwen35_model("qwen3.5:4b-learnstep") is True
+    assert is_qwen35_model("learnstep-qwen3.5:4b") is True
+    assert is_qwen35_model("qwen3:4b") is False
+
+    value = mocked(lambda _: httpx.Response(200, json={}))
+    value.settings.chat_model = "learnstep-qwen3.5:4b"
+    assert value.supports_question_vision is True
+    value.http.close()
+
+    # Relative path inside repo root resolves even when CWD is services/worker.
+    monkeypatch.chdir(REPO_ROOT / "services" / "worker")
+    resolved = resolve_local_path("models/README.md")
+    assert resolved == str(REPO_ROOT / "models" / "README.md")

@@ -18,9 +18,26 @@ from .documents import InvalidDocument, chunk_sections, extract
 from .question_image import extract_question_image, is_question_image, ollama_question_image
 from .models import create_models, VectorStore
 from .openrouter import OutputLimit, ProviderError
-from .rag import NO_EVIDENCE, SUBJECTS, add_eigenspace_diagram, add_gradient_example, allows_general_knowledge, build_prompt, close_visual_block, concept_request, first_image_hint, follow_up_history, follow_up_query, normalize_citation_marks, review_missing_citations, should_reason, validate_citations
+from .rag import (
+    ILLUSTRATION_REQUEST,
+    NO_EVIDENCE,
+    SUBJECTS,
+    allows_general_knowledge,
+    build_prompt,
+    close_visual_block,
+    concept_request,
+    explicit_web_request,
+    first_image_hint,
+    follow_up_history,
+    follow_up_query,
+    normalize_citation_marks,
+    review_missing_citations,
+    should_reason,
+    strict_document_query,
+    validate_citations,
+)
 from .retrieval import clean_retrieval_query, expand_stub_chunks, extract_search_terms, is_meta_document_query, lexical_search_chunks, rerank_curriculum_candidates
-from .web_search import search_web
+from .web_search import search_illustrations, search_web
 
 LOG = logging.getLogger("study_worker")
 LOCK_ID = 706294811
@@ -246,10 +263,12 @@ class Pipeline:
                     raise InvalidDocument("File vượt quá 20 MB.")
         if len(data) != doc["size_bytes"]:
             raise InvalidDocument("Dung lượng file không khớp với thông tin đã đăng ký.")
-        if is_question_image(doc):
+        question_image = is_question_image(doc)
+        if question_image:
             local = getattr(self.models, "primary", self.models)
             if self.settings.ai_provider == "ollama":
-                local.unload(self.settings.chat_model)
+                if not getattr(self.settings, "question_vision_ocr_available", False):
+                    local.unload(self.settings.chat_model)
                 local.unload(self.settings.embed_model)
             sections = extract_question_image(bytes(data), self.settings, lambda: self.document(job))
         else:
@@ -257,8 +276,9 @@ class Pipeline:
         chunks = chunk_sections(sections, self.models.tokenizer, str(doc["id"]), doc["index_version"])
         if not chunks:
             raise InvalidDocument("Không tìm thấy đoạn văn bản có thể sử dụng.")
-        # Remove the old namespace before recording a new one, including failed attempts.
-        self.vectors.delete(job["user_id"], doc["id"], doc["vector_collection"])
+        if not question_image:
+            # Remove the old namespace before recording a new one, including failed attempts.
+            self.vectors.delete(job["user_id"], doc["id"], doc["vector_collection"])
         with self.conn.transaction():
             guard(self.conn, job)
             self.conn.execute("select id from public.documents where id=%s for update", (doc["id"],))
@@ -267,14 +287,15 @@ class Pipeline:
                 "update public.documents set vector_collection=%s,embedding_profile=%s where id=%s and user_id=%s",
                 (self.vectors.collection, self.settings.embedding_profile, doc["id"], job["user_id"]),
             )
-        # Rebuild deterministically; cleans up vectors from a previous failed version.
-        self.vectors.delete(job["user_id"], doc["id"])
-        for start in range(0, len(chunks), 8):
-            self.document(job)
-            batch = chunks[start : start + 8]
-            embeddings = self.models.embed([chunk["content"] for chunk in batch])
-            self.document(job)
-            self.vectors.upsert(job["user_id"], doc["id"], doc["index_version"], batch, embeddings)
+        if not question_image:
+            # Rebuild deterministically; cleans up vectors from a previous failed version.
+            self.vectors.delete(job["user_id"], doc["id"])
+            for start in range(0, len(chunks), 8):
+                self.document(job)
+                batch = chunks[start : start + 8]
+                embeddings = self.models.embed([chunk["content"] for chunk in batch])
+                self.document(job)
+                self.vectors.upsert(job["user_id"], doc["id"], doc["index_version"], batch, embeddings)
         try:
             with self.conn.transaction():
                 guard(self.conn, job)
@@ -300,7 +321,8 @@ class Pipeline:
                 self.conn.execute("update public.documents set status='ready',error=null where id=%s", (doc["id"],))
                 finish(self.conn, job)
         except Cancelled:
-            self.vectors.delete(job["user_id"], doc["id"])
+            if not question_image:
+                self.vectors.delete(job["user_id"], doc["id"])
             raise
 
     def delete(self, job):
@@ -462,6 +484,7 @@ class Pipeline:
         subject = payload.get("subject")
         guard(self.conn, job)
         image_documents = self.chat_documents(job)
+        image_doc_set = set(image_documents or ())
         document_ids = payload["document_ids"]
         versions = payload["versions"]
         owners = payload.get("owners") or {str(doc_id): str(job["user_id"]) for doc_id in document_ids}
@@ -477,84 +500,82 @@ class Pipeline:
             document_ids = [str(row["id"]) for row in catalog]
             versions = {str(row["id"]): row["index_version"] for row in catalog}
             owners = {str(row["id"]): str(row["user_id"]) for row in catalog}
-        history = self.conn.execute(
-            """select role,content,id,status from public.messages
-            where conversation_id=%s and user_id=%s
-            and subject is not distinct from %s
-            and status in ('completed','stopped','interrupted') and sequence <
-            (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
-            order by sequence desc limit 24""",
-            (payload["conversation_id"], job["user_id"], subject, payload["user_message_id"],
-             payload["conversation_id"], job["user_id"]),
-        ).fetchall()[::-1]
+        non_image_doc_ids = [doc_id for doc_id in document_ids if str(doc_id) not in image_doc_set]
+        non_image_owners = {str(doc_id): owners[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in owners}
+        non_image_versions = {str(doc_id): versions[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in versions}
         question = payload["question"]
-        history = follow_up_history(question, history) if not image_documents else []
+        if image_documents:
+            history = []
+        else:
+            history = self.conn.execute(
+                """select role,content,id,status from public.messages
+                where conversation_id=%s and user_id=%s
+                and subject is not distinct from %s
+                and status in ('completed','stopped','interrupted') and sequence <
+                (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
+                order by sequence desc limit 24""",
+                (payload["conversation_id"], job["user_id"], subject, payload["user_message_id"],
+                 payload["conversation_id"], job["user_id"]),
+            ).fetchall()[::-1]
+            history = follow_up_history(question, history)
         anchor = history[0] if history and history[0]["role"] == "user" else None
         prior_images = self.follow_up_images(job, anchor["id"]) if anchor else {}
         query = follow_up_query(question, history, self.models.count)
         search_query = clean_retrieval_query(query) or query
-        hits = []
-        if document_ids:
-            vector = self.models.embed([search_query], query=True)[0]
-            hits = self.vectors.search(job["user_id"], document_ids, versions, vector, owners)
         candidates = []
         vector_scores = {}
-        for hit in hits:
-            point = hit.payload or {}
-            # Verify vector payload against the canonical owner, document and version in Postgres.
-            if point.get("document_id") not in owners or point.get("user_id") != owners[point["document_id"]]:
-                continue
-            row = self.conn.execute(
-                """select c.*,d.name as document_name,d.subject from public.document_chunks c
-                join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
-                and c.document_id=%s and d.user_id=%s and d.status='ready'
-                and c.index_version=d.index_version and c.index_version=%s
-                and (%s::text is null or d.subject=%s)
-                and ((not %s and d.user_id=%s) or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
-                (
-                    point.get("chunk_id"),
-                    point.get("user_id"),
-                    point.get("document_id"),
-                    point.get("user_id"),
-                    versions.get(point.get("document_id")),
-                    subject, subject,
-                    using_shared_catalog,
-                    job["user_id"],
-                ),
-            ).fetchone()
-            if row:
-                hit_score = getattr(hit, "score", None)
-                key = (str(row.get("document_id") or ""), str(row.get("id") or ""))
-                vector_scores[key] = float(hit_score) if isinstance(hit_score, (int, float)) else 0.65
-                candidates.append(row)
-        if document_ids:
+        if non_image_doc_ids:
+            vector = self.models.embed([search_query], query=True)[0]
+            hits = self.vectors.search(job["user_id"], non_image_doc_ids, non_image_versions, vector, non_image_owners)
+            for hit in hits:
+                point = hit.payload or {}
+                # Verify vector payload against the canonical owner, document and version in Postgres.
+                if (
+                    point.get("document_id") not in non_image_owners
+                    or point.get("user_id") != non_image_owners[point["document_id"]]
+                ):
+                    continue
+                row = self.conn.execute(
+                    """select c.*,d.name as document_name,d.subject from public.document_chunks c
+                    join public.documents d on d.id=c.document_id where c.id=%s and c.user_id=%s
+                    and c.document_id=%s and d.user_id=%s and d.status='ready'
+                    and c.index_version=d.index_version and c.index_version=%s
+                    and (%s::text is null or d.subject=%s)
+                    and ((not %s and d.user_id=%s) or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))""",
+                    (
+                        point.get("chunk_id"),
+                        point.get("user_id"),
+                        point.get("document_id"),
+                        point.get("user_id"),
+                        non_image_versions.get(point.get("document_id")),
+                        subject, subject,
+                        using_shared_catalog,
+                        job["user_id"],
+                    ),
+                ).fetchone()
+                if row:
+                    hit_score = getattr(hit, "score", None)
+                    key = (str(row.get("document_id") or ""), str(row.get("id") or ""))
+                    vector_scores[key] = float(hit_score) if isinstance(hit_score, (int, float)) else 0.65
+                    candidates.append(row)
             lexical_hits = lexical_search_chunks(
                 self.conn,
                 job["user_id"],
-                document_ids,
+                non_image_doc_ids,
                 subject,
                 using_shared_catalog,
-                owners,
-                versions,
+                non_image_owners,
+                non_image_versions,
                 search_query,
                 limit=12,
             )
             candidates.extend(lexical_hits)
-        guard(self.conn, job)
-        self.chat_documents(job)
-        if candidates:
-            candidates = expand_stub_chunks(
-                self.conn, candidates, using_shared_catalog, job["user_id"], owners, versions
-            )
-            candidates = rerank_curriculum_candidates(
-                search_query,
-                candidates,
-                subject=subject,
-                min_score=getattr(self.settings, "min_score", 0.35),
-                vector_scores=vector_scores,
-            )
+            guard(self.conn, job)
+            self.chat_documents(job)
             if candidates:
-                candidates = self.models.rerank(search_query, candidates[:12])
+                candidates = expand_stub_chunks(
+                    self.conn, candidates, using_shared_catalog, job["user_id"], non_image_owners, non_image_versions
+                )
                 candidates = rerank_curriculum_candidates(
                     search_query,
                     candidates,
@@ -562,6 +583,15 @@ class Pipeline:
                     min_score=getattr(self.settings, "min_score", 0.35),
                     vector_scores=vector_scores,
                 )
+                if candidates:
+                    candidates = self.models.rerank(search_query, candidates[:12])
+                    candidates = rerank_curriculum_candidates(
+                        search_query,
+                        candidates,
+                        subject=subject,
+                        min_score=getattr(self.settings, "min_score", 0.35),
+                        vector_scores=vector_scores,
+                    )
         image_versions = prior_images or {
             doc_id: payload["versions"][doc_id] for doc_id in image_documents or ()
         }
@@ -599,21 +629,37 @@ class Pipeline:
             illustrations = [source for source in results if source["kind"] == "image"]
             web = [source for source in results if source["kind"] != "image"]
             candidates = merge_curriculum_and_web(candidates, web, mode)
-        elif (
-            mode == "library"
-            and not candidates
-            and not image_versions
-            and not is_meta_document_query(question)
-            and extract_search_terms(search_query)
-        ):
-            terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
-            results, _ = search_web(terms, "search", self.settings.searxng_url)
-            web = [source for source in results if source["kind"] != "image"]
-            if web:
-                candidates = merge_curriculum_and_web(candidates, web, mode)
+        elif mode in ("documents", "library") and not image_versions and not strict_document_query(question):
+            explicit_web = explicit_web_request(question)
+            need_web_text = explicit_web or (
+                not candidates
+                and not is_meta_document_query(question)
+                and bool(extract_search_terms(search_query))
+            )
+            need_illustrations = concept_request(question, history) or bool(ILLUSTRATION_REQUEST.search(question))
+            if need_web_text:
+                terms = f"{question} {SUBJECTS[subject]}" if subject in SUBJECTS else question
+                results, web_notices = search_web(
+                    terms,
+                    "search",
+                    self.settings.searxng_url,
+                    image_question=question if (need_illustrations or explicit_web) else "",
+                )
+                illustrations = [source for source in results if source["kind"] == "image"]
+                web = [source for source in results if source["kind"] != "image"]
+                if web:
+                    candidates = merge_curriculum_and_web(candidates, web, "search" if explicit_web else mode)
+                if explicit_web:
+                    notices = web_notices
+            elif need_illustrations:
+                illustrations = search_illustrations(
+                    question,
+                    self.settings.searxng_url,
+                    subject_label=SUBJECTS.get(subject, ""),
+                )
         guard(self.conn, job)
         self.chat_documents(job)
-        reason = should_reason(query, mode, has_image=bool(image_versions))
+        reason = should_reason(question, mode, has_image=bool(image_versions), has_sources=bool(candidates))
         prompt, selected = build_prompt(
             question, history, candidates, self.models.count, mode, subject=subject,
             reasoning=(reason or external_search) and not image_versions,
@@ -696,9 +742,6 @@ class Pipeline:
                     if image_documents and not concept_request(question, history):
                         answer = first_image_hint(answer)
                     answer = close_visual_block(answer, question)
-                    if answer.strip() and allow_uncited and not image_versions:
-                        answer = add_gradient_example(answer, question, subject=subject)
-                        answer = add_eigenspace_diagram(answer, question)
                     answer = normalize_citation_marks(answer)
                     has_text_sources = any(not item.get("question_image") for item in selected)
                     if answer.strip() and has_text_sources and not re.search(r"\[S\d+\]", answer):
@@ -839,9 +882,12 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
         except Exception:
             models.close()
             raise
-        mineru_available = settings.mineru_available and worker_id is None
+        ocr_available = (
+            getattr(settings, "question_ocr_available", getattr(settings, "mineru_available", False))
+            and worker_id is None
+        )
         heartbeat = Heartbeat(settings)
-        if mineru_available:
+        if ocr_available:
             heartbeat.worker_id = "learnstep-mineru"
         if worker_id:
             heartbeat.worker_id = worker_id
@@ -861,7 +907,7 @@ def serve(settings, *, stopped=None, idle_seconds=None, worker_id=None):
                     except Exception as exc:
                         LOG.warning("maintenance_failed error_type=%s", type(exc).__name__)
                     maintenance_at = time.monotonic()
-                job = claim(conn, mineru_available=mineru_available)
+                job = claim(conn, mineru_available=ocr_available)
                 if not job:
                     if idle_seconds is not None and time.monotonic() - idle_since >= idle_seconds:
                         break

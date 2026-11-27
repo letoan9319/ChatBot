@@ -584,8 +584,177 @@
 
 .questionAttachment button { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
 
-.chatImages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 10px; max-width: 540px; margin-top: 14px; }
-.chatImages figure { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-alt); }
-.chatImages img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; }
-.chatImages figcaption { display: grid; gap: 4px; padding: 8px 10px; font-size: 12px; overflow-wrap: anywhere; }
-.chatImages small { color: var(--muted); }
+.chatImages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 12px;
+  max-width: 620px;
+  margin-top: 14px;
+}
+.chatImages figure {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  transition: border-color var(--motion-fast) ease;
+}
+.chatImageButton {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.chatImageButton:focus-visible {
+  outline-offset: -3px;
+}
+.chatImages img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  padding: 6px;
+  background: #fff;
+  transition: transform var(--motion-fast) ease;
+}
+.chatImages figcaption {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.chatImages figcaption > a,
+.chatImages figcaption > span {
+  color: var(--text);
+  font-weight: 700;
+}
+.chatImages figcaption a:hover {
+  color: var(--primary-edge);
+  text-decoration: underline;
+}
+.chatImages small {
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .chatImages figure:hover {
+    border-color: var(--green-strong-line);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .chatImageButton:hover img {
+      transform: scale(1.02);
+    }
+  }
+}
+
+.lightboxBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 22 11 / 72%);
+  backdrop-filter: blur(4px);
+}
+.lightboxDialog {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 72px rgb(0 0 0 / 32%);
+}
+.lightboxHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.lightboxHeader h2 {
+  margin: 0;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.lightboxStage {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  padding: 16px;
+  overflow: auto;
+  background: var(--surface-alt);
+}
+.lightboxStage img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(68dvh, 640px);
+  object-fit: contain;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.lightboxMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 12px;
+}
+.lightboxCredit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.lightboxCredit a {
+  color: var(--primary-edge);
+  text-decoration: underline;
+}
+@media (max-width: 640px) {
+  .lightboxBackdrop {
+    padding: 10px;
+  }
+  .lightboxDialog {
+    max-height: calc(100dvh - 20px);
+    border-radius: 14px;
+  }
+  .lightboxHeader,
+  .lightboxMeta {
+    padding: 12px 14px;
+  }
+  .lightboxStage {
+    padding: 10px;
+  }
+  .lightboxStage img {
+    max-height: 60dvh;
+  }
+}

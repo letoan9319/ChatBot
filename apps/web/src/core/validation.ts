@@ -21,9 +21,6 @@ export const uploadSchema = z.object({
   subject: subjectSchema,
   key: uuid,
 });
-export const chatModes = { documents: "Theo tài liệu", search: "Tìm kiếm" } as const;
-export type ChatMode = keyof typeof chatModes;
-
 export const messageSchema = z.object({
   question: z.string().trim().min(1).max(2000),
   documentIds: z

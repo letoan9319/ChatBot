@@ -6,8 +6,11 @@ import httpx
 from qdrant_client import QdrantClient, models
 from tokenizers import Tokenizer
 
-from .config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS, Settings
+from .config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS, Settings, is_qwen35_model
 from .openrouter import OutputLimit
+
+THINKING_CONTEXT_TOKENS = 8192
+THINKING_OUTPUT_TOKENS = 4096
 
 
 class LocalModels:
@@ -16,27 +19,45 @@ class LocalModels:
 
     @property
     def supports_question_vision(self):
-        return self.settings.chat_model.startswith("qwen3.5:")
+        return is_qwen35_model(self.settings.chat_model)
     dimensions = 1024
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.http = httpx.Client(base_url=settings.ollama_url, timeout=httpx.Timeout(180, connect=10))
+        self._unloaded_models: set[str] = set()
         self.tokenizer = (
             Tokenizer.from_file(settings.tokenizer_path)
             if settings.tokenizer_path
             else Tokenizer.from_pretrained(settings.tokenizer_model)
         )
 
+    def _unloaded_set(self) -> set[str]:
+        unloaded = getattr(self, "_unloaded_models", None)
+        if unloaded is None:
+            unloaded = set()
+            self._unloaded_models = unloaded
+        return unloaded
+
     def count(self, text):
         return len(self.tokenizer.encode(text, add_special_tokens=False).ids)
 
     def unload(self, model):
+        unloaded = self._unloaded_set()
+        if model in unloaded:
+            return
         response = self.http.post("/api/generate", json={"model": model, "keep_alive": 0})
         if response.status_code == 404:
             # A missing chat model consumes no VRAM and must not block BGE embedding.
+            unloaded.add(model)
+            if model == self.settings.embed_model:
+                unloaded.discard(self.settings.chat_model)
             return
         response.raise_for_status()
+        unloaded.add(model)
+        if model == self.settings.embed_model:
+            # Unloading embed_model precedes local chat or direct vision OCR.
+            unloaded.discard(self.settings.chat_model)
 
     def close(self):
         self.http.close()
@@ -59,6 +80,7 @@ class LocalModels:
         self.unload(self.settings.chat_model)
         if self.settings.thinking_model and self.settings.thinking_model != self.settings.chat_model:
             self.unload(self.settings.thinking_model)
+        self._unloaded_set().discard(self.settings.embed_model)
         response = self.http.post(
             "/api/embed",
             json={"model": self.settings.embed_model, "input": texts, "truncate": False, "keep_alive": "5m"},
@@ -87,6 +109,7 @@ class LocalModels:
                 self.unload(self.settings.chat_model)
             emitted_answer = False
             try:
+                self._unloaded_set().discard(thinking_model)
                 for content in self._stream_chat(
                     messages, thinking_model, research, on_thinking, on_thinking_token, question_images
                 ):
@@ -104,12 +127,22 @@ class LocalModels:
                 on_reset()
             if thinking_model != self.settings.chat_model:
                 self.unload(thinking_model)
+        self._unloaded_set().discard(self.settings.chat_model)
         yield from self._stream_chat(messages, self.settings.chat_model, research, None, None, question_images)
 
     def _stream_chat(self, messages, model, research, on_thinking, on_thinking_token, question_images):
         use_thinking = on_thinking is not None or on_thinking_token is not None
-        if question_images and model.startswith("qwen3.5:"):
+        if question_images and is_qwen35_model(model):
             messages = [*messages[:-1], {**messages[-1], "images": list(question_images)}]
+        if research:
+            num_ctx = RESEARCH_CONTEXT_TOKENS
+            num_predict = RESEARCH_OUTPUT_TOKENS
+        elif use_thinking:
+            num_ctx = THINKING_CONTEXT_TOKENS
+            num_predict = THINKING_OUTPUT_TOKENS
+        else:
+            num_ctx = 7168
+            num_predict = 3584
         with self.http.stream(
             "POST",
             "/api/chat",
@@ -120,8 +153,8 @@ class LocalModels:
                 "stream": True,
                 "keep_alive": "5m",
                 "options": {
-                    "num_ctx": RESEARCH_CONTEXT_TOKENS if research or use_thinking else 7168,
-                    "num_predict": RESEARCH_OUTPUT_TOKENS if research or use_thinking else 3584,
+                    "num_ctx": num_ctx,
+                    "num_predict": num_predict,
                     "temperature": 0.2,
                 },
             },

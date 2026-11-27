@@ -191,35 +191,33 @@ def test_plain_json_tag_becomes_visual_only_for_visual_requests():
     assert close_visual_block(response, "Vẽ sơ đồ").startswith(fence + "learnstep-visual\n")
 
 
-def test_gradient_concept_gets_a_contour_illustration_without_changing_exercise_prompt():
-    from study_worker.rag import add_gradient_example, should_reason
+def test_concept_explanation_uses_general_visual_flow_without_changing_exercise_prompt():
+    from study_worker.rag import concept_request
 
-    question = "Giải thích giúp mình khái niệm về gradient"
-    assert should_reason(question, "library")
-    prompt, _ = build_prompt(question, [], [], lambda text: len(text.split()), mode="library")
-    assert "vectơ các đạo hàm riêng" in prompt[-1]["content"]
-    answer = add_gradient_example("Định nghĩa gradient.", question)
-    assert '"type": "gradient-contours"' in answer
-    assert r"$\nabla f(P)=(2,2)$" in answer
-    assert "hàm hai biến" in prompt[-1]["content"]
-    assert "Không tiết lộ giá trị cuối" not in prompt[0]["content"]
-    assert add_gradient_example("Giải thích.", "Gradient nhiệt độ là gì?") == "Giải thích."
+    for question in (
+        "Giải thích giúp mình khái niệm về đạo hàm riêng",
+        "Giải thích giúp mình về tích vô hướng",
+        "Định luật II Newton được phát biểu thế nào?",
+    ):
+        assert concept_request(question)
+        prompt, _ = build_prompt(question, [], [], lambda text: len(text.split()), mode="library")
+        assert "learnstep-visual" in prompt[0]["content"]
+        assert "Đây là câu hỏi khái niệm." in prompt[-1]["content"]
+        assert "Không tiết lộ giá trị cuối" not in prompt[0]["content"]
 
     exercise = "Giải thích từng bước cách đạo hàm ẩn hạng tử xy^3"
+    assert not concept_request(exercise)
     prompt, _ = build_prompt(exercise, [], [], lambda text: len(text.split()), mode="library")
     assert "learnstep-visual" not in prompt[0]["content"]
     assert "Tuyệt đối không tính ra kết quả cuối" in prompt[-1]["content"]
 
 
-def test_prompt_respects_selected_subject_for_ambiguous_gradient():
-    from study_worker.rag import add_gradient_example
-
-    question = "Gradient là gì?"
+def test_prompt_respects_selected_subject_for_polysemous_terms():
+    question = "Trường là gì?"
     calculus, _ = build_prompt(question, [], [], len, "library", subject="calculus")
     physics, _ = build_prompt(question, [], [], len, "library", subject="physics")
     assert "đã chọn là Giải tích" in calculus[0]["content"]
     assert "đã chọn là Vật lý đại cương" in physics[0]["content"]
-    assert add_gradient_example("Ví dụ vật lý.", question, subject="physics") == "Ví dụ vật lý."
 
 
 def test_explicit_reasoning_requests_use_a_public_approach_summary():
@@ -236,7 +234,7 @@ def test_explicit_reasoning_requests_use_a_public_approach_summary():
 def test_concept_explanations_include_worked_examples_but_mixed_exercises_keep_hints():
     from study_worker.rag import concept_request
 
-    question = "Không gian riêng là gì? Minh họa bằng sơ đồ khái niệm."
+    question = "Không gian con là gì? Minh họa bằng sơ đồ khái niệm."
     prompt, _ = build_prompt(question, [], [], len, "library")
     assert "ví dụ minh họa có kết quả đầy đủ" in prompt[0]["content"]
     assert '"type":"concept"' in prompt[0]["content"]
@@ -245,20 +243,24 @@ def test_concept_explanations_include_worked_examples_but_mixed_exercises_keep_h
     assert concept_request("Giải thích kỹ hơn", [{"role": "user", "content": question}])
     exercise = "Giải thích khái niệm và tính đạo hàm của hàm số sau"
     assert not concept_request(exercise)
+    assert not concept_request("Giải thích kỹ hơn", [{"role": "user", "content": exercise}])
     prompt, _ = build_prompt(exercise, [], [], len, "library")
     assert "Không tiết lộ giá trị cuối" in prompt[0]["content"]
 
 
-def test_explicit_eigenspace_diagram_has_three_verified_relationships():
-    from study_worker.rag import add_eigenspace_diagram
+def test_build_prompt_includes_one_shot_citation_rule_and_concise_concept_guidance():
+    sources = [{"label": "S1", "document_name": "giai-tich.pdf", "content": "Đạo hàm tại một điểm là hệ số góc."}]
+    messages, _ = build_prompt("Đạo hàm là gì?", [], sources, lambda text: len(text.split()), mode="documents")
+    system = messages[0]["content"]
+    user = messages[-1]["content"]
+    assert "[S1]" in system
+    assert "dữ kiện hay số liệu do đề bài của người học đưa ra" in system
+    assert "câu mời tự làm" in system
+    assert "ngắn gọn" in system
+    assert "Không tự bịa ví dụ tính toán dài nhiều bước" in user
 
-    question = "Không gian riêng là gì? Minh họa bằng sơ đồ khái niệm với ma trận, trị riêng và vectơ riêng."
-    prompt, _ = build_prompt(question, [], [], len, "library")
-    assert "Hệ thống sẽ dựng sơ đồ" in prompt[-1]["content"]
-    diagram = add_eigenspace_diagram("Giải thích.", question)
-    assert diagram.count('"label"') == 3
-    assert "Các vectơ khác không" in diagram
-    assert add_eigenspace_diagram("Giải thích.", "Tìm vectơ riêng của ma trận.") == "Giải thích."
+    no_src_messages, _ = build_prompt("Đạo hàm là gì?", [], [], lambda text: len(text.split()), mode="library")
+    assert "dữ kiện hay số liệu do đề bài của người học đưa ra" not in no_src_messages[0]["content"]
 
 
 def test_follow_up_detects_natural_vietnamese_clarifications_and_deep_dives():
@@ -368,3 +370,204 @@ def test_search_mode_uses_3600_budget_and_hybrid_guidance():
     web_only, _ = build_prompt("Thứ nguyên là gì?", [], [hybrid_candidates[1]], word_count, "search")
     assert "Ở chế độ Tìm kiếm, hãy dùng học liệu trường" not in curriculum_only[0]["content"]
     assert "Ở chế độ Tìm kiếm, hãy dùng học liệu trường" not in web_only[0]["content"]
+
+
+def test_review_missing_citations_parses_simple_and_legacy_formats_and_blocks_overcitation():
+    from study_worker.rag import review_missing_citations
+
+    sources = [
+        {
+            "label": "S1",
+            "document_name": "vat-ly-dong-luc-hoc.pdf",
+            "content": "Lực ma sát trượt có độ lớn tỉ lệ với phản lực pháp tuyến f = mu * N. Trọng lực có độ lớn P = m*g.",
+        },
+        {
+            "label": "S2",
+            "document_name": "vat-ly-nang-luong.docx",
+            "content": "Khi chọn mốc thế năng tại h=0, thế năng trọng trường là U = m*g*h.",
+        },
+    ]
+    question = "Một vật khối lượng m = 4 kg trượt trên mặt phẳng ngang có hệ số ma sát trượt mu = 0,25. Tính lực ma sát."
+    draft = (
+        "**1. Xác định dữ liệu đề bài:**\n"
+        "* Hệ số ma sát trượt: $\\mu = 0,25$.\n"
+        "* Bề mặt là ngang (nằm ngang).\n"
+        "Độ lớn của lực ma sát trượt được tính bằng công thức:\n"
+        "$$\n"
+        "f = \\mu \\cdot N\n"
+        "$$\n"
+        "Trong đó:\n"
+        "1. Xác định các đại lượng trong đề bài.\n"
+        "Bạn có muốn thử tính kết quả và gửi cách làm để mình góp ý không?"
+    )
+
+    seen_prompts = []
+
+    def fake_generate(messages):
+        seen_prompts.append(messages)
+        # Simulate prose containing [S1] before the JSON array plus over-cited lines and a wrong chunk.
+        yield 'Theo nguồn [S1], các dòng hỗ trợ là:\n[[1, "S1"], [2, "S1"], [3, "S1"], [4, "S1"], [4, "S2"], [8, "S1"], [9, "S1"], [10, "S1"]]'
+
+    fake_models = SimpleNamespace(count=lambda text: len(text) // 4, generate=fake_generate)
+    reviewed = review_missing_citations(question, draft, sources, fake_models)
+
+    assert '[[line_no, "S1"]]' in seen_prompts[0][0]["content"]
+    assert "S1:0" not in seen_prompts[0][1]["content"]
+    out_lines = reviewed.splitlines()
+    # Headings, user-given numbers, zero-overlap lines, generic tutor steps, and practice prompts stay untagged.
+    assert "[S1]" not in out_lines[0]
+    assert "[S1]" not in out_lines[1]
+    assert "[S1]" not in out_lines[2]
+    assert "[S1]" not in out_lines[7]
+    assert "[S1]" not in out_lines[8]
+    assert "[S1]" not in out_lines[9]
+    # Valid formula-intro line keeps [S1] and rejects mismatched [S2].
+    assert out_lines[3].endswith("[S1]")
+    assert "[S2]" not in out_lines[3]
+
+    # Legacy "S1:0" and fenced json block formats remain supported.
+    legacy_models = SimpleNamespace(
+        count=lambda text: len(text) // 4,
+        generate=lambda _m: (x for x in ['```json\n[[4, "S1:0"]]\n```']),
+    )
+    reviewed_legacy = review_missing_citations(question, draft, sources, legacy_models)
+    assert reviewed_legacy.splitlines()[3].endswith("[S1]")
+
+
+def test_should_reason_avoids_zero_source_and_simple_followup_or_lookup_spikes():
+    from study_worker.rag import should_reason
+
+    # Zero sources on non-research, non-image queries disables expensive thinking.
+    assert not should_reason("Chứng minh công thức", "documents", has_sources=False)
+    assert should_reason("Chứng minh công thức", "documents", has_sources=True)
+    assert should_reason("So sánh tài liệu", "research", has_sources=False)
+    assert should_reason("Hướng dẫn bài trong ảnh", "documents", has_image=True, has_sources=False)
+
+    # Concept lookup on an advanced topic does not trigger expensive thinking.
+    assert not should_reason(
+        "Theo tài liệu giai-tich-tich-phan.docx, tiêu chuẩn hội tụ của tích phân suy rộng loại 1 là gì?",
+        "documents",
+        has_sources=True,
+    )
+    # Solving an actual improper integral still triggers thinking when sources exist.
+    assert should_reason(
+        "Tính tích phân suy rộng từ 1 đến vô cùng của 1/x^2",
+        "documents",
+        has_sources=True,
+    )
+    # Simple follow-up and incidental 'suy ra' prose do not trigger thinking; explicit derivation does.
+    assert not should_reason(
+        "Giải thích rõ hơn bước 1, tại sao động năng ban đầu lại bằng 0? Em hãy xác định K1 rồi suy ra K2.",
+        "documents",
+        has_sources=True,
+    )
+    assert should_reason("Suy ra công thức nghiệm tổng quát", "documents", has_sources=True)
+
+
+def test_strict_document_and_explicit_web_linguistic_detectors():
+    from study_worker.rag import explicit_web_request, strict_document_query
+
+    assert strict_document_query("Chỉ dựa trên tài liệu này, có trình bày hiệu ứng Doppler không?")
+    assert strict_document_query("Theo tài liệu giai-tich.pdf, định lý Rolle là gì?")
+    assert strict_document_query("Trong tài liệu đã chọn có định nghĩa tích phân suy rộng không?")
+    assert strict_document_query("Trích dẫn nguyên văn định nghĩa trong file")
+    assert strict_document_query("Dựa hoàn toàn vào tài liệu để trả lời")
+    assert not strict_document_query("Hiệu ứng Doppler là gì?")
+    assert not strict_document_query("Vẽ đồ thị hàm số f(x) = x^3 - 3x")
+
+    assert explicit_web_request("Tìm trên web về hiệu ứng Doppler")
+    assert explicit_web_request("Tra cứu web công thức định luật Gauss")
+    assert explicit_web_request("Tìm trên mạng giải thích về gradient")
+    assert explicit_web_request("Tìm kiếm web về chuỗi Fourier")
+    assert explicit_web_request("Bổ sung thêm nguồn ngoài về ma trận trực giao")
+    assert explicit_web_request("Theo Wikipedia, định luật Faraday phát biểu thế nào?")
+    assert explicit_web_request("Tìm bài báo khoa học về phương trình nhiệt")
+    assert not explicit_web_request("Đạo hàm là gì?")
+
+
+def test_plot_and_vector_visual_requests_prompt_and_close_visual_block():
+    from study_worker.rag import close_visual_block, wants_visual
+
+    for question in (
+        "Vẽ hàm số f(x) = x^3 - 3x trên đoạn [-2, 2]",
+        "Đồ thị hàm sin(x) có tính chất gì?",
+        "Phân tích lực tác dụng lên vật trên mặt phẳng nghiêng góc 30 độ",
+        "Biểu diễn vector tổng hợp của hai lực vuông góc",
+        "Biểu diễn vectơ pháp tuyến của mặt phẳng",
+    ):
+        assert wants_visual(question)
+
+    messages, _ = build_prompt(
+        "Vẽ đồ thị hàm số f(x) = x^3 - 3x trên đoạn [-2, 2] và chỉ ra cực trị",
+        [],
+        [],
+        len,
+        mode="library",
+    )
+    system = messages[0]["content"]
+    assert '"type":"plot"' in system
+    assert '"type":"vector"' in system
+
+    fence = chr(96) * 3
+    plot_draft = (
+        fence
+        + 'learnstep-visual\n{"type":"plot","title":"Đồ thị f(x)","xDomain":[-2,2],'
+        + '"functions":[{"expr":"x^3 - 3*x","label":"f(x)"}],'
+        + '"points":[{"x":-1,"label":"Cực đại"}]}\n\nNhận xét về cực trị.'
+    )
+    closed_plot = close_visual_block(plot_draft, "Vẽ đồ thị hàm số f(x) = x^3 - 3x")
+    assert closed_plot.endswith("\n" + fence + "\n\nNhận xét về cực trị.")
+
+    vector_json = (
+        fence
+        + 'json\n{"type":"vector","title":"Phân tích lực","grid":false,"planeAngle":30,'
+        + '"bodyLabel":"m","vectors":[{"label":"P","dx":0,"dy":-3,"tone":"warn"}]}\n'
+        + fence
+    )
+    upgraded_vector = close_visual_block(vector_json, "Phân tích lực trên mặt phẳng nghiêng góc 30 độ")
+    assert upgraded_vector.startswith(fence + "learnstep-visual\n")
+
+    # Explicit plot and vector prompts mandate the ```learnstep-visual fence and plain-text JSON rules.
+    assert "```learnstep-visual" in messages[-1]["content"]
+    assert '"type":"plot"' in messages[-1]["content"]
+    vector_messages, _ = build_prompt(
+        "Minh họa bằng sơ đồ vector các lực tác dụng lên vật trên mặt phẳng nghiêng góc 30 độ",
+        [],
+        [],
+        len,
+        mode="library",
+    )
+    assert "```learnstep-visual" in vector_messages[-1]["content"]
+    assert '"type":"vector"' in vector_messages[-1]["content"]
+
+    # Invalid LaTeX backslashes like \circ or \vec inside JSON strings are safely escaped and converted.
+    import json as _json
+
+    latex_escaped_vector = (
+        fence
+        + 'json\n{"type":"vector","title":"Các lực trên mặt phẳng nghiêng $30^\\circ$",'
+        + '"grid":false,"planeAngle":30,"bodyLabel":"m",'
+        + '"vectors":[{"label":"$\\vec{P}$ (trọng lực)","dx":0,"dy":-3,"tone":"warn"}]}\n'
+        + fence
+        + "\n\nGiải thích thêm bên ngoài."
+    )
+    repaired = close_visual_block(
+        latex_escaped_vector,
+        "Minh họa bằng sơ đồ vector các lực tác dụng lên vật trên mặt phẳng nghiêng góc 30 độ",
+    )
+    assert repaired.startswith(fence + "learnstep-visual\n")
+    assert repaired.endswith("\n\nGiải thích thêm bên ngoài.")
+    inner_json = repaired.split("\n", 1)[1].split("\n" + fence, 1)[0]
+    parsed = _json.loads(inner_json)
+    assert parsed["type"] == "vector"
+    assert "\\circ" in parsed["title"]
+    assert "\\vec{P}" in parsed["vectors"][0]["label"]
+
+    # Unclosed block with invalid backslash also closes cleanly without swallowing trailing prose.
+    unclosed_latex = (
+        fence
+        + 'json\n{"type":"vector","title":"Góc $30^\\circ$","vectors":[{"label":"P","dx":0,"dy":-3}]}\n\nPhần giải thích.'
+    )
+    repaired_unclosed = close_visual_block(unclosed_latex, "Phân tích lực mặt phẳng nghiêng")
+    assert repaired_unclosed.startswith(fence + "learnstep-visual\n")
+    assert repaired_unclosed.endswith("\n" + fence + "\n\nPhần giải thích.")

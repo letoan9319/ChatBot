@@ -71,6 +71,33 @@ describe("API authorization and asynchronous boundaries", () => {
     expect((await POST(request(`conversations/${id}/messages`, { ...message, subject: "unknown" }))).status).toBe(400);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
+  it("derives unified retrieval mode from selected documents while keeping search compat and hiding research", async () => {
+    mocks.rpc.mockResolvedValue({ data: { id, status: "queued" }, error: null });
+    expect((await POST(request(`conversations/${id}/messages`, {
+      question: "Hiệu ứng Doppler là gì?", documentIds: [], key: id,
+    }))).status).toBe(202);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_send_message", {
+      p_conversation: id, p_question: "Hiệu ứng Doppler là gì?", p_documents: [], p_key: id, p_mode: "library",
+    });
+    expect((await POST(request(`conversations/${id}/messages`, {
+      question: "Đạo hàm là gì?", documentIds: [id], key: id, subject: "calculus",
+    }))).status).toBe(202);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_send_message", {
+      p_conversation: id, p_question: "Đạo hàm là gì?", p_documents: [id], p_key: id,
+      p_mode: "documents", p_subject: "calculus",
+    });
+    expect((await POST(request(`conversations/${id}/messages`, {
+      question: "Tìm thêm tài liệu ngoài", documentIds: [], key: id, mode: "search",
+    }))).status).toBe(202);
+    expect(mocks.rpc).toHaveBeenLastCalledWith("app_send_message", {
+      p_conversation: id, p_question: "Tìm thêm tài liệu ngoài", p_documents: [], p_key: id, p_mode: "search",
+    });
+    mocks.rpc.mockClear();
+    expect((await POST(request(`conversations/${id}/messages`, {
+      question: "Nghiên cứu sâu", documentIds: [], key: id, mode: "research",
+    }))).status).toBe(400);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
   it("reads the shared catalog and exact document/chunk through authorized RPCs", async () => {
     mocks.rpc.mockResolvedValue({ data: [{ id, scope: "knowledge" }], error: null });
     expect((await GET(request("knowledge?user_id=foreign"))).status).toBe(200);

@@ -1,6 +1,12 @@
+import json
+from pathlib import Path
 from dataclasses import dataclass
 from io import BytesIO
+import os
 import re
+import subprocess
+import time
+import tempfile
 from uuid import UUID, uuid5
 from zipfile import ZipFile
 
@@ -20,6 +26,10 @@ class InvalidDocument(Exception):
     """Permanent input failure safe to display to the owner."""
 
 
+class OCRFailure(Exception):
+    """OCR could not complete; the job may be retried."""
+
+
 @dataclass
 class Section:
     text: str
@@ -32,7 +42,7 @@ def clean_text(value: str) -> str:
     return re.sub(r"[ \t]+", " ", value.replace("\x00", "")).strip()
 
 
-def extract(data: bytes, file_type: str) -> list[Section]:
+def extract(data: bytes, file_type: str, pdf_parser=None) -> list[Section]:
     if not data or len(data) > MAX_FILE_BYTES:
         raise InvalidDocument("File rỗng hoặc vượt quá 20 MB.")
     sections: list[Section] = []
@@ -45,6 +55,8 @@ def extract(data: bytes, file_type: str) -> list[Section]:
                     raise InvalidDocument("Chưa hỗ trợ PDF được bảo vệ bằng mật khẩu.")
                 if len(pdf) > 200:
                     raise InvalidDocument("PDF vượt giới hạn 200 trang.")
+                if pdf_parser is not None:
+                    return pdf_parser(pdf)
                 total = 0
                 for index, page in enumerate(pdf):
                     text = clean_text(page.get_text(sort=True))
@@ -53,9 +65,11 @@ def extract(data: bytes, file_type: str) -> list[Section]:
                         raise InvalidDocument("Văn bản trích xuất vượt giới hạn 1.000.000 ký tự.")
                     if text:
                         sections.append(Section(text, page=index + 1))
-        except InvalidDocument:
+        except (InvalidDocument, OCRFailure):
             raise
         except Exception as exc:
+            if pdf_parser is not None:
+                raise
             raise InvalidDocument("Không đọc được cấu trúc PDF.") from exc
     elif file_type == "docx":
         try:
@@ -97,6 +111,39 @@ def extract(data: bytes, file_type: str) -> list[Section]:
     if sum(len(section.text) for section in sections) < 30:
         raise InvalidDocument("Không đủ văn bản để xử lý. PDF scan cần OCR, hiện chưa được hỗ trợ.")
     return sections
+
+
+def parse_pdf_with_mineru(pdf, check, *, min_chars=30):
+    python = os.getenv("MINERU_PYTHON", "")
+    model = os.getenv("MINERU_MODEL_PATH", "")
+    if not os.path.isfile(python) or not os.path.isdir(model):
+        raise OCRFailure("Chưa cấu hình môi trường hoặc model MinerU.")
+    with tempfile.TemporaryDirectory(prefix="learnstep-mineru-") as directory:
+        source = os.path.join(directory, "input.pdf")
+        output = os.path.join(directory, "output.json")
+        pdf.save(source)
+        runner = str(Path(__file__).with_name("mineru_runner.py"))
+        with tempfile.TemporaryFile() as log:
+            process = subprocess.Popen([python, runner, source, output, model], stdout=log, stderr=log)
+            try:
+                while process.poll() is None:
+                    check()
+                    time.sleep(1)
+                if process.returncode:
+                    log.seek(0)
+                    details = log.read()[-4000:].decode("utf-8", errors="replace")
+                    raise OCRFailure(f"MinerU không xử lý được PDF: {details}")
+                check()
+                with open(output, encoding="utf-8") as result:
+                    pages = json.load(result)
+                sections = [Section(clean_text(page["text"]), page=page["page"]) for page in pages if page["text"].strip()]
+                if sum(len(section.text) for section in sections) < min_chars:
+                    raise InvalidDocument("Không đủ văn bản sau khi nhận dạng PDF.")
+                return sections
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
 
 
 def chunk_sections(sections: list[Section], tokenizer, document_id: str, version: int, size=500, overlap=80):

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Source, WebSource } from "@/core/types";
 import { pastedChatMath } from "./chat-math";
+import { parseChatVisual } from "./chat-visual";
 import { Markdown } from "./markdown";
 import { revealSegments } from "./streaming-answer";
 import { parseStudyCard } from "./study-card";
@@ -110,17 +111,6 @@ describe("chat visuals", () => {
     })} />)).toContain("<pre>");
   });
 
-  it("renders a labeled contour illustration with an accessible description", () => {
-    const html = renderToStaticMarkup(<Markdown visuals content={block({
-      type: "gradient-contours", title: "Gradient và đường đồng mức",
-    })} />);
-    expect(html).toContain('role="img"');
-    expect(html).toContain('data-level="2"');
-    expect(html).toContain("hướng tăng nhanh nhất");
-    expect(html).toContain("Tiếp tuyến");
-    expect(html).not.toContain("<table");
-  });
-
   it("renders concept branches as text and rejects incomplete relationships", () => {
     const data = {type: "concept", title: "Đường đồng mức", center: "Gradient",
       items: [{label: "Hướng", detail: "<img src=x>"}, {label: "Độ lớn", detail: "Tốc độ tăng"}]};
@@ -137,6 +127,130 @@ describe("chat visuals", () => {
     expect(renderToStaticMarkup(<Markdown visuals content={block({
       type: "flow", title: "Cách làm", steps: ["Đọc đề", null],
     })} />)).toContain("<pre>");
+  });
+
+  it("renders continuous function plots with shade, tangent, auto-y points, aliases, and asymptotes", () => {
+    const plotContent = block({
+      type: "plot",
+      title: "Khảo sát hàm bậc ba",
+      xDomain: [-2, 2],
+      functions: [{ expr: "x^3 - 3x", label: "f(x) = x^3 - 3x" }],
+      shade: { from: 0, to: 1.5 },
+      tangentAt: 0,
+      points: [{ x: 1, label: "Cực tiểu" }],
+    });
+    const html = renderToStaticMarkup(<Markdown visuals content={plotContent} />);
+    expect(html).toContain("<figure");
+    expect(html).toContain('role="img"');
+    expect(html).toContain("<polyline");
+    expect(html).toContain("<polygon");
+    expect(html).toContain('data-role="tangent"');
+    expect(html).toContain("Cực tiểu (1, -2)");
+    expect(html).toContain("Tiếp tuyến tại x = 0");
+
+    const aliasedRaw =
+      fence +
+      'learnstep-visual\n{"type":"plot","title":"Alias","xRange":[-3,3],"functions":[{"formula":"x^2",},],}\n' +
+      fence;
+    expect(parseChatVisual('{"type":"plot","title":"Alias","domain":[-3,3],"functions":[{"fn":"x^2",},],}')).not.toBeNull();
+    expect(renderToStaticMarkup(<Markdown visuals content={aliasedRaw} />)).toContain("<polyline");
+
+    const asymHtml = renderToStaticMarkup(
+      <Markdown
+        visuals
+        content={block({
+          type: "plot",
+          title: "Tiệm cận đứng",
+          xDomain: [-4, 4],
+          functions: [{ expr: "1/x", label: "y = 1/x" }],
+        })}
+      />,
+    );
+    expect((asymHtml.match(/<polyline\b/g) ?? []).length).toBeGreaterThanOrEqual(2);
+
+    const invalidPlot = block({
+      type: "plot",
+      title: "Lỗi biểu thức",
+      functions: [{ expr: "alert(1)" }],
+    });
+    expect(renderToStaticMarkup(<Markdown visuals content={invalidPlot} />)).toContain("<pre>");
+  });
+
+  it("renders 2D vector diagrams in both coordinate-grid and inclined-plane physics modes", () => {
+    const linearAlg = block({
+      type: "vector",
+      title: "Tổng hai vector",
+      grid: true,
+      vectors: [
+        { label: "u", dx: 3, dy: 1, tone: "primary" },
+        { label: "v", x: 3, y: 1, dx: -1, dy: 2, tone: "info" },
+        { label: "u+v", dx: 2, dy: 3, tone: "secondary" },
+      ],
+    });
+    const gridHtml = renderToStaticMarkup(<Markdown visuals content={linearAlg} />);
+    expect(gridHtml).toContain('data-role="vector-grid"');
+    expect((gridHtml.match(/data-role="vector-arrow"/g) ?? []).length).toBe(3);
+    expect(gridHtml).toContain("u+v = (2, 3)");
+
+    const physicsFbd = block({
+      type: "vector",
+      title: "Phân tích lực trên mặt phẳng nghiêng",
+      planeAngle: 30,
+      bodyLabel: "m",
+      vectors: [
+        { label: "P", dx: 0, dy: -3, tone: "warn" },
+        { label: "N", dx: -1.5, dy: 2.6, tone: "info" },
+        { label: "f_ms", dx: 1.2, dy: 0.7, tone: "accent" },
+      ],
+    });
+    const fbdHtml = renderToStaticMarkup(<Markdown visuals content={physicsFbd} />);
+    expect(fbdHtml).toContain('role="img"');
+    expect(fbdHtml).toContain('data-role="vector-plane"');
+    expect(fbdHtml).toContain('data-role="plane-angle"');
+    expect(fbdHtml).toContain("30°");
+    expect(fbdHtml).toContain(">m<");
+    expect((fbdHtml.match(/data-role="vector-arrow"/g) ?? []).length).toBe(3);
+
+    const badZeroVectors = block({
+      type: "vector",
+      title: "Vector không",
+      vectors: [{ label: "0", dx: 0, dy: 0 }],
+    });
+    expect(renderToStaticMarkup(<Markdown visuals content={badZeroVectors} />)).toContain("<pre>");
+
+    const badAngle = block({
+      type: "vector",
+      title: "Góc vượt giới hạn",
+      planeAngle: 95,
+      vectors: [{ label: "P", dx: 0, dy: -2 }],
+    });
+    expect(renderToStaticMarkup(<Markdown visuals content={badAngle} />)).toContain("<pre>");
+  });
+
+  it("tolerates unescaped LaTeX backslashes and dollar delimiters in LLM visual JSON", () => {
+    const rawLatexVector = [
+      fence + "learnstep-visual",
+      String.raw`{"type":"vector","title":"Các lực tác dụng lên vật trên mặt phẳng nghiêng $30^\circ$","planeAngle":30,"bodyLabel":"$m$","vectors":[{"label":"$P$ (trọng lực)","dx":0,"dy":-3,"tone":"warn"},{"label":"$\vec{f}_{\text{ms}}$","dx":1.2,"dy":0.7,"tone":"accent"}]}`,
+      fence,
+    ].join("\n");
+    const html = renderToStaticMarkup(<Markdown visuals content={rawLatexVector} />);
+    expect(html).toContain("Các lực tác dụng lên vật trên mặt phẳng nghiêng 30°");
+    expect(html).toContain("P (trọng lực)");
+    expect(html).toContain("f_ms");
+    expect(html).toContain(">m<");
+    expect(html).not.toContain("$P$");
+    expect(html).not.toContain("\\circ");
+
+    const rawUnescapedPlot = String.raw`{"type":"plot","title":"Hàm $\sin(x)$","xDomain":[-3,3],"functions":[{"expr":"$\sin(x)$","label":"$y = \sin(x)$"}]}`;
+    const parsedPlot = parseChatVisual(rawUnescapedPlot);
+    expect(parsedPlot).not.toBeNull();
+    expect(parsedPlot?.title).toBe("Hàm sin(x)");
+    expect(parsedPlot?.type === "plot" ? parsedPlot.functions[0].label : "").toBe("y = sin(x)");
+
+    const unescapedTanPlot = parseChatVisual(
+      String.raw`{"type":"plot","title":"Hàm $\tan(x)$","xDomain":[-1,1],"functions":[{"expr":"\tan(x)"}]}`,
+    );
+    expect(unescapedTanPlot).not.toBeNull();
   });
 });
 

@@ -7,7 +7,7 @@ import rehypeKatex from "rehype-katex";
 import type { Source, WebSource } from "@/core/types";
 import { compactDocumentLabel, resolveWebProvider, safeExternalUrl } from "@/core/web-source";
 import { normalizeChatMath } from "./chat-math";
-import { ChatVisual, parseChatVisual } from "./chat-visual";
+import { ChatVisual, ChatVisualLoading, parseChatVisual } from "./chat-visual";
 import { StudyCardBlock, parseStudyCard } from "./study-card";
 import styles from "./markdown.module.css";
 
@@ -161,9 +161,18 @@ export function Markdown({
                   />
                 );
               }
-              if ((visuals || streaming) && className === "language-learnstep-visual" && typeof children.props.children === "string") {
-                if (streaming) return null;
-                const raw = children.props.children;
+              if ((visuals || streaming) && /\blanguage-learnstep-visual\b/.test(className)) {
+                const raw = readNodeText(children.props.children);
+                if (streaming) {
+                  if (visuals) {
+                    if (/"(?:kind|type)"\s*:\s*"(?:steps|pipeline|comparison)"/.test(raw) && parseStudyCard(raw)) {
+                      return <StudyCardBlock raw={raw} streaming={false} renderInline={renderInline} />;
+                    }
+                    const visual = parseChatVisual(raw);
+                    if (visual) return <ChatVisual visual={visual} />;
+                  }
+                  return <ChatVisualLoading />;
+                }
                 if (/"(?:kind|type)"\s*:\s*"(?:steps|pipeline|comparison)"/.test(raw) && parseStudyCard(raw)) {
                   return <StudyCardBlock raw={raw} streaming={false} renderInline={renderInline} />;
                 }

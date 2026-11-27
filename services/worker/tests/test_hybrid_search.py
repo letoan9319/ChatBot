@@ -346,8 +346,14 @@ def test_library_prompt_citations_normalize_and_review():
         "page": 12,
     }]
     messages, selected = build_prompt("Đạo hàm là gì?", [], sources, lambda text: len(text.split()), mode="library")
-    assert "[S1], [S2]" in messages[0]["content"]
+    assert "[S1]" in messages[0]["content"]
+    assert "[S2]" not in messages[0]["content"]
     assert len(selected) == 1
+
+    two_sources = [*sources, {**sources[0], "label": "S2", "content": "Đạo hàm tại một điểm là hệ số góc tiếp tuyến."}]
+    two_messages, two_selected = build_prompt("Đạo hàm là gì?", [], two_sources, lambda text: len(text.split()), mode="library")
+    assert "[S1], [S2]" in two_messages[0]["content"]
+    assert len(two_selected) == 2
 
     normalized = normalize_citation_marks("Đoạn này [S1, S2]\n$$\nx [S1, S2]\n$$\n")
     assert normalized == "Đoạn này [S1] [S2]\n$$\nx [S1, S2]\n$$\n"
@@ -427,7 +433,7 @@ def _make_search_pipeline(monkeypatch, *, history_rows=None, tokens=None, guard_
         count=lambda text: len(text.split()),
         embed=lambda texts, query=False: [[0.1] * 4 for _ in texts],
         rerank=lambda _q, items: items,
-        generate=lambda _prompt, on_reset=None: (x for x in tokens),
+        generate=lambda _prompt, on_reset=None, **_opts: (x for x in tokens),
         last_generation_provider="ollama",
         supports_thinking_progress=False,
         supports_question_vision=False,
@@ -579,4 +585,195 @@ def test_pipeline_chat_stopped_flushes_buffered_answer(monkeypatch):
     ]
     assert stopped_updates == [("Thứ nguyên ", "msg-3", "student-1", "stopped")]
 
+
+def _make_chat_pipeline(*, has_chunk=True, answer_text="Định nghĩa chuẩn [S1]."):
+    executed = []
+
+    class FakeTransaction:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    class FakeConn:
+        def transaction(self):
+            return FakeTransaction()
+
+        def execute(self, sql, params=()):
+            executed.append((sql, params))
+            if "from public.jobs where id=%s for update" in sql:
+                return SimpleNamespace(fetchone=lambda: {"lease_token": "lease-1", "status": "running"})
+            if "from public.documents d where (user_id=%s" in sql:
+                return SimpleNamespace(fetchall=lambda: [{
+                    "id": "doc-1",
+                    "user_id": "student-1",
+                    "name": "Giai_tich_1.pdf",
+                    "file_type": "pdf",
+                    "status": "ready",
+                    "index_version": 1,
+                    "embedding_profile": "ollama:bge-m3",
+                    "vector_collection": "study_bge_m3_v1",
+                }])
+            if "from public.knowledge_documents k" in sql and "vector_collection=%s" in sql:
+                return SimpleNamespace(fetchall=lambda: [{
+                    "id": "doc-1", "user_id": "publisher-1", "index_version": 2,
+                }])
+            if "join public.knowledge_documents k" in sql and "order by d.id for share" in sql:
+                return SimpleNamespace(fetchall=lambda: [{"id": "doc-1", "index_version": 2}])
+            if "from public.messages" in sql and "sequence <" in sql:
+                return SimpleNamespace(fetchall=lambda: [])
+            if "from public.document_chunks c" in sql and has_chunk:
+                return SimpleNamespace(fetchone=lambda: {
+                    "id": "chunk-1",
+                    "document_id": "doc-1",
+                    "user_id": "publisher-1",
+                    "document_name": "Giai_tich_1.pdf",
+                    "page": 12,
+                    "section": "Chuong 2",
+                    "paragraph": 1,
+                    "content": "Đạo hàm là giới hạn của tỷ số số gia hàm số và đối số khi delta x tiến tới 0.",
+                })
+            return SimpleNamespace(fetchone=lambda: None, fetchall=lambda: [])
+
+    pipeline = worker_main.Pipeline.__new__(worker_main.Pipeline)
+    pipeline.conn = FakeConn()
+    pipeline.settings = SimpleNamespace(embedding_profile="ollama:bge-m3", ai_provider="ollama", searxng_url="")
+    pipeline.heartbeat = SimpleNamespace(lost=threading.Event())
+    pipeline.vectors = SimpleNamespace(
+        collection="study_bge_m3_v1",
+        search=lambda *_args: (
+            [SimpleNamespace(payload={"chunk_id": "chunk-1", "document_id": "doc-1", "user_id": "publisher-1"}, score=0.88)]
+            if has_chunk
+            else []
+        ),
+    )
+    pipeline.models = SimpleNamespace(
+        count=lambda text: len(text.split()),
+        embed=lambda texts, query=False: [[0.1] * 4 for _ in texts],
+        rerank=lambda _q, items: items,
+        generate=lambda _prompt, on_reset=None, **_opts: (x for x in [answer_text]),
+        last_generation_provider="ollama",
+        supports_thinking_progress=False,
+        supports_question_vision=False,
+    )
+    return pipeline, executed
+
+
+def test_unified_chat_routing_illustrations_strict_docs_explicit_web_and_research(monkeypatch):
+    sample_image = {
+        "kind": "image",
+        "label": "I1",
+        "title": "Derivative_slope",
+        "url": "https://commons.wikimedia.org/?curid=77",
+        "thumbnail": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Derivative.png/640px-Derivative.png",
+        "creator": "Math Author",
+        "license_name": "CC BY-SA 4.0",
+        "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    }
+    sample_web = {
+        "url": "https://vi.wikipedia.org/?curid=99",
+        "title": "Hiệu ứng Doppler",
+        "content": "Hiệu ứng Doppler là sự thay đổi tần số sóng khi nguồn và người quan sát chuyển động tương đối.",
+        "kind": "wikipedia",
+        "provider": "Wikipedia",
+    }
+
+    # 1. Library mode with curriculum hit + concept question -> attaches illustrations without calling search_web.
+    calls = {"search_web": 0, "search_illustrations": 0}
+    monkeypatch.setattr(worker_main, "search_web", lambda *_a, **_k: (calls.__setitem__("search_web", calls["search_web"] + 1) or [], []))
+    monkeypatch.setattr(
+        worker_main,
+        "search_illustrations",
+        lambda *_a, **_k: (calls.__setitem__("search_illustrations", calls["search_illustrations"] + 1) or [sample_image]),
+    )
+    pipeline, executed = _make_chat_pipeline(has_chunk=True, answer_text="Đạo hàm là giới hạn tỷ số số gia [S1].")
+    pipeline.chat({
+        "id": "job-1", "queue_id": 1, "user_id": "student-1", "message_id": "msg-1", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-1",
+            "question": "Đạo hàm là gì?", "document_ids": [], "versions": {}, "mode": "library", "subject": "calculus",
+        },
+    })
+    assert calls["search_web"] == 0
+    assert calls["search_illustrations"] == 1
+    saved_web = [params[0].obj for sql, params in executed if "set web_sources=%s" in sql]
+    assert saved_web == [[sample_image]]
+
+    # 2. Strict document query blocks both search_web and search_illustrations even when no chunks match.
+    calls = {"search_web": 0, "search_illustrations": 0}
+    pipeline, executed = _make_chat_pipeline(has_chunk=False, answer_text="Tài liệu chưa đề cập đến hiệu ứng Doppler.")
+    pipeline.chat({
+        "id": "job-2", "queue_id": 2, "user_id": "student-1", "message_id": "msg-2", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-2",
+            "question": "Chỉ dựa trên tài liệu này, có trình bày hiệu ứng Doppler không?",
+            "document_ids": ["doc-1"], "versions": {"doc-1": 1}, "mode": "documents",
+        },
+    })
+    assert calls["search_web"] == 0
+    assert calls["search_illustrations"] == 0
+
+    # 3. Unified documents mode without matches auto-expands to web silently (no offline config notices).
+    web_args = []
+    monkeypatch.setattr(
+        worker_main,
+        "search_web",
+        lambda *args, **kwargs: (web_args.append((args, kwargs)) or ([sample_web, sample_image], ["Chưa cấu hình tìm kiếm web đa trang."])),
+    )
+    pipeline, executed = _make_chat_pipeline(has_chunk=False, answer_text="Hiệu ứng Doppler [S1].")
+    pipeline.chat({
+        "id": "job-3", "queue_id": 3, "user_id": "student-1", "message_id": "msg-3", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-3",
+            "question": "Hiệu ứng Doppler là gì?",
+            "document_ids": ["doc-1"], "versions": {"doc-1": 1}, "mode": "documents",
+        },
+    })
+    assert len(web_args) == 1
+    assert web_args[0][1]["image_question"] == "Hiệu ứng Doppler là gì?"
+    completed = [params[0] for sql, params in executed if "update public.messages set content=%s,status='completed'" in sql][0]
+    assert "Chưa cấu hình tìm kiếm web đa trang." not in completed
+    saved_web = [params[0].obj for sql, params in executed if "set web_sources=%s" in sql][0]
+    assert [item["kind"] for item in saved_web] == ["wikipedia", "image"]
+
+    # 4. Explicit web request in library mode merges curriculum ahead of web and preserves notices.
+    web_args = []
+    pipeline, executed = _make_chat_pipeline(has_chunk=True, answer_text="Theo giáo trình [S1] và Wikipedia [S2].")
+    pipeline.chat({
+        "id": "job-4", "queue_id": 4, "user_id": "student-1", "message_id": "msg-4", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-4",
+            "question": "Tìm trên web về đạo hàm và hiệu ứng Doppler",
+            "document_ids": [], "versions": {}, "mode": "library",
+        },
+    })
+    assert len(web_args) == 1
+    completed = [params[0] for sql, params in executed if "update public.messages set content=%s,status='completed'" in sql][0]
+    assert "Chưa cấu hình tìm kiếm web đa trang." in completed
+    source_inserts = [params for sql, params in executed if "insert into public.message_sources" in sql]
+    assert source_inserts[0][4] == "S1"
+    saved_web = [params[0].obj for sql, params in executed if "set web_sources=%s" in sql][0]
+    assert saved_web[0]["label"] == "S2"
+
+    # 5. Hidden research mode remains 100% intact.
+    research_calls = []
+    monkeypatch.setattr(
+        worker_main,
+        "search_web",
+        lambda *args, **kwargs: (research_calls.append((args, kwargs)) or ([sample_web], ["Nguồn web dự phòng từ Wikipedia."])),
+    )
+    pipeline, executed = _make_chat_pipeline(has_chunk=True, answer_text="Tổng hợp [S1] và [S2].")
+    pipeline.chat({
+        "id": "job-5", "queue_id": 5, "user_id": "student-1", "message_id": "msg-5", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-5",
+            "question": "Đạo hàm và ứng dụng",
+            "document_ids": [], "versions": {}, "mode": "research",
+        },
+    })
+    assert research_calls[0][0][1] == "research"
+    assert research_calls[0][1]["image_question"] == ""
+    completed = [params[0] for sql, params in executed if "update public.messages set content=%s,status='completed'" in sql][0]
+    assert "Nguồn web dự phòng từ Wikipedia." in completed
 

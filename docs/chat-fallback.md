@@ -20,7 +20,7 @@ sang API vì thiếu bằng chứng hoặc vì câu trả lời không đạt ki
 
    ```dotenv
    AI_PROVIDER=ollama
-   CHAT_MODEL=qwen3:4b
+   CHAT_MODEL=qwen3.5:4b-q4_K_M
    EMBED_MODEL=bge-m3
    CHAT_FALLBACK_PROVIDER=openrouter
    OPENROUTER_CHAT_MODEL=nvidia/nemotron-3.5-lightning:free
@@ -32,7 +32,7 @@ sang API vì thiếu bằng chứng hoặc vì câu trả lời không đạt ki
 
    ```powershell
    ollama pull bge-m3
-   ollama pull qwen3:4b
+   ollama pull qwen3.5:4b-q4_K_M
    cd services/worker
    uv sync --locked
    uv run learnstep-worker

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatModes, messageSchema, uploadSchema, MAX_FILE_SIZE } from "./validation";
+import { messageSchema, uploadSchema, MAX_FILE_SIZE } from "./validation";
 
 const id = "318b12a1-0c59-45a3-bd28-5304d98b92e9";
 describe("upload and chat boundaries", () => {
@@ -26,7 +26,7 @@ describe("upload and chat boundaries", () => {
     const value = { question: "Đạo hàm là gì?", documentIds: [id], key: id };
     expect(messageSchema.safeParse(value).success).toBe(true);
     expect(messageSchema.safeParse({ ...value, documentIds: [] }).success).toBe(true);
-    expect(Object.keys(chatModes)).toEqual(["documents", "search"]);
+    expect(messageSchema.safeParse({ ...value, mode: "documents" }).success).toBe(true);
     expect(messageSchema.safeParse({ ...value, mode: "search" }).success).toBe(true);
     expect(messageSchema.safeParse({ ...value, mode: "research" }).success).toBe(false);
     for (const change of [

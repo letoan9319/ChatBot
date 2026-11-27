@@ -141,7 +141,7 @@ export default function Home() {
                   Chọn PDF hoặc DOCX có văn bản. Thư viện của bạn luôn được lưu
                   riêng.
                 </p>
-                <span className="step-note">TỐI ĐA 20 MB / TÀI LIỆU</span>
+                <span className="step-note">TỐI ĐA 3 MB / TÀI LIỆU</span>
               </article>
               <article data-reveal data-reveal-delay="90">
                 <span className="step-number">02</span>

@@ -6,7 +6,9 @@ import pytest
 from docx import Document
 from tokenizers import Tokenizer, models, pre_tokenizers
 
-from study_worker.documents import InvalidDocument, Section, chunk_sections, extract
+from study_worker.documents import (
+    InvalidDocument, OCRFailure, Section, chunk_sections, extract, parse_pdf_with_mineru,
+)
 
 
 @pytest.fixture
@@ -93,3 +95,30 @@ def test_size_and_extracted_text_limits(monkeypatch):
     monkeypatch.setattr("study_worker.documents.MAX_TEXT_CHARS", 20)
     with pytest.raises(InvalidDocument, match="1.000.000"):
         extract(pdf_bytes(), "pdf")
+
+
+def test_custom_pdf_parser_and_mineru_missing_config(monkeypatch):
+    pdf = pymupdf.open()
+    pdf.new_page()
+    pdf.new_page()
+    data = pdf.tobytes()
+    pdf.close()
+
+    sections = extract(
+        data,
+        "pdf",
+        pdf_parser=lambda doc: [Section(f"Trang {i + 1} có nội dung đầy đủ.", page=i + 1) for i in range(len(doc))],
+    )
+    assert [section.page for section in sections] == [1, 2]
+
+    def failing_parser(_doc):
+        raise OCRFailure("OCR failed")
+
+    with pytest.raises(OCRFailure, match="OCR failed"):
+        extract(data, "pdf", pdf_parser=failing_parser)
+
+    monkeypatch.delenv("MINERU_PYTHON", raising=False)
+    monkeypatch.delenv("MINERU_MODEL_PATH", raising=False)
+    with pymupdf.open(stream=data, filetype="pdf") as opened:
+        with pytest.raises(OCRFailure, match="MinerU"):
+            parse_pdf_with_mineru(opened, lambda: None)

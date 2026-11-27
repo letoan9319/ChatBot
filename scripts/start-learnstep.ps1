@@ -231,14 +231,25 @@ try {
         $tags = (Invoke-RestMethod -Uri "$ollamaUrl/api/tags" -TimeoutSec 4).models.name
         $chat = if ($config.CHAT_MODEL) { $config.CHAT_MODEL } else { 'qwen3.5:4b-q4_K_M' }
         $embed = if ($config.EMBED_MODEL) { $config.EMBED_MODEL } else { 'bge-m3' }
+        $localModelDir = Join-Path $checkoutRoot 'models/finetuned'
+        $localModelfile = Join-Path $localModelDir 'Modelfile'
         $models = @($chat, $embed)
         if ($config.OLLAMA_THINKING_MODEL) { $models += $config.OLLAMA_THINKING_MODEL }
         if ($config.PDF_PARSER -eq 'ollama_ocr' -and $config.OCR_MODEL) { $models += $config.OCR_MODEL }
         foreach ($model in ($models | Select-Object -Unique)) {
             if ($model -notin $tags -and "$($model):latest" -notin $tags) {
-                Write-Host "Downloading Ollama model $model..."
-                & $ollama pull $model
-                Assert-Succeeded "Downloading $model"
+                if (($model -eq $chat -or $model -eq $config.OLLAMA_THINKING_MODEL) -and (Test-Path -LiteralPath $localModelfile -PathType Leaf)) {
+                    Write-Host "Creating local Ollama model $model from $localModelfile..."
+                    Push-Location -LiteralPath $localModelDir
+                    try {
+                        & $ollama create $model -f $localModelfile
+                        Assert-Succeeded "Creating local model $model"
+                    } finally { Pop-Location }
+                } else {
+                    Write-Host "Downloading Ollama model $model..."
+                    & $ollama pull $model
+                    Assert-Succeeded "Downloading $model"
+                }
             }
         }
     }
