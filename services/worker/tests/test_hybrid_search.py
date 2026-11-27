@@ -879,3 +879,122 @@ def test_followup_in_library_mode_contextualizes_web_search_and_suppresses_unreq
     saved_ill = [params[0].obj for sql, params in executed_ill if "set web_sources=%s" in sql][0]
     assert [item["title"] for item in saved_ill] == ["Gradient2"]
 
+
+def test_cross_subject_history_and_authorized_source_carry_over(monkeypatch):
+    history_rows = [
+        {"id": "u-0", "role": "user", "content": "Cho f(x,y) = x^2 + 3xy, tính gradient.", "status": "completed"},
+        {"id": "a-0", "role": "assistant", "content": "Áp dụng công thức đạo hàm riêng [S1].", "status": "completed"},
+    ]
+    carried_chunk = {
+        "id": "chunk-prev",
+        "document_id": "doc-1",
+        "user_id": "student-1",
+        "index_version": 1,
+        "document_name": "Giai_tich_1.pdf",
+        "subject": "calculus",
+        "page": 8,
+        "section": "Chuong 3",
+        "paragraph": 2,
+        "content": "Gradient của hàm hai biến f(x,y) là vectơ (df/dx, df/dy).",
+    }
+    executed = []
+    seen_prompts = []
+
+    class FakeTransaction:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    class FakeConn:
+        def transaction(self):
+            return FakeTransaction()
+
+        def execute(self, sql, params=()):
+            executed.append((sql, params))
+            if "from public.jobs where id=%s for update" in sql:
+                return SimpleNamespace(fetchone=lambda: {"lease_token": "lease-1", "status": "running"})
+            if "from public.documents d where (user_id=%s" in sql:
+                return SimpleNamespace(fetchall=lambda: [{
+                    "id": "doc-1",
+                    "user_id": "student-1",
+                    "name": "Giai_tich_1.pdf",
+                    "file_type": "pdf",
+                    "status": "ready",
+                    "index_version": 1,
+                    "embedding_profile": "ollama:bge-m3",
+                    "vector_collection": "study_bge_m3_v1",
+                }, {
+                    "id": "doc-2",
+                    "user_id": "student-1",
+                    "name": "Giai_tich_2.pdf",
+                    "file_type": "pdf",
+                    "status": "ready",
+                    "index_version": 1,
+                    "embedding_profile": "ollama:bge-m3",
+                    "vector_collection": "study_bge_m3_v1",
+                }][:1 if "doc-1" in params[1] else 1])
+            if "from public.messages" in sql and "sequence <" in sql:
+                # Must NOT filter out messages when subject filter changes mid-conversation.
+                assert "subject is not distinct from" not in sql
+                return SimpleNamespace(fetchall=lambda: list(reversed(history_rows)))
+            if "from public.message_sources ms" in sql:
+                return SimpleNamespace(fetchall=lambda: [carried_chunk])
+            return SimpleNamespace(fetchone=lambda: None, fetchall=lambda: [])
+
+    monkeypatch.setattr(worker_main, "search_web", lambda *_a, **_k: ([], []))
+    monkeypatch.setattr(worker_main, "search_illustrations", lambda *_a, **_k: [])
+
+    pipeline = worker_main.Pipeline.__new__(worker_main.Pipeline)
+    pipeline.conn = FakeConn()
+    pipeline.settings = SimpleNamespace(embedding_profile="ollama:bge-m3", ai_provider="ollama", searxng_url="")
+    pipeline.heartbeat = SimpleNamespace(lost=threading.Event())
+    pipeline.vectors = SimpleNamespace(collection="study_bge_m3_v1", search=lambda *_a: [])
+    pipeline.models = SimpleNamespace(
+        count=lambda text: len(text.split()),
+        embed=lambda texts, query=False: [[0.1] * 4 for _ in texts],
+        rerank=lambda _q, items: items,
+        generate=lambda prompt, on_reset=None, **_opts: (seen_prompts.append(prompt) or (x for x in ["Đúng rồi, đạo hàm theo x là 2x + 3y [S1]."])),
+        last_generation_provider="ollama",
+        supports_thinking_progress=False,
+        supports_question_vision=False,
+    )
+
+    # 1. Student submits intermediate math result ("Mình tính ra 2x + 3y đúng không?") with 0 fresh vector hits ->
+    #    carries over authorized [S1] chunk from Turn 1 and preserves conversation history across subject change.
+    pipeline.chat({
+        "id": "job-co-1", "queue_id": 20, "user_id": "student-1", "message_id": "msg-co-1", "lease_token": "lease-1",
+        "payload": {
+            "conversation_id": "conv-1", "user_message_id": "u-1",
+            "question": "Mình tính đạo hàm theo x ra 2x + 3y đúng không?",
+            "document_ids": ["doc-1"], "versions": {"doc-1": 1}, "mode": "documents", "subject": "calculus",
+        },
+    })
+    assert any("df/dx" in seen_prompts[-1][0]["content"] for _ in [0])
+    source_inserts = [params for sql, params in executed if "insert into public.message_sources" in sql]
+    assert len(source_inserts) == 1
+    assert source_inserts[0][1] == "chunk-prev"
+
+    # 2. If user switched selected documents to doc-2 (unchecking doc-1), doc-1 chunk is NOT carried over.
+    unauthorized = pipeline.carry_over_chunks(
+        {"user_id": "student-1"},
+        history_rows,
+        ["doc-2"],
+        {"doc-2": "student-1"},
+        {"doc-2": 1},
+        False,
+    )
+    assert unauthorized == []
+
+    # 3. If doc-1 was re-indexed to version 2, stale version 1 chunk is NOT carried over.
+    stale = pipeline.carry_over_chunks(
+        {"user_id": "student-1"},
+        history_rows,
+        ["doc-1"],
+        {"doc-1": "student-1"},
+        {"doc-1": 2},
+        False,
+    )
+    assert stale == []
+

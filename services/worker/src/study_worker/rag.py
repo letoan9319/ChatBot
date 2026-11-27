@@ -2,7 +2,14 @@ from contextlib import closing
 import json
 import re
 
-from .config import RESEARCH_INPUT_TOKENS
+from .config import (
+    CHAT_INPUT_TOKENS,
+    HISTORY_INPUT_TOKENS,
+    RESEARCH_INPUT_TOKENS,
+    SEARCH_INPUT_TOKENS,
+    SOURCE_RESERVE_TOKENS,
+)
+from .web_search import extract_topic_phrase
 
 SUBJECTS = {
     "calculus": "Giải tích",
@@ -37,6 +44,18 @@ def allows_general_knowledge(mode):
     return mode in ("documents", "library")
 
 
+STUDENT_WORK_CHECK = re.compile(
+    r"(?:"
+    r"\b(?:mình|tôi|em)\s+(?:tính|làm|giải|biến đổi|đạo hàm|tích phân|rút gọn|thay|ra|được)\b"
+    r"|\b(?:như\s+(?:vậy|thế(?:\s+này)?)|kết\s+quả\s+(?:là|bằng|ra)|làm\s+thế\s+này)\s+(?:có\s+)?(?:đúng|ổn|chuẩn|hợp lý)\s*(?:không|chưa)\b"
+    r"|\b(?:đúng|chuẩn)\s+(?:không|chưa)\s*[?.!]*$"
+    r"|\b(?:sai|nhầm)\s+ở\s+(?:đâu|bước\s+nào|chỗ\s+nào)\b"
+    r"|\bkiểm\s+tra\s+(?:giúp|hộ|lại)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
 FOLLOW_UP = re.compile(
     r"(?:"
     r"^\s*(?:(?:vậy|thế|còn|rồi|bạn|hãy|mình|xin|làm ơn)\s+)*tiếp(?:\s+(?:đi|nữa|nhé|nha|ạ))?[?!., ]*$"
@@ -51,7 +70,16 @@ FOLLOW_UP = re.compile(
     r"viết tiếp|nói tiếp|làm tiếp|trả lời tiếp|giải tiếp|hoàn thành nốt|đang dở|nốt đi)\b"
     r"|\bbước\s+(?:tiếp theo|\d+)\b"
     r"|\b(?:tại sao|vì sao|sao)\s+(?:lại|phải|cần|ở bước|nhân|chia|đổi|bỏ|thêm|dùng|như vậy)\b"
-    r"|\b(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài|ý)\s+(?:này|đó|ấy|trên|vừa rồi|vừa nêu)\b"
+    r"|\b(?:kết quả|chỗ|đoạn|công thức|bước|phần|câu|bài|ý|hàm(?:\s+số)?|phương trình|định lý|định luật|"
+    r"ma trận|vectơ|vector|tích phân|giới hạn|biểu thức|hệ)\s+(?:này|đó|ấy|trên|vừa rồi|vừa nêu|lúc nãy)\b"
+    r"|\b(?:mình|tôi|em)\s+(?:tính|làm|giải|biến đổi|đạo hàm|tích phân|rút gọn|thay|ra|được)\b"
+    r"|\b(?:đúng\s+(?:không|chưa)|phải\s+không|sai\s+ở\s+(?:đâu|bước\s+nào|chỗ\s+nào)|kiểm\s+tra\s+(?:giúp|hộ|lại))\b"
+    r"|^\s*(?:vậy(?:\s+thì|\s+nên|\s+là|\s+suy\s+ra|\s+[a-zA-Z0-9\\$])|thế\s+thì|rồi\s+sao|tức\s+là|"
+    r"ý\s+(?:mình|tôi|em)\s+là|từ\s+đó|suy\s+ra)\b"
+    r"|^\s*(?:áp\s+dụng\s+(?:vào|cho)|so\s+sánh\s+với|khác\s+gì\s+(?:so\s+)?với|liên\s+hệ\s+(?:giữa|với))\b"
+    r"|\b(?:nếu\s+(?:thay|đổi|cho|đặt|lấy)|trường\s+hợp\s+[^\n?.!]{1,60}\bthì\s+sao)\b"
+    r"|\b(?:cho\s+(?:mình\s+|tôi\s+|em\s+)?(?:một\s+)?ví\s+dụ|ví\s+dụ\s+(?:tính\s+)?tại\b|ý\s+nghĩa\s+(?:hình\s+học|vật\s+lý))\b"
+    r"|\b(?:của|vào|cho|từ|với|theo)\s+nó\b"
     r")",
     re.IGNORECASE,
 )
@@ -242,30 +270,50 @@ def _history_excerpt(content, budget, count, question):
     return "\n\n".join(sections[i] for i in sorted(selected))
 
 
+def _sliding_topic_turns(history):
+    user_contents = [
+        (msg.get("content") or "").strip()
+        for msg in history
+        if msg.get("role") == "user" and (msg.get("content") or "").strip()
+    ]
+    if not user_contents:
+        return "", ""
+    root = user_contents[0]
+    latest = root
+    for text in reversed(user_contents):
+        if extract_topic_phrase(text):
+            latest = text
+            break
+    return latest, root
+
+
 def follow_up_query(question, history, count):
     if not history or history[0]["role"] != "user":
         return question
+    latest, root = _sliding_topic_turns(history)
+    primary = latest or history[0]["content"]
+    root_context = _history_excerpt(root, 80, count, question) if (root and root != primary) else ""
     previous_answer = next(
         ((message.get("content") or "") for message in reversed(history) if message["role"] == "assistant"),
         "",
     )
     step = _history_excerpt(previous_answer, 120, count, question)
-    return "\n".join(part for part in (history[0]["content"], question, step) if part)
+    return "\n".join(part for part in (primary, question, root_context, step) if part)
 
 
 _FOLLOWUP_STRIP_RE = re.compile(
     r"(?:"
     r"\b(?:hãy|vui lòng|làm ơn)\b"
-    r"|\b(?:cho|giúp)\s+(?:mình|tôi|em)\s*(?:hỏi|xem|biết|hiểu|thêm)?\b"
+    r"|\b(?:cho|giúp)\s+(?:mình|tôi|em)\s*(?:hỏi|xem|biết|hiểu|thêm)?(?:\s+một)?\b"
     r"|\b(?:giải thích|nói|trình bày|phân tích|làm|viết|trả lời|giải|minh họa)\s+"
     r"(?:lại|rõ hơn|kỹ hơn|kĩ hơn|chi tiết hơn|cụ thể hơn|dễ hiểu hơn|ngắn gọn hơn|đơn giản hơn|sâu hơn|thêm|tiếp|nốt)\b"
     r"|\b(?:chi tiết|rõ|kỹ|kĩ|cụ thể|dễ hiểu|ngắn gọn|đơn giản|sâu)\s+hơn\b"
     r"|\b(?:chưa hiểu|không hiểu|khó hiểu|mơ hồ|làm rõ|đi sâu|nói sâu|phân tích sâu)\b"
-    r"|\b(?:cho\s+)?thêm\s+ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
-    r"|\bví\s+dụ\s+(?:khác|thực tế|thêm)\b"
+    r"|\b(?:cho\s+)?(?:mình\s+|tôi\s+|em\s+)?(?:một\s+|thêm\s+)?ví\s+dụ(?:\s+(?:khác|thực tế|cụ thể|minh họa))?\b"
+    r"|\bví\s+dụ(?:\s+(?:khác|thực tế|thêm))?\b"
     r"|\b(?:minh họa\s+thêm|bằng\s+hình(?:\s+minh\s+họa|\s+ảnh)?|hình\s+minh\s+họa|hình\s+ảnh)\b"
     r"|\b(?:tiếp tục|tiếp đi|tiếp nhé|tiếp nha|tiếp ạ|tiếp theo|hoàn thành nốt|đang dở|nốt đi)\b"
-    r"|\b(?:thế còn|vậy còn|còn|thì sao|như vậy|ở trên|vừa rồi|vừa nêu|được không|phải không|vậy ạ)\b"
+    r"|\b(?:thế còn|vậy còn|còn|thì sao|như vậy|từ đó|suy ra|ở trên|vừa rồi|vừa nêu|lúc nãy|được không|phải không|đúng không|đúng chưa|vậy ạ)\b"
     r"|\b(?:đi|nhé|nha|ạ|nữa|thêm|xem|với|thế|vậy)\b"
     r")",
     re.IGNORECASE,
@@ -275,9 +323,10 @@ _FOLLOWUP_STRIP_RE = re.compile(
 def contextualize_search_question(question, history):
     if not history or history[0].get("role") != "user":
         return question
-    anchor = (history[0].get("content") or "").strip()
-    if not anchor:
+    latest, root = _sliding_topic_turns(history)
+    if not latest:
         return question
+    anchor = (extract_topic_phrase(latest) or latest) if latest != root else latest
     cleaned = _FOLLOWUP_STRIP_RE.sub(" ", question or "")
     extra_words = [
         word for word in re.findall(r"[^\W_]+", cleaned, re.UNICODE)
@@ -288,50 +337,131 @@ def contextualize_search_question(question, history):
     return f"{anchor} {' '.join(extra_words[:8])}"
 
 
-def _prompt_history(question, history, count, budget):
+MAX_HISTORY_MESSAGE_TOKENS = 900
+
+
+def _format_history_message(message, available, count, question):
+    effective_cap = min(available, MAX_HISTORY_MESSAGE_TOKENS)
+    if effective_cap <= 0:
+        return ""
+    raw_content = message.get("content") or ""
+    is_stopped_assistant = (
+        message.get("role") == "assistant"
+        and message.get("status") in ("stopped", "interrupted")
+    )
+    if is_stopped_assistant:
+        if raw_content.strip():
+            marker_budget = count(STOPPED_PARTIAL_MARKER)
+            excerpt_budget = effective_cap - marker_budget
+            excerpt = _history_excerpt(raw_content, excerpt_budget, count, question) if excerpt_budget > 0 else ""
+            if excerpt:
+                content = excerpt + STOPPED_PARTIAL_MARKER
+                if count(content) > effective_cap:
+                    overflow = count(content) - effective_cap
+                    excerpt = _history_excerpt(raw_content, max(0, excerpt_budget - overflow), count, question)
+                    content = excerpt + STOPPED_PARTIAL_MARKER if excerpt else ""
+            else:
+                content = ""
+            if not content and count(STOPPED_EMPTY_MARKER) <= effective_cap:
+                content = STOPPED_EMPTY_MARKER
+        else:
+            content = STOPPED_EMPTY_MARKER if count(STOPPED_EMPTY_MARKER) <= effective_cap else ""
+    else:
+        content = _history_excerpt(raw_content, effective_cap, count, question)
+    return content
+
+
+def _group_history_units(history):
+    units = []
+    idx = 0
+    total = len(history)
+    while idx < total:
+        msg = history[idx]
+        if msg.get("role") == "user":
+            if idx + 1 < total and history[idx + 1].get("role") == "assistant":
+                units.append((msg, history[idx + 1]))
+                idx += 2
+            else:
+                units.append((msg, None))
+                idx += 1
+        else:
+            idx += 1
+    return units
+
+
+def _prompt_history(question, history, count, budget, *, anchor_message=None):
     if not history or budget <= 0:
         return []
-    # Reserve the current topic even if the latest response is much longer.
-    priorities = list(dict.fromkeys([0, *range(len(history) - 1, 0, -1)]))
-    recent = {}
-    for index in priorities:
-        message = history[index]
-        available = budget - 8
-        if index == 0 and len(history) > 1:
-            available = min(available, budget // 2)
-        if available <= 0:
+    units = _group_history_units(history)
+    if not units:
+        return []
+    anchor_unit_idx = 0
+    if anchor_message is not None:
+        anchor_id = anchor_message.get("id")
+        anchor_text = anchor_message.get("content")
+        for idx, (u_msg, _) in enumerate(units):
+            if (anchor_id is not None and u_msg.get("id") == anchor_id) or (
+                anchor_id is None and u_msg.get("content") == anchor_text
+            ):
+                anchor_unit_idx = idx
+                break
+    priorities = list(dict.fromkeys([anchor_unit_idx, *range(len(units) - 1, -1, -1)]))
+    accepted = {}
+    for unit_idx in priorities:
+        if budget <= 16:
             break
-        raw_content = message.get("content") or ""
-        is_stopped_assistant = (
-            message.get("role") == "assistant"
-            and message.get("status") in ("stopped", "interrupted")
-        )
-        if is_stopped_assistant:
-            if raw_content.strip():
-                marker_budget = count(STOPPED_PARTIAL_MARKER)
-                excerpt_budget = available - marker_budget
-                excerpt = _history_excerpt(raw_content, excerpt_budget, count, question) if excerpt_budget > 0 else ""
-                if excerpt:
-                    content = excerpt + STOPPED_PARTIAL_MARKER
-                    if count(content) > available:
-                        overflow = count(content) - available
-                        excerpt = _history_excerpt(raw_content, max(0, excerpt_budget - overflow), count, question)
-                        content = excerpt + STOPPED_PARTIAL_MARKER if excerpt else ""
-                else:
-                    content = ""
-                if not content and count(STOPPED_EMPTY_MARKER) <= available:
-                    content = STOPPED_EMPTY_MARKER
-            else:
-                content = STOPPED_EMPTY_MARKER if count(STOPPED_EMPTY_MARKER) <= available else ""
+        u_msg, a_msg = units[unit_idx]
+        unit_budget = budget
+        if unit_idx == anchor_unit_idx and len(units) > 1 and unit_idx != len(units) - 1:
+            unit_budget = min(budget, max(160, budget // 2))
+        if a_msg is not None:
+            u_text = _format_history_message(u_msg, unit_budget - 24, count, question)
+            a_text = ""
+            if u_text:
+                rem = unit_budget - (count(u_text) + 8) - 8
+                a_text = _format_history_message(a_msg, rem, count, question)
+            if u_text and not a_text and unit_budget >= 48:
+                u_text = _format_history_message(u_msg, unit_budget // 2 - 8, count, question)
+                if u_text:
+                    rem = unit_budget - (count(u_text) + 8) - 8
+                    a_text = _format_history_message(a_msg, rem, count, question)
+            if u_text and a_text:
+                cost = count(u_text) + count(a_text) + 16
+                if cost <= budget:
+                    accepted[unit_idx] = (
+                        {"role": "user", "content": u_text},
+                        {"role": "assistant", "content": a_text},
+                    )
+                    budget -= cost
         else:
-            content = _history_excerpt(raw_content, available, count, question)
-        if content:
-            recent[index] = {"role": message["role"], "content": content}
-            budget -= count(content) + 8
-    return [recent[index] for index in sorted(recent)]
+            marker_cost = count(STOPPED_EMPTY_MARKER) + 8
+            u_text = _format_history_message(u_msg, unit_budget - marker_cost - 8, count, question)
+            if u_text:
+                cost = count(u_text) + 8 + marker_cost
+                if cost <= budget:
+                    accepted[unit_idx] = (
+                        {"role": "user", "content": u_text},
+                        {"role": "assistant", "content": STOPPED_EMPTY_MARKER},
+                    )
+                    budget -= cost
+    flattened = []
+    for unit_idx in sorted(accepted):
+        flattened.extend(accepted[unit_idx])
+    return flattened
 
 
-def build_prompt(question, history, candidates, count, mode="documents", *, subject=None, reasoning=False):
+def build_prompt(
+    question,
+    history,
+    candidates,
+    count,
+    mode="documents",
+    *,
+    subject=None,
+    reasoning=False,
+    conversation_history=None,
+    new_question_image=False,
+):
     concept = concept_request(question, history)
     system = SYSTEM + CONCEPT_GUIDANCE
     if not concept:
@@ -373,7 +503,11 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
         )
         system += extra_research
         system_for_budget += extra_research
-    input_budget = RESEARCH_INPUT_TOKENS if mode == "research" else (3600 if mode == "search" else 2900)
+    input_budget = (
+        RESEARCH_INPUT_TOKENS
+        if mode == "research"
+        else (SEARCH_INPUT_TOKENS if mode == "search" else CHAT_INPUT_TOKENS)
+    )
     max_sources = 10 if mode == "research" else 5
     show_visual = wants_visual(question)
     if show_visual:
@@ -581,9 +715,12 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
                 if transcription else
                 "Dựa vào chi tiết đọc được trong ảnh để giải thích khái niệm, có thể minh họa đầy đủ. Dẫn nhãn nguồn khi dùng dữ kiện từ ảnh. "
                 if concept else
+                "Đọc phần lời giải hoặc biến đổi trong ảnh đính kèm để kiểm tra và đối chiếu với bài đang làm; "
+                "chỉ ra điểm đúng/sai và gợi ý bước tiếp theo mà không tiết lộ đáp án cuối. Dẫn nhãn nguồn khi dùng dữ kiện từ ảnh."
+                if (follow_up and new_question_image and STUDENT_WORK_CHECK.search(question)) else
                 "Dùng đề trong ảnh của lượt trước để giải thích bước người học đang hỏi. "
                 "Dẫn nhãn nguồn hiện tại khi dùng dữ kiện từ ảnh."
-                if follow_up else
+                if (follow_up and not new_question_image) else
                 "Mở đầu bằng cách nêu lại công thức hoặc dữ kiện chính từ ảnh, kèm nhãn nguồn. "
                 "Giữ nguyên số hạng, số mũ, chỉ số và dấu ngoặc. Sau đó viết một đoạn ngắn bắt đầu bằng "
                 "‘Gợi ý:’ và chỉ nêu thao tác đầu tiên rồi dừng. "
@@ -601,8 +738,12 @@ def build_prompt(question, history, candidates, count, mode="documents", *, subj
         for index, item in enumerate(candidates[:2], 1)
         if item.get("question_image")
     ])
-    history_budget = min(1100, input_budget - count(system_for_budget + image_sources + image_question))
-    recent = _prompt_history(question, history, count, history_budget)
+    window_source = history if conversation_history is None else conversation_history
+    anchor_msg = history[0] if history and history[0].get("role") == "user" else None
+    reserved_for_sources = SOURCE_RESERVE_TOKENS if has_text_sources else 0
+    base_cost = count(system_for_budget + image_sources + image_question)
+    history_budget = min(HISTORY_INPUT_TOKENS, max(0, input_budget - base_cost - reserved_for_sources))
+    recent = _prompt_history(question, window_source, count, history_budget, anchor_message=anchor_msg)
     history_tokens = sum(count(message["content"]) + 8 for message in recent)
     chosen = []
     seen = set()

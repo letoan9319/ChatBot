@@ -9,7 +9,9 @@ from tokenizers import Tokenizer
 from .config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS, Settings, is_qwen35_model
 from .openrouter import OutputLimit
 
-THINKING_CONTEXT_TOKENS = 8192
+DEFAULT_CONTEXT_TOKENS = 12288
+DEFAULT_OUTPUT_TOKENS = 3584
+THINKING_CONTEXT_TOKENS = 12288
 THINKING_OUTPUT_TOKENS = 4096
 
 
@@ -141,8 +143,8 @@ class LocalModels:
             num_ctx = THINKING_CONTEXT_TOKENS
             num_predict = THINKING_OUTPUT_TOKENS
         else:
-            num_ctx = 7168
-            num_predict = 3584
+            num_ctx = DEFAULT_CONTEXT_TOKENS
+            num_predict = DEFAULT_OUTPUT_TOKENS
         with self.http.stream(
             "POST",
             "/api/chat",

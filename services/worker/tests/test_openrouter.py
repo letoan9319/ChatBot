@@ -248,7 +248,7 @@ def test_pipeline_never_sends_unverified_vector_sources_to_rerank_or_chat(monkey
 
         def execute(self, sql, params):
             if "select role,content" in sql:
-                assert "subject is not distinct from %s" in sql and params[2] == subject
+                assert params == ("conv", "alice", "question", "conv", "alice")
                 return SimpleNamespace(fetchall=lambda: [])
             if "select c.*" in sql:
                 assert "d.subject=%s" in sql

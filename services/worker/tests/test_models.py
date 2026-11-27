@@ -229,7 +229,12 @@ def test_failed_unload_does_not_skip_retry():
 
 def test_thinking_uses_tighter_token_budget_than_research():
     from study_worker.config import RESEARCH_CONTEXT_TOKENS, RESEARCH_OUTPUT_TOKENS
-    from study_worker.models import THINKING_CONTEXT_TOKENS, THINKING_OUTPUT_TOKENS
+    from study_worker.models import (
+        DEFAULT_CONTEXT_TOKENS,
+        DEFAULT_OUTPUT_TOKENS,
+        THINKING_CONTEXT_TOKENS,
+        THINKING_OUTPUT_TOKENS,
+    )
 
     seen_options = []
 
@@ -242,7 +247,7 @@ def test_thinking_uses_tighter_token_budget_than_research():
 
     value = mocked(handler)
     value.settings.thinking_model = "qwen3.5:4b-q4_K_M"
-    # Non-research thinking uses tighter context and output cap.
+    # Non-research thinking uses tighter context and output cap than research.
     assert "".join(value.generate([{"role": "user", "content": "q"}], on_thinking=lambda _: None)) == "ok"
     # Research thinking preserves full research budgets.
     assert "".join(value.generate([{"role": "user", "content": "q"}], research=True, on_thinking=lambda _: None)) == "ok"
@@ -250,16 +255,17 @@ def test_thinking_uses_tighter_token_budget_than_research():
     assert "".join(value.generate([{"role": "user", "content": "q"}])) == "ok"
 
     assert seen_options[0][0] is True
-    assert seen_options[0][1]["num_ctx"] == THINKING_CONTEXT_TOKENS == 8192
+    assert seen_options[0][1]["num_ctx"] == THINKING_CONTEXT_TOKENS == 12288
     assert seen_options[0][1]["num_predict"] == THINKING_OUTPUT_TOKENS == 4096
+    assert THINKING_CONTEXT_TOKENS < RESEARCH_CONTEXT_TOKENS == 16384
 
     assert seen_options[1][0] is True
     assert seen_options[1][1]["num_ctx"] == RESEARCH_CONTEXT_TOKENS
     assert seen_options[1][1]["num_predict"] == RESEARCH_OUTPUT_TOKENS
 
     assert seen_options[2][0] is False
-    assert seen_options[2][1]["num_ctx"] == 7168
-    assert seen_options[2][1]["num_predict"] == 3584
+    assert seen_options[2][1]["num_ctx"] == DEFAULT_CONTEXT_TOKENS == 12288
+    assert seen_options[2][1]["num_predict"] == DEFAULT_OUTPUT_TOKENS == 3584
     value.http.close()
 
 

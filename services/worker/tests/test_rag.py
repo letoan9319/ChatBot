@@ -23,7 +23,7 @@ def test_prompt_bounds_history_sources_and_repeated_chunks():
     )
     assert len(selected) <= 5
     assert len({item["content"] for item in selected}) == len(selected)
-    assert sum(len(message["content"].split()) for message in messages) <= 2900
+    assert sum(len(message["content"].split()) for message in messages) <= 4800
     assert not any(message["content"].startswith("old ") for message in messages)
     assert messages[-1]["role"] == "user"
 
@@ -345,7 +345,7 @@ def test_stop_and_continue_history_and_role_alternation():
 
 def test_search_mode_uses_3600_budget_and_hybrid_guidance():
     candidates = [
-        {"id": str(i), "document_name": f"Doc_{i}.pdf", "content": f"chunk{i} " * 550}
+        {"id": str(i), "document_name": f"Doc_{i}.pdf", "content": f"chunk{i} " * 900}
         for i in range(6)
     ]
     def word_count(text):
@@ -354,8 +354,8 @@ def test_search_mode_uses_3600_budget_and_hybrid_guidance():
     lib_messages, _ = build_prompt("Đạo hàm là gì?", [], candidates, word_count, "library")
     search_total = sum(word_count(m["content"]) for m in search_messages)
     lib_total = sum(word_count(m["content"]) for m in lib_messages)
-    assert 2900 < search_total <= 3600
-    assert lib_total <= 2900
+    assert 4800 < search_total <= 5400
+    assert lib_total <= 4800
     assert len(search_selected) >= 5
 
     hybrid_candidates = [
@@ -571,3 +571,75 @@ def test_plot_and_vector_visual_requests_prompt_and_close_visual_block():
     repaired_unclosed = close_visual_block(unclosed_latex, "Phân tích lực mặt phẳng nghiêng")
     assert repaired_unclosed.startswith(fence + "learnstep-visual\n")
     assert repaired_unclosed.endswith("\n" + fence + "\n\nPhần giải thích.")
+
+
+def test_natural_student_attempts_sliding_query_rewriting_and_conversation_window():
+    from study_worker.rag import contextualize_search_question
+
+    base_history = [
+        {"id": "u1", "role": "user", "content": "Cho hàm số f(x,y) = x^2 + 3xy. Tính gradient của f."},
+        {"id": "a1", "role": "assistant", "content": "Trước hết hãy tính đạo hàm riêng theo x và theo y."},
+    ]
+    natural_followups = [
+        "Mình tính đạo hàm riêng theo x ra 2x + 3y đúng không?",
+        "Em làm ra kết quả (2x + 3y, 3x) đúng chưa?",
+        "Áp dụng vào mặt cầu bán kính R thế nào?",
+        "Nếu thay x = 1 và y = 2 thì sao?",
+        "So sánh với đạo hàm theo hướng?",
+        "Ý nghĩa hình học của nó là gì?",
+    ]
+    for q in natural_followups:
+        assert follow_up_history(q, base_history) == base_history, f"Expected follow-up for: {q}"
+
+    # 4-turn sliding topic chain shifts retrieval focus to Turn 3 ("mặt phẳng tiếp diện") rather than stuck on Turn 1.
+    chain_history = [
+        {"id": "u1", "role": "user", "content": "Cho z = x^2 + y^2, đạo hàm riêng là gì?"},
+        {"id": "a1", "role": "assistant", "content": "Đạo hàm riêng theo x là 2x, theo y là 2y."},
+        {"id": "u2", "role": "user", "content": "Từ đó suy ra gradient thế nào?"},
+        {"id": "a2", "role": "assistant", "content": "Gradient là vectơ (2x, 2y)."},
+        {"id": "u3", "role": "user", "content": "Thế còn mặt phẳng tiếp diện?"},
+        {"id": "a3", "role": "assistant", "content": "Mặt phẳng tiếp diện tại (x0, y0) dùng hai đạo hàm riêng này."},
+    ]
+    q4 = "Cho mình ví dụ tính tại điểm (1, 2)"
+    thread = follow_up_history(q4, chain_history)
+    assert thread == chain_history
+    rewritten_web = contextualize_search_question(q4, thread)
+    assert rewritten_web.lower().startswith("mặt phẳng tiếp diện")
+    rewritten_rag = follow_up_query(q4, thread, lambda t: len(t.split()))
+    assert rewritten_rag.splitlines()[0] == "Thế còn mặt phẳng tiếp diện?"
+    assert "z = x^2 + y^2" in rewritten_rag
+
+    # Separation of conversation_history (LLM memory) vs thread_history (pedagogical mode):
+    # Asking a new concept after an exercise keeps prior session turns in prompt without forcing EXERCISE_GUIDANCE.
+    new_concept = "Định lý Viète là gì?"
+    assert follow_up_history(new_concept, base_history) == []
+    messages, _ = build_prompt(
+        new_concept,
+        [],
+        [],
+        lambda t: len(t.split()),
+        mode="library",
+        conversation_history=base_history,
+    )
+    assert "Không tiết lộ giá trị cuối" not in messages[0]["content"]
+    assert any("f(x,y) = x^2 + 3xy" in m["content"] for m in messages[1:-1])
+    roles = [m["role"] for m in messages]
+    assert roles == ["system", "user", "assistant", "user"]
+
+    # Budget saturation across many turns strictly preserves user/assistant alternation.
+    many_turns = []
+    for idx in range(10):
+        many_turns.append({"id": f"u-{idx}", "role": "user", "content": f"Câu hỏi lượt {idx}: " + ("nội dung " * 80)})
+        many_turns.append({"id": f"a-{idx}", "role": "assistant", "content": f"Trả lời lượt {idx}: " + ("giải thích " * 140)})
+    packed_msgs, _ = build_prompt(
+        "Chi tiết hơn đi",
+        many_turns,
+        [{"id": "c1", "document_name": "GT1.pdf", "content": "Định lý cơ bản " * 120}],
+        lambda t: len(t.split()),
+        mode="library",
+        conversation_history=many_turns,
+    )
+    packed_roles = [m["role"] for m in packed_msgs]
+    assert packed_roles[0] == "system" and packed_roles[-1] == "user"
+    for prev_role, next_role in zip(packed_roles[1:], packed_roles[2:]):
+        assert prev_role != next_role

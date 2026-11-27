@@ -21,6 +21,7 @@ from .openrouter import OutputLimit, ProviderError
 from .rag import (
     ILLUSTRATION_REQUEST,
     NO_EVIDENCE,
+    STUDENT_WORK_CHECK,
     SUBJECTS,
     allows_general_knowledge,
     build_prompt,
@@ -479,6 +480,69 @@ class Pipeline:
         guard(self.conn, job)
         return images
 
+    def carry_over_chunks(
+        self,
+        job,
+        thread_history,
+        non_image_doc_ids,
+        non_image_owners,
+        non_image_versions,
+        using_shared_catalog,
+    ):
+        if not thread_history or not non_image_doc_ids:
+            return []
+        assistant_ids = [
+            str(msg["id"])
+            for msg in reversed(thread_history)
+            if msg.get("role") == "assistant" and msg.get("id")
+        ][:2]
+        if not assistant_ids:
+            return []
+        cursor = self.conn.execute(
+            """select c.*, d.name as document_name, d.subject
+            from public.message_sources ms
+            join public.document_chunks c on c.id=ms.chunk_id and c.document_id=ms.document_id
+            join public.documents d on d.id=c.document_id
+            where ms.message_id=any(%s::uuid[])
+              and ms.user_id=%s
+              and c.document_id=any(%s::uuid[])
+              and d.status='ready'
+              and c.user_id=d.user_id
+              and c.index_version=d.index_version
+              and d.name not like 'Ảnh câu hỏi - %%'
+              and ((not %s and d.user_id=%s) or exists(select 1 from public.knowledge_documents k where k.document_id=d.id))
+            order by array_position(%s::uuid[], ms.message_id), ms.label
+            limit 4""",
+            (
+                assistant_ids,
+                job["user_id"],
+                non_image_doc_ids,
+                using_shared_catalog,
+                job["user_id"],
+                assistant_ids,
+            ),
+        )
+        rows = cursor.fetchall() if cursor is not None and hasattr(cursor, "fetchall") else []
+        carried = []
+        seen = set()
+        for row in rows:
+            doc_id = str(row.get("document_id") or "")
+            chunk_id = str(row.get("id") or "")
+            if (
+                not doc_id
+                or not chunk_id
+                or (doc_id, chunk_id) in seen
+                or doc_id not in non_image_owners
+                or str(row.get("user_id") or "") != str(non_image_owners[doc_id])
+                or row.get("index_version") != non_image_versions.get(doc_id)
+            ):
+                continue
+            seen.add((doc_id, chunk_id))
+            carried.append(dict(row))
+            if len(carried) == 2:
+                break
+        return carried
+
     def chat(self, job):
         payload = job["payload"]
         mode = payload.get("mode", "documents")
@@ -505,22 +569,23 @@ class Pipeline:
         non_image_owners = {str(doc_id): owners[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in owners}
         non_image_versions = {str(doc_id): versions[str(doc_id)] for doc_id in non_image_doc_ids if str(doc_id) in versions}
         question = payload["question"]
-        if image_documents:
-            history = []
-        else:
-            history = self.conn.execute(
-                """select role,content,id,status from public.messages
-                where conversation_id=%s and user_id=%s
-                and subject is not distinct from %s
-                and status in ('completed','stopped','interrupted') and sequence <
-                (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
-                order by sequence desc limit 24""",
-                (payload["conversation_id"], job["user_id"], subject, payload["user_message_id"],
-                 payload["conversation_id"], job["user_id"]),
-            ).fetchall()[::-1]
-            history = follow_up_history(question, history)
+        raw_history = self.conn.execute(
+            """select role,content,id,status from public.messages
+            where conversation_id=%s and user_id=%s
+            and status in ('completed','stopped','interrupted') and sequence <
+            (select sequence from public.messages where id=%s and conversation_id=%s and user_id=%s)
+            order by sequence desc limit 24""",
+            (
+                payload["conversation_id"],
+                job["user_id"],
+                payload["user_message_id"],
+                payload["conversation_id"],
+                job["user_id"],
+            ),
+        ).fetchall()[::-1]
+        history = follow_up_history(question, raw_history)
         anchor = history[0] if history and history[0]["role"] == "user" else None
-        prior_images = self.follow_up_images(job, anchor["id"]) if anchor else {}
+        prior_images = self.follow_up_images(job, anchor["id"]) if (anchor and not image_documents) else {}
         query = follow_up_query(question, history, self.models.count)
         search_query = clean_retrieval_query(query) or query
         candidates = []
@@ -593,9 +658,27 @@ class Pipeline:
                         min_score=getattr(self.settings, "min_score", 0.35),
                         vector_scores=vector_scores,
                     )
-        image_versions = prior_images or {
-            doc_id: payload["versions"][doc_id] for doc_id in image_documents or ()
-        }
+            if history:
+                carried = self.carry_over_chunks(
+                    job,
+                    history,
+                    non_image_doc_ids,
+                    non_image_owners,
+                    non_image_versions,
+                    using_shared_catalog,
+                )
+                if carried:
+                    seen_keys = {(str(item.get("document_id") or ""), str(item.get("id") or "")) for item in candidates}
+                    extras = [
+                        item for item in carried
+                        if (str(item.get("document_id") or ""), str(item.get("id") or "")) not in seen_keys
+                    ]
+                    candidates = [*candidates[:3], *extras[:2], *candidates[3:]]
+        image_versions = (
+            {doc_id: payload["versions"][doc_id] for doc_id in image_documents}
+            if image_documents
+            else prior_images
+        )
         if image_versions:
             image_chunks = self.conn.execute(
                 """select c.*, d.name as document_name from public.documents d
@@ -667,8 +750,15 @@ class Pipeline:
         self.chat_documents(job)
         reason = should_reason(question, mode, has_image=bool(image_versions), has_sources=bool(candidates))
         prompt, selected = build_prompt(
-            question, history, candidates, self.models.count, mode, subject=subject,
+            question,
+            history,
+            candidates,
+            self.models.count,
+            mode,
+            subject=subject,
             reasoning=(reason or external_search) and not image_versions,
+            conversation_history=raw_history,
+            new_question_image=bool(image_documents),
         )
         answer, used = NO_EVIDENCE, []
         if external_search and not selected:
@@ -745,7 +835,11 @@ class Pipeline:
                     except OutputLimit:
                         truncated = True
                         LOG.info("chat_output_limit job_id=%s", job["id"])
-                    if image_documents and not concept_request(question, history):
+                    if (
+                        image_documents
+                        and not concept_request(question, history)
+                        and not (history and STUDENT_WORK_CHECK.search(question))
+                    ):
                         answer = first_image_hint(answer)
                     answer = close_visual_block(answer, question)
                     answer = normalize_citation_marks(answer)
