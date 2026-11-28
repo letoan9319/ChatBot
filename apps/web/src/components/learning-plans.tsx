@@ -189,6 +189,7 @@ export function LearningPlans({ documents, onAsk, onAskLesson }: {
   </>;
 
   return <section className={styles.plans} aria-label="Kế hoạch học tập">
+    <div className={styles.scene} aria-hidden="true" />
     <nav className={styles.modes} aria-label="Phương thức học">
       <button disabled={busy} aria-pressed={mode === "guided"} onClick={() => update("guided")}>
         <strong>Học theo tiến trình</strong><span>Chọn môn, học lần lượt từng chương với bài giảng và bài kiểm tra cuối bài.</span>
