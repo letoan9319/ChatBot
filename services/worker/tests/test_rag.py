@@ -572,6 +572,20 @@ def test_plot_and_vector_visual_requests_prompt_and_close_visual_block():
     assert repaired_unclosed.startswith(fence + "learnstep-visual\n")
     assert repaired_unclosed.endswith("\n" + fence + "\n\nPhần giải thích.")
 
+    # Trailing commas, same-line fence headers, and unfenced visual JSON objects also recover cleanly.
+    trailing_json = (
+        fence
+        + 'json {"type":"plot","title":"Đồ thị","xDomain":[-2,2],"functions":[{"expr":"x^2",},],}\n\nGiải thích thêm.'
+    )
+    repaired_trailing = close_visual_block(trailing_json, "Vẽ đồ thị hàm số y = x^2")
+    assert repaired_trailing.startswith(fence + "learnstep-visual\n")
+    assert repaired_trailing.endswith("\n" + fence + "\n\nGiải thích thêm.")
+
+    unfenced_plot = '{"type":"plot","title":"Đồ thị sin(x)","xDomain":[-3,3],"functions":[{"expr":"sin(x)"}]}\n\nGiải thích đồ thị.'
+    repaired_unfenced = close_visual_block(unfenced_plot, "Vẽ đồ thị hàm sin(x)")
+    assert repaired_unfenced.startswith(fence + "learnstep-visual\n")
+    assert repaired_unfenced.endswith("\n" + fence + "\n\nGiải thích đồ thị.")
+
 
 def test_natural_student_attempts_sliding_query_rewriting_and_conversation_window():
     from study_worker.rag import contextualize_search_question

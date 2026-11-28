@@ -595,6 +595,8 @@ class Pipeline:
     def _save_partial_on(self, conn, job, content):
         if self.heartbeat.lost.is_set():
             raise LostLease()
+        preserve_thinking = not content and getattr(self, "_preserve_reset_thinking", False)
+        reset_thinking = not content and not preserve_thinking
         if (
             isinstance(conn, psycopg.Connection)
             and not job["payload"]["document_ids"]
@@ -627,9 +629,9 @@ class Pipeline:
                 (
                     job["id"],
                     content,
+                    reset_thinking,
                     not content,
-                    not content,
-                    not content,
+                    reset_thinking,
                     job["message_id"],
                     job["user_id"],
                     job["lease_token"],
@@ -647,7 +649,7 @@ class Pipeline:
                      else coalesce(thinking_ms, greatest(0, round(extract(epoch from (clock_timestamp() - coalesce(thinking_started_at, created_at, clock_timestamp()))) * 1000))::integer) end,
                    thinking_content=case when %s then null else thinking_content end
                    where id=%s and user_id=%s""",
-                (content, not content, not content, not content, job["message_id"], job["user_id"]),
+                (content, reset_thinking, not content, reset_thinking, job["message_id"], job["user_id"]),
             )
 
     def save_partial(self, job, content):
@@ -1135,8 +1137,11 @@ class Pipeline:
                 nonlocal answer, thinking_text
                 flusher.drain()
                 answer = ""
-                thinking_text = ""
-                self.save_partial(job, answer)
+                self._preserve_reset_thinking = bool(thinking_text or trace_steps)
+                try:
+                    self.save_partial(job, answer)
+                finally:
+                    self._preserve_reset_thinking = False
                 flusher.start()
 
             options = {"research": True} if mode == "research" else {}

@@ -659,6 +659,7 @@ def build_prompt(
         visual_spec = (
             "Nếu hình giúp giải thích, tạo một khối mã đóng mở bằng ```learnstep-visual chứa JSON hợp lệ (không dùng nhãn ```json). "
             "Trong mọi chuỗi JSON chỉ dùng chữ thuần, tuyệt đối không dùng $, dấu gạch chéo ngược \\ hay Markdown. "
+            "Không nháp lại cấu trúc JSON dài dòng trong lúc suy nghĩ; xác định nhanh hàm hoặc vectơ cần vẽ rồi xuất thẳng khối ```learnstep-visual. "
             "Chỉ biểu diễn đúng khái niệm, hàm số, vectơ và số liệu đang xét trong câu hỏi hoặc lượt trước; không tự bịa hàm khác. "
             'Đồ thị hàm 1 biến: {"type":"plot","title":"...","xDomain":[-3,3],"functions":[{"expr":"<bieu_thuc_theo_x>","label":"f(x)"}]} '
             '(tùy chọn "points":[{"x":1,"label":"A"}], "tangentAt":1 cho tiếp tuyến, "shade":{"from":0,"to":1} chỉ cho tích phân/diện tích; '
@@ -969,41 +970,104 @@ def _escape_invalid_json_backslashes(text):
     return "".join(out), orig_positions
 
 
+def _strip_trailing_json_commas(text):
+    out = []
+    orig_positions = []
+    last = 0
+    for match in re.finditer(r",\s*(?=[}\]])", text):
+        start_i = match.start()
+        if start_i > last:
+            out.append(text[last:start_i])
+            orig_positions.extend(range(last, start_i))
+        last = match.end()
+    if last < len(text):
+        out.append(text[last:])
+        orig_positions.extend(range(last, len(text)))
+    orig_positions.append(len(text))
+    return "".join(out), orig_positions
+
+
+def _decode_visual_json(text):
+    no_trailing, trailing_map = _strip_trailing_json_commas(text)
+    escaped, escape_map = _escape_invalid_json_backslashes(no_trailing)
+    candidates = [
+        (text, None),
+        (no_trailing, trailing_map),
+        (escaped, [trailing_map[idx] for idx in escape_map]),
+    ]
+    decoder = json.JSONDecoder()
+    for candidate_text, pos_map in candidates:
+        try:
+            value, end = decoder.raw_decode(candidate_text)
+        except (ValueError, RecursionError):
+            continue
+        orig_end = pos_map[end] if pos_map is not None else end
+        return value, candidate_text[:end], orig_end
+    return None, None, None
+
+
+_VISUAL_TYPES = ("bar", "flow", "line", "concept", "plot", "vector")
+_CARD_KINDS = ("steps", "pipeline", "comparison")
+
+
+def _is_visual_payload(value):
+    if not isinstance(value, dict):
+        return False
+    return (
+        value.get("type") in (*_VISUAL_TYPES, *_CARD_KINDS)
+        or value.get("kind") in _CARD_KINDS
+    )
+
+
 def close_visual_block(answer, question=""):
     fence = chr(96) * 3
-    languages = r"(?:learnstep-visual|study-card|json)" if wants_visual(question) else r"(?:learnstep-visual|study-card)"
-    start = re.search(r"(?m)^" + fence + languages + r"[ \t]*\r?\n", answer)
+    visual_requested = wants_visual(question)
+    languages = r"(?:learnstep-visual|study-card|json)?" if visual_requested else r"(?:learnstep-visual|study-card)"
+    # Normalize inline openers like ```learnstep-visual {"type":...} onto their own line.
+    normalized = re.sub(
+        r"(?m)^(" + fence + r"(?:learnstep-visual|study-card|json))[ \t]+(?=\{)",
+        r"\1\n",
+        answer,
+    )
+    start = re.search(r"(?m)^" + fence + languages + r"[ \t]*\r?\n", normalized)
+    if not start and visual_requested:
+        # Also wrap bare unfenced visual JSON objects emitted directly in prose.
+        bare = re.search(r"(?m)^[ \t]*(\{\s*\"(?:type|kind)\"\s*:\s*\"[a-z]+\"[\s\S]*)$", normalized)
+        if bare:
+            stripped = bare.group(1)
+            value, raw_json, orig_end = _decode_visual_json(stripped)
+            if _is_visual_payload(value) and raw_json and len(raw_json) <= 4000:
+                end_pos = bare.start(1) + (orig_end if orig_end is not None else len(raw_json))
+                tail = normalized[end_pos:].lstrip()
+                tail = re.sub(r"^\s*" + fence + r"[ \t]*(?:\r?\n|$)", "", tail).lstrip()
+                lang = (
+                    "study-card"
+                    if (value.get("kind") in _CARD_KINDS or value.get("type") in _CARD_KINDS)
+                    else "learnstep-visual"
+                )
+                return normalized[:bare.start(1)] + fence + lang + "\n" + raw_json + "\n" + fence + ("\n\n" + tail if tail else "")
+        return answer
     if not start:
         return answer
-    payload = answer[start.end():]
+    payload = normalized[start.end():]
     stripped = payload.lstrip()
     padding = len(payload) - len(stripped)
-    raw_json = None
-    try:
-        value, end = json.JSONDecoder().raw_decode(stripped)
-        orig_end = end
-    except (ValueError, RecursionError):
-        sanitized, orig_positions = _escape_invalid_json_backslashes(stripped)
-        try:
-            value, end = json.JSONDecoder().raw_decode(sanitized)
-        except (ValueError, RecursionError):
-            return answer
-        orig_end = orig_positions[end]
-        raw_json = sanitized[:end]
-    allowed_kinds = ("bar", "flow", "line", "concept", "plot", "vector", "steps", "pipeline", "comparison")
-    if (
-        not isinstance(value, dict)
-        or (value.get("type") not in allowed_kinds and value.get("kind") not in ("steps", "pipeline", "comparison"))
-        or end > 4000
-    ):
+    value, raw_json, orig_end = _decode_visual_json(stripped)
+    if not _is_visual_payload(value) or not raw_json or len(raw_json) > 4000:
         return answer
-    boundary = start.end() + padding + orig_end
-    tail = answer[boundary:].lstrip()
     lang = "study-card" if "study-card" in start.group(0) else "learnstep-visual"
-    body = answer[start.end():start.end() + padding] + raw_json if raw_json is not None else answer[start.end():boundary]
-    block = answer[:start.start()] + fence + lang + "\n" + body
-    if tail.startswith(fence):
-        return block + answer[boundary:]
+    if orig_end is not None:
+        boundary = start.end() + padding + orig_end
+        tail = normalized[boundary:].lstrip()
+        body = normalized[start.end():start.end() + padding] + raw_json
+        block = normalized[:start.start()] + fence + lang + "\n" + body
+        if tail.startswith(fence):
+            return block + normalized[boundary:]
+        return block + "\n" + fence + ("\n\n" + tail if tail else "")
+    closing_fence = re.search(r"\r?\n[ \t]*" + fence, stripped)
+    tail = stripped[closing_fence.end():].lstrip() if closing_fence else ""
+    body = normalized[start.end():start.end() + padding] + raw_json
+    block = normalized[:start.start()] + fence + lang + "\n" + body
     return block + "\n" + fence + ("\n\n" + tail if tail else "")
 
 

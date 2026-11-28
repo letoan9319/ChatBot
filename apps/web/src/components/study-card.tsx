@@ -117,7 +117,14 @@ export function parseStudyCard(raw: string): StudyCard | null {
   try {
     parsed = JSON.parse(cleaned);
   } catch {
-    return null;
+    const escaped = cleaned
+      .replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, "\\\\")
+      .replace(/\r?\n/g, " ");
+    try {
+      parsed = JSON.parse(escaped);
+    } catch {
+      return null;
+    }
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;

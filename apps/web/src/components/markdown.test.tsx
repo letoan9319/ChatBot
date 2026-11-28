@@ -251,6 +251,15 @@ describe("chat visuals", () => {
       String.raw`{"type":"plot","title":"Hàm $\tan(x)$","xDomain":[-1,1],"functions":[{"expr":"\tan(x)"}]}`,
     );
     expect(unescapedTanPlot).not.toBeNull();
+
+    const noisyPlot = parseChatVisual(
+      '{"type":"plot","title":"Đồ thị với nhãn hơi dài một chút nhưng vẫn hợp lệ khi hiển thị ' +
+        "vượt quá một trăm bốn mươi ký tự để không bị rơi về dạng mã json thô trong khung chat của người học" +
+        '","xDomain":["-2","2"],"functions":[{"expr":"y = x² - 1"},{"expr":"f(x) = sin(x)"},{"expr":"x"},{"expr":"0.5x"}],"points":[{"x":"0","label":"O"},{"x":"bad"}]}',
+    );
+    expect(noisyPlot).not.toBeNull();
+    expect(noisyPlot?.type === "plot" ? noisyPlot.functions.length : 0).toBe(4);
+    expect(noisyPlot?.type === "plot" ? noisyPlot.points?.length : 0).toBe(1);
   });
 });
 

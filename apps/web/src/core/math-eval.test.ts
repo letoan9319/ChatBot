@@ -47,6 +47,18 @@ describe("compileMathExpr", () => {
     const frac = compileMathExpr(String.raw`\frac{x^2 - 1}{x + 1}`);
     expect(frac).not.toBeNull();
     expect(frac!(3)).toBeCloseTo(2, 10);
+
+    const prefixed = compileMathExpr("y = x³ - 3x");
+    expect(prefixed).not.toBeNull();
+    expect(prefixed!(2)).toBeCloseTo(2, 10);
+
+    const fnPrefixed = compileMathExpr("P_3(x) = x - x^3/6");
+    expect(fnPrefixed).not.toBeNull();
+    expect(fnPrefixed!(1)).toBeCloseTo(5 / 6, 10);
+
+    const absVn = compileMathExpr("|x| + tg(x)");
+    expect(absVn).not.toBeNull();
+    expect(absVn!(-1)).toBeCloseTo(1 + Math.tan(-1), 10);
   });
 
   it("supports calculus and physics elementary functions", () => {

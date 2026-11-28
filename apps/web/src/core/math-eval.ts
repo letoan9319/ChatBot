@@ -86,16 +86,54 @@ function expandLatexFrac(source: string): string {
   return result;
 }
 
+const SUPERSCRIPT_DIGITS: Record<string, string> = {
+  "⁰": "0",
+  "¹": "1",
+  "²": "2",
+  "³": "3",
+  "⁴": "4",
+  "⁵": "5",
+  "⁶": "6",
+  "⁷": "7",
+  "⁸": "8",
+  "⁹": "9",
+};
+
+function normalizeSuperscripts(source: string): string {
+  return source.replace(/([⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+)/g, (group) => {
+    const converted = Array.from(group, (ch) => (ch === "⁻" ? "-" : SUPERSCRIPT_DIGITS[ch] ?? ch)).join("");
+    return converted.length > 1 || converted.startsWith("-") ? `^(${converted})` : `^${converted}`;
+  });
+}
+
+function normalizeAbsBars(source: string): string {
+  let result = source;
+  for (let pass = 0; pass < 4; pass++) {
+    const next = result.replace(/\|([^|]+)\|/g, "abs($1)");
+    if (next === result) break;
+    result = next;
+  }
+  return result;
+}
+
 export function normalizeMathExpr(raw: string): string {
   let normalized = raw.trim();
   if (!normalized || normalized.length > MAX_EXPR_LENGTH) return "";
 
   normalized = normalized
+    .replace(/^(?:y|f\s*\(\s*x\s*\)|g\s*\(\s*x\s*\)|h\s*\(\s*x\s*\)|[pPqQ](?:_?\d+)?\s*\(\s*x\s*\))\s*=\s*/i, "")
+    .trim();
+  if (!normalized) return "";
+
+  normalized = normalized
     .replace(/\\left/g, "")
     .replace(/\\right/g, "");
   normalized = expandLatexFrac(normalized);
+  normalized = normalizeSuperscripts(normalized);
+  normalized = normalizeAbsBars(normalized);
 
   normalized = normalized
+    .replace(/\\(?:operatorname|mathrm)\{([a-zA-Z]+)\}/g, "$1")
     .replace(/\\cdot\b/g, "*")
     .replace(/\\times\b/g, "*")
     .replace(/[\u00d7\u00b7]/g, "*")
@@ -107,6 +145,10 @@ export function normalizeMathExpr(raw: string): string {
       /\\(arcsin|arccos|arctan|sinh|cosh|tanh|sin|cos|tan|cot|sqrt|cbrt|abs|exp|ln|log|pi|floor|ceil|sign)\b/g,
       "$1",
     )
+    .replace(/\btg(?=\s*[({])/gi, "tan")
+    .replace(/\bcotg(?=\s*[({])/gi, "cot")
+    .replace(/\barctg(?=\s*[({])/gi, "arctan")
+    .replace(/\barccotg(?=\s*[({])/gi, "atan")
     .replace(/\{/g, "(")
     .replace(/\}/g, ")");
 

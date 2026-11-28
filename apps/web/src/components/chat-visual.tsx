@@ -79,8 +79,15 @@ export type Visual =
 const DEFAULT_PLOT_TONES: VisualTone[] = ["primary", "secondary", "info"];
 const DEFAULT_VECTOR_TONES: VisualTone[] = ["primary", "info", "warn", "secondary", "neutral"];
 
+const MAX_RAW_TEXT_LENGTH = 360;
+const MAX_DISPLAY_TEXT_LENGTH = 140;
+
 const shortText = (value: unknown): value is string =>
-  typeof value === "string" && value.trim().length > 0 && value.length <= 140;
+  typeof value === "string" && value.trim().length > 0 && value.trim().length <= MAX_RAW_TEXT_LENGTH;
+
+function clampLabel(text: string): string {
+  return text.length <= MAX_DISPLAY_TEXT_LENGTH ? text : text.slice(0, MAX_DISPLAY_TEXT_LENGTH - 1).trimEnd() + "…";
+}
 
 function cleanVisualText(value: string): string {
   return value
@@ -115,7 +122,7 @@ function cleanVisualText(value: string): string {
 function cleanShortText(value: unknown): string | undefined {
   if (!shortText(value)) return undefined;
   const cleaned = cleanVisualText(value);
-  return cleaned.length > 0 && cleaned.length <= 140 ? cleaned : undefined;
+  return cleaned.length > 0 ? clampLabel(cleaned) : undefined;
 }
 
 function cleanExprText(raw: string): string {
@@ -128,21 +135,44 @@ function cleanExprText(raw: string): string {
 }
 
 function parseJsonLenient(cleaned: string): unknown {
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const escaped = cleaned.replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, "\\\\");
-    if (escaped === cleaned) return null;
+  const tryParse = (text: string): unknown => {
     try {
-      return JSON.parse(escaped);
+      return JSON.parse(text);
     } catch {
-      return null;
+      const escaped = text
+        .replace(/\\(?!(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))/g, "\\\\")
+        .replace(/\r?\n/g, " ");
+      try {
+        return JSON.parse(escaped);
+      } catch {
+        return null;
+      }
+    }
+  };
+  const first = tryParse(cleaned);
+  if (first !== null) return first;
+  if (/[“”]/.test(cleaned)) {
+    return tryParse(cleaned.replace(/[“”]/g, '"'));
+  }
+  return null;
+}
+
+function readFiniteNum(value: unknown, limit = 1e6): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim().replace(",", ".");
+    if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) {
+      const num = Number(trimmed);
+      if (Number.isFinite(num) && Math.abs(num) <= limit) return num;
     }
   }
+  return undefined;
 }
 
 const finiteNum = (value: unknown, limit = 1e6): value is number =>
-  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit;
+  readFiniteNum(value, limit) !== undefined;
 
 function normalizeTone(value: unknown): VisualTone | undefined {
   if (typeof value !== "string") return undefined;
@@ -161,8 +191,9 @@ function normalizeTone(value: unknown): VisualTone | undefined {
 
 function parseDomain(value: unknown): [number, number] | null {
   if (!Array.isArray(value) || value.length !== 2) return null;
-  const [a, b] = value;
-  if (!finiteNum(a) || !finiteNum(b) || a >= b) return null;
+  const a = readFiniteNum(value[0]);
+  const b = readFiniteNum(value[1]);
+  if (a === undefined || b === undefined || a >= b) return null;
   return [a, b];
 }
 
@@ -213,7 +244,7 @@ function parsePlotVisual(candidate: Record<string, unknown>, title: string): Plo
   } else if (shortText(candidate.expr ?? candidate.fn ?? candidate.formula)) {
     rawFunctions = [{ expr: candidate.expr ?? candidate.fn ?? candidate.formula, label: candidate.label }];
   }
-  if (!rawFunctions || rawFunctions.length < 1 || rawFunctions.length > 3) return null;
+  if (!rawFunctions || rawFunctions.length < 1 || rawFunctions.length > 5) return null;
 
   const functions: PlotFunctionSpec[] = [];
   for (const entry of rawFunctions) {
@@ -235,50 +266,46 @@ function parsePlotVisual(candidate: Record<string, unknown>, title: string): Plo
   }
 
   let shade: PlotShadeSpec | undefined;
-  if (candidate.shade !== undefined && candidate.shade !== null) {
-    if (typeof candidate.shade !== "object" || Array.isArray(candidate.shade)) return null;
+  if (candidate.shade !== undefined && candidate.shade !== null && typeof candidate.shade === "object" && !Array.isArray(candidate.shade)) {
     const rawShade = candidate.shade as Record<string, unknown>;
-    const rawFrom = rawShade.from;
-    const rawTo = rawShade.to;
-    if (!finiteNum(rawFrom) || !finiteNum(rawTo) || rawFrom === rawTo) return null;
-    let fnIndex = 0;
-    if (rawShade.fnIndex !== undefined && rawShade.fnIndex !== null) {
+    const rawFrom = readFiniteNum(rawShade.from);
+    const rawTo = readFiniteNum(rawShade.to);
+    if (rawFrom !== undefined && rawTo !== undefined && rawFrom !== rawTo) {
+      let fnIndex = 0;
       if (
-        typeof rawShade.fnIndex !== "number" ||
-        !Number.isInteger(rawShade.fnIndex) ||
-        rawShade.fnIndex < 0 ||
-        rawShade.fnIndex >= functions.length
+        typeof rawShade.fnIndex === "number" &&
+        Number.isInteger(rawShade.fnIndex) &&
+        rawShade.fnIndex >= 0 &&
+        rawShade.fnIndex < functions.length
       ) {
-        return null;
+        fnIndex = rawShade.fnIndex;
       }
-      fnIndex = rawShade.fnIndex;
+      shade = {
+        from: Math.min(rawFrom, rawTo),
+        to: Math.max(rawFrom, rawTo),
+        fnIndex,
+      };
     }
-    shade = {
-      from: Math.min(rawFrom, rawTo),
-      to: Math.max(rawFrom, rawTo),
-      fnIndex,
-    };
   }
 
   let tangentAt: number | undefined;
   if (candidate.tangentAt !== undefined && candidate.tangentAt !== null) {
-    if (!finiteNum(candidate.tangentAt)) return null;
-    tangentAt = candidate.tangentAt;
+    tangentAt = readFiniteNum(candidate.tangentAt);
   }
 
   let points: PlotMarkerSpec[] | undefined;
-  if (candidate.points !== undefined && candidate.points !== null) {
-    if (!Array.isArray(candidate.points) || candidate.points.length > 12) return null;
+  if (Array.isArray(candidate.points)) {
     const parsedPoints: PlotMarkerSpec[] = [];
-    for (const entry of candidate.points) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    for (const entry of candidate.points.slice(0, 12)) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
       const item = entry as Record<string, unknown>;
-      if (!finiteNum(item.x)) return null;
-      if (item.y !== undefined && item.y !== null && !finiteNum(item.y)) return null;
+      const xVal = readFiniteNum(item.x);
+      if (xVal === undefined) continue;
+      const yVal = item.y !== undefined && item.y !== null ? readFiniteNum(item.y) : undefined;
       const label = cleanShortText(item.label);
       parsedPoints.push({
-        x: item.x,
-        y: typeof item.y === "number" ? item.y : undefined,
+        x: xVal,
+        y: yVal,
         label,
       });
     }
@@ -339,17 +366,19 @@ function parseVectorVisual(candidate: Record<string, unknown>, title: string): V
     const item = entry as Record<string, unknown>;
     const cleanedLabel = cleanShortText(item.label ?? item.name);
     if (!cleanedLabel) return null;
-    if (!finiteNum(item.dx) || !finiteNum(item.dy)) return null;
-    const x = item.x === undefined || item.x === null ? 0 : item.x;
-    const y = item.y === undefined || item.y === null ? 0 : item.y;
-    if (!finiteNum(x) || !finiteNum(y)) return null;
-    if (Math.hypot(item.dx, item.dy) > 1e-9) hasNonZero = true;
+    const dx = readFiniteNum(item.dx);
+    const dy = readFiniteNum(item.dy);
+    if (dx === undefined || dy === undefined) return null;
+    const x = item.x === undefined || item.x === null ? 0 : readFiniteNum(item.x);
+    const y = item.y === undefined || item.y === null ? 0 : readFiniteNum(item.y);
+    if (x === undefined || y === undefined) return null;
+    if (Math.hypot(dx, dy) > 1e-9) hasNonZero = true;
     vectors.push({
       label: cleanedLabel,
       x,
       y,
-      dx: item.dx,
-      dy: item.dy,
+      dx,
+      dy,
       tone: normalizeTone(item.tone),
     });
   }
